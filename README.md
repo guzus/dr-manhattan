@@ -184,19 +184,21 @@ All errors inherit from `TwoFaceError`:
 - `InvalidOrder` - Invalid order parameters
 - `MarketNotFound` - Market doesn't exist
 
-## Example
+## Examples
 
-Run the included example:
+Check out the [examples/](examples/) directory for working examples:
+
+- **spread_strategy.py** - Arbitrage trading strategy for binary markets
+- **simple_test.py** - Basic market data fetching
+- **test_strategy.py** - Strategy testing framework
+
+Run an example:
 
 ```bash
-uv run python example.py
+uv run python examples/spread_strategy.py
 ```
 
-The example demonstrates:
-- Connecting to both Polymarket and Limitless
-- Fetching market data
-- Unified API pattern
-- Exchange capabilities
+See [examples/README.md](examples/README.md) for detailed documentation.
 
 ## Dependencies
 

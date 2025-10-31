@@ -1,8 +1,12 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
+import time
+import random
+from functools import wraps
 from ..models.market import Market
 from ..models.order import Order, OrderSide
 from ..models.position import Position
+from ..base.errors import NetworkError, RateLimitError
 
 
 class Exchange(ABC):
@@ -23,6 +27,16 @@ class Exchange(ABC):
         self.api_secret = self.config.get('api_secret')
         self.timeout = self.config.get('timeout', 30)
         self.verbose = self.config.get('verbose', False)
+        
+        # Rate limiting
+        self.rate_limit = self.config.get('rate_limit', 10)  # requests per second
+        self.last_request_time = 0
+        self.request_times = []  # For sliding window rate limiting
+        
+        # Retry configuration
+        self.max_retries = self.config.get('max_retries', 3)
+        self.retry_delay = self.config.get('retry_delay', 1.0)  # Base delay in seconds
+        self.retry_backoff = self.config.get('retry_backoff', 2.0)  # Multiplier for exponential backoff
 
     @property
     @abstractmethod
@@ -181,5 +195,141 @@ class Exchange(ABC):
                 'fetch_open_orders': True,
                 'fetch_positions': True,
                 'fetch_balance': True,
+                'rate_limit': True,
+                'retry_logic': True,
             }
         }
+
+    def _check_rate_limit(self):
+        """Check and enforce rate limiting"""
+        current_time = time.time()
+        
+        # Clean old requests (older than 1 second)
+        self.request_times = [t for t in self.request_times if current_time - t < 1.0]
+        
+        # Check if we've exceeded the rate limit
+        if len(self.request_times) >= self.rate_limit:
+            sleep_time = 1.0 - (current_time - self.request_times[0])
+            if sleep_time > 0:
+                if self.verbose:
+                    print(f"Rate limit reached, sleeping for {sleep_time:.2f}s")
+                time.sleep(sleep_time)
+        
+        # Record this request
+        self.request_times.append(current_time)
+
+    def _retry_on_failure(self, func):
+        """Decorator for retry logic with exponential backoff"""
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(self.max_retries + 1):
+                try:
+                    self._check_rate_limit()
+                    return func(*args, **kwargs)
+                except (NetworkError, RateLimitError) as e:
+                    last_exception = e
+                    if attempt < self.max_retries:
+                        delay = self.retry_delay * (self.retry_backoff ** attempt) + random.uniform(0, 1)
+                        if self.verbose:
+                            print(f"Attempt {attempt + 1} failed, retrying in {delay:.2f}s: {e}")
+                        time.sleep(delay)
+                    else:
+                        raise last_exception
+                except Exception as e:
+                    # Don't retry on non-network errors
+                    raise e
+            
+            raise last_exception
+        return wrapper
+
+    def calculate_spread(self, market: Market) -> Optional[float]:
+        """Calculate bid-ask spread for a market"""
+        return market.spread
+
+    def calculate_implied_probability(self, price: float) -> float:
+        """Convert price to implied probability"""
+        return price
+
+    def calculate_expected_value(self, market: Market, outcome: str, price: float) -> float:
+        """Calculate expected value for a given outcome and price"""
+        if not market.is_binary:
+            return 0.0
+        
+        # For binary markets, EV = probability * payoff - cost
+        probability = self.calculate_implied_probability(price)
+        payoff = 1.0 if outcome == market.outcomes[0] else 0.0
+        cost = price
+        
+        return probability * payoff - cost
+
+    def get_optimal_order_size(self, market: Market, max_position_size: float) -> float:
+        """Calculate optimal order size based on market liquidity"""
+        # Simple heuristic: use smaller of max position or 10% of liquidity
+        liquidity_based_size = market.liquidity * 0.1
+        return min(max_position_size, liquidity_based_size)
+
+    def stream_market_data(self, market_ids: list[str], callback):
+        """
+        Stream real-time market data for specified markets.
+        
+        Args:
+            market_ids: List of market IDs to stream
+            callback: Function to call with market updates
+        """
+        import threading
+        import time
+        
+        def _stream_worker():
+            """Worker thread for streaming market data"""
+            while True:
+                try:
+                    for market_id in market_ids:
+                        market = self.fetch_market(market_id)
+                        callback(market_id, market)
+                    time.sleep(1)  # Update every second
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Streaming error: {e}")
+                    time.sleep(5)  # Wait longer on error
+        
+        stream_thread = threading.Thread(target=_stream_worker, daemon=True)
+        stream_thread.start()
+        return stream_thread
+
+    def watch_order_book(self, market_id: str, callback):
+        """
+        Watch order book changes for a specific market.
+        
+        Args:
+            market_id: Market ID to watch
+            callback: Function to call with order book updates
+        """
+        import threading
+        import time
+        
+        def _order_book_worker():
+            """Worker thread for watching order book"""
+            last_prices = None
+            
+            while True:
+                try:
+                    market = self.fetch_market(market_id)
+                    current_prices = market.prices
+                    
+                    # Only call callback if prices changed
+                    if current_prices != last_prices:
+                        callback(market_id, current_prices)
+                        last_prices = current_prices.copy()
+                    
+                    time.sleep(0.5)  # Check every 500ms
+                    
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Order book watch error: {e}")
+                    time.sleep(2)
+        
+        watch_thread = threading.Thread(target=_order_book_worker, daemon=True)
+        watch_thread.start()
+        return watch_thread

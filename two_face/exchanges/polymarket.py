@@ -14,6 +14,7 @@ except ImportError:
     POLY_MM_AVAILABLE = False
     PolymarketClient = None
     Config = None
+    print("Warning: poly-mm package not available. Some features will be limited.")
 
 from ..base.exchange import Exchange
 from ..base.errors import NetworkError, ExchangeError, MarketNotFound
@@ -61,62 +62,151 @@ class Polymarket(Exchange):
             raise ExchangeError(f"Client initialization failed: {e}")
 
     def _request(self, method: str, endpoint: str, params: Optional[Dict] = None) -> Any:
-        """Make HTTP request to Polymarket API"""
+        """Make HTTP request to Polymarket API with retry logic"""
         import requests
+        from ..base.errors import RateLimitError
 
-        url = f"{self.BASE_URL}{endpoint}"
-        headers = {}
+        @self._retry_on_failure
+        def _make_request():
+            url = f"{self.BASE_URL}{endpoint}"
+            headers = {}
 
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
 
-        try:
-            response = requests.request(
-                method,
-                url,
-                params=params,
-                headers=headers,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as e:
-            if isinstance(e, requests.Timeout):
+            try:
+                response = requests.request(
+                    method,
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=self.timeout
+                )
+                
+                # Handle rate limiting
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get('Retry-After', 1))
+                    raise RateLimitError(f"Rate limited. Retry after {retry_after}s")
+                
+                response.raise_for_status()
+                return response.json()
+            except requests.Timeout as e:
                 raise NetworkError(f"Request timeout: {e}")
-            raise ExchangeError(f"Request failed: {e}")
+            except requests.ConnectionError as e:
+                raise NetworkError(f"Connection error: {e}")
+            except requests.HTTPError as e:
+                if response.status_code == 404:
+                    raise ExchangeError(f"Resource not found: {endpoint}")
+                elif response.status_code == 401:
+                    raise ExchangeError(f"Authentication failed: {e}")
+                elif response.status_code == 403:
+                    raise ExchangeError(f"Access forbidden: {e}")
+                else:
+                    raise ExchangeError(f"HTTP error: {e}")
+            except requests.RequestException as e:
+                raise ExchangeError(f"Request failed: {e}")
+        
+        return _make_request()
 
     def fetch_markets(self, params: Optional[Dict[str, Any]] = None) -> list[Market]:
-        """Fetch all markets from Polymarket"""
-        data = self._request("GET", "/markets", params)
+        """Fetch all markets from Polymarket with retry logic"""
+        @self._retry_on_failure
+        def _fetch():
+            # Default to active markets only if not specified
+            query_params = params or {}
+            if 'active' not in query_params and 'closed' not in query_params:
+                query_params = {'active': True, 'closed': False, **query_params}
 
-        markets = []
-        for item in data:
-            market = self._parse_market(item)
-            markets.append(market)
+            data = self._request("GET", "/markets", query_params)
+            markets = []
+            for item in data:
+                market = self._parse_market(item)
+                markets.append(market)
+            return markets
 
-        return markets
+        return _fetch()
 
     def fetch_market(self, market_id: str) -> Market:
-        """Fetch specific market by ID"""
-        try:
-            data = self._request("GET", f"/markets/{market_id}")
-            return self._parse_market(data)
-        except ExchangeError:
-            raise MarketNotFound(f"Market {market_id} not found")
+        """Fetch specific market by ID with retry logic"""
+        @self._retry_on_failure
+        def _fetch():
+            try:
+                data = self._request("GET", f"/markets/{market_id}")
+                return self._parse_market(data)
+            except ExchangeError:
+                raise MarketNotFound(f"Market {market_id} not found")
+        
+        return _fetch()
 
     def _parse_market(self, data: Dict[str, Any]) -> Market:
         """Parse market data from API response"""
+        import json
+
+        # Parse outcomes - can be JSON string or list
+        outcomes_raw = data.get("outcomes", [])
+        if isinstance(outcomes_raw, str):
+            try:
+                outcomes = json.loads(outcomes_raw)
+            except (json.JSONDecodeError, TypeError):
+                outcomes = []
+        else:
+            outcomes = outcomes_raw
+
+        # Parse outcome prices - can be JSON string, list, or None
+        prices_raw = data.get("outcomePrices")
+        prices_list = []
+
+        if prices_raw is not None:
+            if isinstance(prices_raw, str):
+                try:
+                    prices_list = json.loads(prices_raw)
+                except (json.JSONDecodeError, TypeError):
+                    prices_list = []
+            else:
+                prices_list = prices_raw
+
+        # Create prices dictionary mapping outcomes to prices
+        prices = {}
+        if len(outcomes) == len(prices_list) and prices_list:
+            for outcome, price in zip(outcomes, prices_list):
+                try:
+                    price_val = float(price)
+                    # Only add non-zero prices
+                    if price_val > 0:
+                        prices[outcome] = price_val
+                except (ValueError, TypeError):
+                    pass
+
+        # Fallback: use bestBid/bestAsk if available and no prices found
+        if not prices and len(outcomes) == 2:
+            best_bid = data.get("bestBid")
+            best_ask = data.get("bestAsk")
+            if best_bid is not None and best_ask is not None:
+                try:
+                    bid = float(best_bid)
+                    ask = float(best_ask)
+                    if 0 < bid < 1 and 0 < ask <= 1:
+                        # For binary: Yes price ~ask, No price ~(1-ask)
+                        prices[outcomes[0]] = ask
+                        prices[outcomes[1]] = 1.0 - bid
+                except (ValueError, TypeError):
+                    pass
+
+        # Parse close time - check both endDate and closed status
+        close_time = self._parse_datetime(data.get("endDate"))
+
+        # Use volumeNum if available, fallback to volume
+        volume = float(data.get("volumeNum", data.get("volume", 0)))
+        liquidity = float(data.get("liquidityNum", data.get("liquidity", 0)))
+
         return Market(
             id=data.get("id", ""),
             question=data.get("question", ""),
-            outcomes=data.get("outcomes", []),
-            close_time=self._parse_datetime(data.get("end_date")),
-            volume=float(data.get("volume", 0)),
-            liquidity=float(data.get("liquidity", 0)),
-            prices={
-                outcome: float(price)
-                for outcome, price in data.get("prices", {}).items()
-            },
+            outcomes=outcomes,
+            close_time=close_time,
+            volume=volume,
+            liquidity=liquidity,
+            prices=prices,
             metadata=data
         )
 

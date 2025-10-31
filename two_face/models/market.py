@@ -23,6 +23,11 @@ class Market:
     @property
     def is_open(self) -> bool:
         """Check if market is still open for trading"""
+        # Check metadata for explicit closed status (e.g., Polymarket)
+        if 'closed' in self.metadata:
+            return not self.metadata['closed']
+
+        # Fallback to close_time check
         if not self.close_time:
             return True
         return datetime.now() < self.close_time
