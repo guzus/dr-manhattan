@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-BTC Hourly Market Making Strategy for Polymarket - LIVE TRADING
+Market Making Strategy for Polymarket - LIVE TRADING
 
 ⚠️  WARNING: This script places REAL orders with REAL money on Polymarket!
 
-This strategy provides liquidity (market making) specifically on the
-Bitcoin hourly price market by placing bid and ask orders.
+This strategy provides liquidity (market making) on a random market
+by placing bid and ask orders inside the spread.
 
 Requirements:
 - Install dependencies: pip install python-dotenv eth-account
@@ -36,12 +36,11 @@ from two_face.base.errors import ExchangeError, InsufficientFunds
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class BTCHourlyMarketMaker:
-    """Market making strategy for BTC hourly market"""
+class PolymarketMarketMaker:
+    """Market making strategy for Polymarket"""
 
     def __init__(self, exchange_config: Dict, max_exposure: float = 1000.0):
         self.max_exposure = max_exposure
-        self.target_market_keywords = ['bitcoin', 'btc', 'hour']  # Keywords to find BTC hourly market
 
         config = {
             **exchange_config,
@@ -51,32 +50,47 @@ class BTCHourlyMarketMaker:
         }
 
         self.exchange = two_face.Polymarket(config)
-        self.btc_market: Optional[Market] = None
+        self.target_market: Optional[Market] = None
         self.trades_executed = 0
         self.placed_orders = []  # Track all placed orders
 
-    def find_btc_hourly_market(self, markets: list) -> Optional[Market]:
-        """Find the BTC hourly market from available markets"""
-        logger.info(f"\nSearching for BTC hourly market among {len(markets)} markets...")
+    def find_suitable_market(self, markets: list) -> Optional[Market]:
+        """Find any suitable market for market making"""
+        logger.info(f"\nSearching for suitable market among {len(markets)} markets...")
         logger.info("="*80)
 
+        # Filter for binary, open markets with good liquidity
+        suitable_markets = []
         for market in markets:
             # Check if binary and open
             if not market.is_binary or not market.is_open:
                 continue
-
-            # Check if this is the BTC hourly market
-            question_lower = market.question.lower()
-            if all(keyword in question_lower for keyword in self.target_market_keywords):
-                logger.info(f"\n✓ Found BTC hourly market!")
-                logger.info(f"   Question: {market.question}")
-                logger.info(f"   Market ID: {market.id}")
-                logger.info(f"   Volume: ${market.volume:,.0f}")
-                logger.info(f"   Liquidity: ${market.liquidity:,.0f}")
-                return market
-
-        logger.warning("⚠ BTC hourly market not found")
-        return None
+            
+            # Check if has orderbook data
+            if 'spread' not in market.metadata or 'bestBid' not in market.metadata:
+                continue
+            
+            # Require minimum liquidity
+            if market.liquidity < 1000:
+                continue
+            
+            suitable_markets.append(market)
+        
+        if not suitable_markets:
+            logger.warning("⚠ No suitable markets found")
+            return None
+        
+        # Pick the first suitable market (or random)
+        import random
+        selected_market = random.choice(suitable_markets)
+        
+        logger.info(f"\n✓ Selected market for trading!")
+        logger.info(f"   Question: {selected_market.question}")
+        logger.info(f"   Market ID: {selected_market.id}")
+        logger.info(f"   Volume: ${selected_market.volume:,.0f}")
+        logger.info(f"   Liquidity: ${selected_market.liquidity:,.0f}")
+        
+        return selected_market
 
     def get_market_data(self, market: Market) -> Optional[Dict[str, Any]]:
         """Get current bid-ask data for the market"""
@@ -107,7 +121,7 @@ class BTCHourlyMarketMaker:
 
     def execute_market_making(self, data: Dict[str, Any]) -> bool:
         """Execute market making orders (LIVE TRADING)"""
-        if not self.btc_market:
+        if not self.target_market:
             return False
 
         try:
@@ -117,7 +131,7 @@ class BTCHourlyMarketMaker:
             spread = data['spread']
 
             # Calculate position size based on liquidity
-            base_size = min(100.0, self.btc_market.liquidity * 0.01) if self.btc_market.liquidity > 0 else 50.0
+            base_size = min(100.0, self.target_market.liquidity * 0.01) if self.target_market.liquidity > 0 else 50.0
 
             # Limit exposure
             position_cost = base_size * mid_price
@@ -129,9 +143,9 @@ class BTCHourlyMarketMaker:
             our_ask = best_ask - (spread * 0.3)  # 30% inside from ask
 
             logger.info(f"\n{'='*80}")
-            logger.info(f"*** 💰 LIVE MARKET MAKING ON BTC HOURLY MARKET ***")
+            logger.info(f"*** 💰 LIVE MARKET MAKING ***")
             logger.info(f"{'='*80}")
-            logger.info(f"Market: {self.btc_market.question}")
+            logger.info(f"Market: {self.target_market.question[:70]}...")
             logger.info(f"Current spread: {spread:.4f} ({data['spread_pct']:.2f}%)")
             logger.info(f"Current best bid: {best_bid:.4f} | best ask: {best_ask:.4f}")
             logger.info(f"Mid price: {mid_price:.4f}")
@@ -140,7 +154,7 @@ class BTCHourlyMarketMaker:
             logger.info(f"  SELL order: {base_size:.2f} shares @ {our_ask:.4f}")
 
             # Get token ID
-            token_id = self.btc_market.metadata.get('token_id')
+            token_id = self.target_market.metadata.get('token_id')
             if not token_id:
                 logger.error("❌ Token ID not found in market metadata")
                 return False
@@ -148,7 +162,7 @@ class BTCHourlyMarketMaker:
             # Place REAL BUY order
             try:
                 buy_order = self.exchange.create_order(
-                    market_id=self.btc_market.id,
+                    market_id=self.target_market.id,
                     outcome='Yes',
                     side=OrderSide.BUY,
                     price=our_bid,
@@ -168,7 +182,7 @@ class BTCHourlyMarketMaker:
             # Place REAL SELL order
             try:
                 sell_order = self.exchange.create_order(
-                    market_id=self.btc_market.id,
+                    market_id=self.target_market.id,
                     outcome='Yes',
                     side=OrderSide.SELL,
                     price=our_ask,
@@ -207,12 +221,12 @@ class BTCHourlyMarketMaker:
             return False
 
     def run_strategy(self, duration_minutes: int = 2, check_interval_seconds: int = 30):
-        """Run the BTC hourly market making strategy"""
+        """Run the market making strategy"""
         start_time = time.time()
         end_time = start_time + (duration_minutes * 60)
 
         logger.info(f"\n{'='*80}")
-        logger.info(f"🚀 BTC Hourly Market Making Strategy - LIVE TRADING")
+        logger.info(f"🚀 Polymarket Market Making Strategy - LIVE TRADING")
         logger.info(f"{'='*80}")
         logger.info(f"Mode: 🔴 PRODUCTION (Real Orders)")
         logger.info(f"Duration: {duration_minutes} minutes")
@@ -222,16 +236,16 @@ class BTCHourlyMarketMaker:
         
         logger.info("")
 
-        # Find the BTC hourly market
-        logger.info("Step 1: Finding BTC hourly market...")
+        # Find a suitable market to trade
+        logger.info("Step 1: Finding a suitable market...")
         markets = self.exchange.fetch_markets({'limit': 100})
-        self.btc_market = self.find_btc_hourly_market(markets)
+        self.target_market = self.find_suitable_market(markets)
 
-        if not self.btc_market:
-            logger.error("❌ Cannot find BTC hourly market. Exiting.")
+        if not self.target_market:
+            logger.error("❌ Cannot find a suitable market. Exiting.")
             return
 
-        logger.info(f"\n✓ Market found! Starting market making...\n")
+        logger.info(f"\n✓ Market selected! Starting market making...\n")
 
         iteration = 0
         try:
@@ -243,14 +257,14 @@ class BTCHourlyMarketMaker:
 
                 # Refresh market data
                 try:
-                    self.btc_market = self.exchange.fetch_market(self.btc_market.id)
+                    self.target_market = self.exchange.fetch_market(self.target_market.id)
                 except Exception as e:
                     logger.error(f"Error refreshing market data: {e}")
                     time.sleep(check_interval_seconds)
                     continue
 
                 # Get current market data
-                market_data = self.get_market_data(self.btc_market)
+                market_data = self.get_market_data(self.target_market)
 
                 if market_data:
                     logger.info(f"\n📈 Current Market Status:")
@@ -258,8 +272,8 @@ class BTCHourlyMarketMaker:
                     logger.info(f"   Best Bid: {market_data['best_bid']:.4f}")
                     logger.info(f"   Best Ask: {market_data['best_ask']:.4f}")
                     logger.info(f"   Mid Price: {market_data['mid_price']:.4f}")
-                    logger.info(f"   Volume: ${self.btc_market.volume:,.0f}")
-                    logger.info(f"   Liquidity: ${self.btc_market.liquidity:,.0f}")
+                    logger.info(f"   Volume: ${self.target_market.volume:,.0f}")
+                    logger.info(f"   Liquidity: ${self.target_market.liquidity:,.0f}")
 
                     # Execute market making
                     self.execute_market_making(market_data)
@@ -277,7 +291,7 @@ class BTCHourlyMarketMaker:
             logger.info(f"\n{'='*80}")
             logger.info("✓ STRATEGY COMPLETED")
             logger.info(f"{'='*80}")
-            logger.info(f"Market: {self.btc_market.question if self.btc_market else 'N/A'}")
+            logger.info(f"Market: {self.target_market.question if self.target_market else 'N/A'}")
             logger.info(f"Total iterations: {iteration}")
             logger.info(f"Market making executions: {self.trades_executed}")
             logger.info(f"Total orders placed: {len(self.placed_orders)}")
@@ -303,7 +317,7 @@ class BTCHourlyMarketMaker:
             logger.info(f"{'='*80}\n")
 
 def main():
-    """Main entry point for BTC hourly market making strategy"""
+    """Main entry point for Polymarket market making strategy"""
     
     # Load environment variables from .env file
     load_dotenv()
@@ -364,7 +378,7 @@ def main():
         'verbose': True
     }
 
-    strategy = BTCHourlyMarketMaker(
+    strategy = PolymarketMarketMaker(
         exchange_config=exchange_config,
         max_exposure=500.0
     )
