@@ -8,19 +8,17 @@ This strategy provides liquidity (market making) on a random market
 by placing bid and ask orders inside the spread.
 
 Requirements:
-- Install dependencies: pip install python-dotenv eth-account
-- Create a .env file with your credentials (see env.example)
+- Install dependencies: uv sync
+- Create .env file in project root with your credentials
 - Ensure you have USDC balance on Polygon network
 
 Usage:
-    1. Copy env.example to .env:
-       cp env.example .env
+    1. Create .env in project root:
+       POLYMARKET_PRIVATE_KEY=0x...
+       POLYMARKET_FUNDER=0x...
     
-    2. Edit .env with your credentials:
-       POLYMARKET_PRIVATE_KEY=your_private_key_here
-       POLYMARKET_FUNDER=0xYourFunderAddressHere
-    
-    3. Run: python spread_strategy_bidask.py
+    2. Run from project root:
+       uv run examples/spread_strategy.py
 """
 
 import time

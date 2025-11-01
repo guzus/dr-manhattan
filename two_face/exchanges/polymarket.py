@@ -38,49 +38,30 @@ class Polymarket(Exchange):
             self._initialize_clob_client()
 
     def _initialize_clob_client(self):
-        """
-        Initialize CLOB client using py-clob-client library.
-        This handles all authentication, signing, and API credential management.
-        """
+        """Initialize CLOB client with authentication."""
         try:
             from py_clob_client.client import ClobClient
             
-            chain_id = self.config.get('chain_id', 137)  # Default to Polygon mainnet
-            # Use signature_type=2 (POLY_PROXY) - required for Polymarket proxy wallets with funder
+            chain_id = self.config.get('chain_id', 137)
             signature_type = self.config.get('signature_type', 2)
             
-            if self.verbose:
-                print(f"🔑 Initializing CLOB client...")
-                print(f"   Chain ID: {chain_id}")
-                print(f"   Signature type: {signature_type}")
-                if self.funder:
-                    print(f"   Funder: {self.funder[:10]}...")
-            
-            # Initialize authenticated client with funder for proxy wallet
+            # Initialize authenticated client
             self._clob_client = ClobClient(
                 host=self.CLOB_URL,
                 key=self.private_key,
                 chain_id=chain_id,
                 signature_type=signature_type,
-                funder=self.funder,  # Funder address holds the USDC balance
+                funder=self.funder,
             )
             
-            # Derive and set API credentials
-            if self.verbose:
-                print("   Deriving API credentials...")
-            
+            # Derive and set API credentials for L2 authentication
             api_creds = self._clob_client.create_or_derive_api_creds()
-            
             if not api_creds:
                 raise ExchangeError("Failed to derive API credentials")
             
             self._clob_client.set_api_creds(api_creds)
             
-            # Verify credentials were set
-            if not self._clob_client.creds:
-                raise ExchangeError("API credentials were not set properly")
-            
-            # Verify client is in Level 2 auth mode
+            # Verify L2 mode
             if self._clob_client.mode < 2:
                 raise ExchangeError(f"Client not in L2 mode (current mode: {self._clob_client.mode})")
             
@@ -89,130 +70,10 @@ class Polymarket(Exchange):
                 self._address = self._clob_client.get_address()
             except:
                 self._address = None
-            
-            if self.verbose:
-                funder_info = f", funder: {self.funder[:10]}..." if self.funder else ""
-                print(f"   ✓ CLOB client initialized (L{self._clob_client.mode}{funder_info})")
-                print(f"   ✓ API credentials: {api_creds.api_key[:8]}...")
                 
         except Exception as e:
             raise ExchangeError(f"Failed to initialize CLOB client: {e}")
     
-    def _sign_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Sign an order using py-clob-client's OrderBuilder
-        
-        Uses the official py-clob-client library which handles all the complexity
-        of order signing, including proxy wallets, neg_risk markets, etc.
-        """
-        if not self.private_key:
-            raise ExchangeError("Private key required for signing orders")
-        
-        from py_clob_client.signer import Signer
-        from py_clob_client.order_builder.builder import OrderBuilder
-        from py_clob_client.clob_types import OrderArgs, CreateOrderOptions
-        
-        chain_id = self.config.get('chain_id', 137)
-        
-        # Create signer
-        signer = Signer(self.private_key, chain_id)
-        
-        # Create order builder with proxy wallet support
-        # sig_type: 0=EOA, 1=POLY_GNOSIS_SAFE (also used for proxy wallets), 2=POLY_PROXY
-        if self.funder:
-            # Using proxy wallet - try signature type 1 (used for Magic/email wallets)
-            sig_type = 1  # POLY_GNOSIS_SAFE (also works for proxy wallets)
-            funder = self.funder
-        else:
-            # Using EOA (standard wallet)
-            sig_type = 0
-            funder = None
-        
-        order_builder = OrderBuilder(signer, sig_type=sig_type, funder=funder)
-        
-        # Parse order parameters
-        price = float(order_data["price"])
-        size = float(order_data["size"])
-        side = order_data["side"]  # "BUY" or "SELL"
-        token_id = order_data["tokenID"]
-        
-        # Fetch market parameters from CLOB API
-        # Valid tick sizes: "0.1", "0.01", "0.001", "0.0001"
-        try:
-            import requests
-            response = requests.get(
-                f"{self.CLOB_URL}/tick-size",
-                params={"token_id": token_id},
-                timeout=self.timeout
-            )
-            
-            if response.status_code == 200:
-                fetched_tick = response.json().get("minimum_tick_size", "0.01")
-                # Ensure tick size is one of the valid values
-                valid_ticks = ["0.0001", "0.001", "0.01", "0.1"]
-                tick_size = fetched_tick if fetched_tick in valid_ticks else "0.01"
-            else:
-                tick_size = "0.01"
-            
-            response = requests.get(
-                f"{self.CLOB_URL}/neg-risk",
-                params={"token_id": token_id},
-                timeout=self.timeout
-            )
-            neg_risk = response.json().get("neg_risk", False) if response.status_code == 200 else False
-            
-            if self.verbose:
-                print(f"Market params: tick_size={tick_size}, neg_risk={neg_risk}")
-        except Exception as e:
-            if self.verbose:
-                print(f"Warning: Could not fetch market parameters: {e}")
-            tick_size = "0.01"
-            neg_risk = False
-        
-        # Create order args
-        order_args = OrderArgs(
-            token_id=token_id,
-            price=price,
-            size=size,
-            side=side,
-            fee_rate_bps=0,  # Integer, not string
-            nonce=int(datetime.now().timestamp() * 1000),
-            taker="0x0000000000000000000000000000000000000000",
-            expiration=0,  # GTC order
-        )
-        
-        # Create order options
-        options = CreateOrderOptions(
-            tick_size=tick_size,
-            neg_risk=neg_risk,
-        )
-        
-        if self.verbose:
-            print(f"Creating order: token_id={token_id}, price={price}, size={size}, side={side}")
-            print(f"Options: tick_size={tick_size}, neg_risk={neg_risk}")
-        
-        # Create and sign the order
-        try:
-            signed_order = order_builder.create_order(order_args, options)
-            # Convert to dict format expected by CLOB API
-            return signed_order.dict()
-        except KeyError as e:
-            # Tick size not in ROUNDING_CONFIG
-            raise ExchangeError(
-                f"Invalid tick size {tick_size}. Must be one of: 0.1, 0.01, 0.001, 0.0001. "
-                f"Price: {price}, Size: {size}"
-            )
-        except Exception as e:
-            # Better error reporting
-            error_msg = str(e)
-            if "price" in error_msg.lower():
-                # Price validation error
-                raise ExchangeError(
-                    f"Order validation failed: Price {price} may not align with tick size {tick_size}. "
-                    f"Error: {error_msg}"
-                )
-            raise ExchangeError(f"Order signing failed: {error_msg} (price={price}, tick_size={tick_size}, side={side})")
-
     def _request(self, method: str, endpoint: str, params: Optional[Dict] = None) -> Any:
         """Make HTTP request to Polymarket API with retry logic"""
         import requests
@@ -679,15 +540,10 @@ class Polymarket(Exchange):
         size: float,
         params: Optional[Dict[str, Any]] = None
     ) -> Order:
-        """
-        Create order on Polymarket CLOB using py-clob-client
-        
-        This places a REAL order with REAL money.
-        """
+        """Create order on Polymarket CLOB"""
         if not self._clob_client:
-            raise ExchangeError("CLOB client not initialized. Private key required to place orders.")
+            raise ExchangeError("CLOB client not initialized. Private key required.")
         
-        # Get token_id from params
         token_id = params.get('token_id') if params else None
         if not token_id:
             raise ExchangeError("token_id required in params")
@@ -695,35 +551,26 @@ class Polymarket(Exchange):
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
             
-            # Create order args
+            # Create and sign order
             order_args = OrderArgs(
                 token_id=token_id,
                 price=float(price),
                 size=float(size),
-                side=side.value.upper(),  # "BUY" or "SELL"
+                side=side.value.upper(),
             )
             
-            # Create and sign the order (automatically detects neg_risk)
             signed_order = self._clob_client.create_order(order_args)
-            
-            # Post the signed order
             result = self._clob_client.post_order(signed_order, OrderType.GTC)
             
             # Parse result
-            if isinstance(result, dict):
-                order_id = result.get("orderID", "")
-                status_str = result.get("status", "LIVE")
-            else:
-                order_id = str(result)
-                status_str = "LIVE"
+            order_id = result.get("orderID", "") if isinstance(result, dict) else str(result)
+            status_str = result.get("status", "LIVE") if isinstance(result, dict) else "LIVE"
             
-            # Map status
             status_map = {
                 "LIVE": OrderStatus.OPEN,
                 "MATCHED": OrderStatus.FILLED,
                 "CANCELLED": OrderStatus.CANCELLED,
             }
-            status = status_map.get(status_str, OrderStatus.OPEN)
             
             return Order(
                 id=order_id,
@@ -733,14 +580,13 @@ class Polymarket(Exchange):
                 price=price,
                 size=size,
                 filled=0,
-                status=status,
+                status=status_map.get(status_str, OrderStatus.OPEN),
                 created_at=datetime.now(),
                 updated_at=datetime.now()
             )
             
         except Exception as e:
-            error_msg = str(e)
-            raise ExchangeError(f"Order placement failed: {error_msg}")
+            raise ExchangeError(f"Order placement failed: {str(e)}")
 
     def cancel_order(self, order_id: str, market_id: Optional[str] = None) -> Order:
         """Cancel order on Polymarket"""
