@@ -42,10 +42,10 @@ class Polymarket(Exchange):
         
         try:
             from eth_account import Account
-            from eth_account.messages import encode_structured_data
-        except ImportError:
+            from eth_account.messages import encode_typed_data
+        except ImportError as e:
             raise ExchangeError(
-                "eth-account required for order signing. Install with: pip install eth-account"
+                f"eth-account required for order signing. Install with: pip install eth-account. Error: {e}"
             )
         
         # EIP-712 domain for Polymarket CLOB
@@ -82,7 +82,7 @@ class Polymarket(Exchange):
         if self.funder:
             types["Order"].append({"name": "funder", "type": "address"})
         
-        # Create structured data
+        # Create structured data (EIP-712)
         structured_data = {
             "types": types,
             "primaryType": "Order",
@@ -90,8 +90,8 @@ class Polymarket(Exchange):
             "message": message,
         }
         
-        # Sign the message
-        encoded_data = encode_structured_data(structured_data)
+        # Sign the message using EIP-712
+        encoded_data = encode_typed_data(full_message=structured_data)
         account = Account.from_key(self.private_key)
         signed_message = account.sign_message(encoded_data)
         
@@ -151,10 +151,53 @@ class Polymarket(Exchange):
         return _make_request()
 
     def fetch_markets(self, params: Optional[Dict[str, Any]] = None) -> list[Market]:
-        """Fetch all markets from Polymarket with retry logic"""
+        """
+        Fetch all markets from Polymarket
+        
+        Uses CLOB API instead of Gamma API because CLOB includes token IDs
+        which are required for trading.
+        """
         @self._retry_on_failure
         def _fetch():
-            # Default to active markets only if not specified
+            import requests
+            
+            # Fetch from CLOB API /sampling-markets (includes token IDs and live markets)
+            try:
+                response = requests.get(
+                    f"{self.CLOB_URL}/sampling-markets",
+                    timeout=self.timeout
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    markets_data = result.get("data", result if isinstance(result, list) else [])
+                    
+                    markets = []
+                    for item in markets_data:
+                        market = self._parse_sampling_market(item)
+                        if market:
+                            markets.append(market)
+                    
+                    # Apply filters if provided
+                    query_params = params or {}
+                    if query_params.get('active') or (not query_params.get('closed', True)):
+                        markets = [m for m in markets if m.is_open]
+                    
+                    # Apply limit if provided
+                    limit = query_params.get('limit')
+                    if limit:
+                        markets = markets[:limit]
+                    
+                    if self.verbose:
+                        print(f"✓ Fetched {len(markets)} markets from CLOB API (sampling-markets)")
+                    
+                    return markets
+                    
+            except Exception as e:
+                if self.verbose:
+                    print(f"CLOB API fetch failed: {e}, falling back to Gamma API")
+            
+            # Fallback to Gamma API (but won't have token IDs)
             query_params = params or {}
             if 'active' not in query_params and 'closed' not in query_params:
                 query_params = {'active': True, 'closed': False, **query_params}
@@ -180,6 +223,120 @@ class Polymarket(Exchange):
         
         return _fetch()
 
+    def _parse_sampling_market(self, data: Dict[str, Any]) -> Optional[Market]:
+        """Parse market data from CLOB sampling-markets API response"""
+        try:
+            # sampling-markets includes more fields than simplified-markets
+            condition_id = data.get("condition_id")
+            if not condition_id:
+                return None
+            
+            # Extract question and description
+            question = data.get("question", "")
+            
+            # Extract tokens - sampling-markets has them in "tokens" array
+            tokens_data = data.get("tokens", [])
+            token_ids = []
+            outcomes = []
+            prices = {}
+            
+            for token in tokens_data:
+                if isinstance(token, dict):
+                    token_id = token.get("token_id")
+                    outcome = token.get("outcome", "")
+                    price = token.get("price")
+                    
+                    if token_id:
+                        token_ids.append(str(token_id))
+                    if outcome:
+                        outcomes.append(outcome)
+                    if outcome and price is not None:
+                        try:
+                            prices[outcome] = float(price)
+                        except (ValueError, TypeError):
+                            pass
+            
+            # Determine if market is open
+            is_open = data.get("active", False) and data.get("accepting_orders", False) and not data.get("closed", False)
+            
+            # Build metadata with token IDs already included
+            metadata = {
+                **data,
+                "clobTokenIds": token_ids,
+                "condition_id": condition_id
+            }
+            
+            return Market(
+                id=condition_id,
+                question=question,
+                outcomes=outcomes if outcomes else ["Yes", "No"],
+                close_time=None,  # Can parse if needed
+                volume=0,  # Not in sampling-markets
+                liquidity=0,  # Not in sampling-markets
+                prices=prices,
+                metadata=metadata
+            )
+        except Exception as e:
+            if self.verbose:
+                print(f"Error parsing sampling market: {e}")
+            return None
+    
+    def _parse_clob_market(self, data: Dict[str, Any]) -> Optional[Market]:
+        """Parse market data from CLOB API response"""
+        try:
+            # CLOB API structure
+            condition_id = data.get("condition_id")
+            if not condition_id:
+                return None
+            
+            # Extract tokens (already have token_id, outcome, price, winner)
+            tokens = data.get("tokens", [])
+            token_ids = []
+            outcomes = []
+            prices = {}
+            
+            for token in tokens:
+                if isinstance(token, dict):
+                    token_id = token.get("token_id")
+                    outcome = token.get("outcome", "")
+                    price = token.get("price")
+                    
+                    if token_id:
+                        token_ids.append(str(token_id))
+                    if outcome:
+                        outcomes.append(outcome)
+                    if outcome and price is not None:
+                        try:
+                            prices[outcome] = float(price)
+                        except (ValueError, TypeError):
+                            pass
+            
+            # Determine if market is open
+            # A market is tradeable if it's active and accepting orders (even if "closed")
+            is_open = data.get("active", False) and data.get("accepting_orders", False)
+            
+            # Build metadata with token IDs already included
+            metadata = {
+                **data,
+                "clobTokenIds": token_ids,
+                "condition_id": condition_id
+            }
+            
+            return Market(
+                id=condition_id,
+                question="",  # CLOB API doesn't include question text
+                outcomes=outcomes if outcomes else ["Yes", "No"],
+                close_time=None,  # CLOB API doesn't include end date
+                volume=0,  # CLOB API doesn't include volume
+                liquidity=0,  # CLOB API doesn't include liquidity
+                prices=prices,
+                metadata=metadata
+            )
+        except Exception as e:
+            if self.verbose:
+                print(f"Error parsing CLOB market: {e}")
+            return None
+    
     def _parse_market(self, data: Dict[str, Any]) -> Market:
         """Parse market data from API response"""
         import json
@@ -241,6 +398,15 @@ class Polymarket(Exchange):
         volume = float(data.get("volumeNum", data.get("volume", 0)))
         liquidity = float(data.get("liquidityNum", data.get("liquidity", 0)))
 
+        # Try to extract token IDs from various possible fields
+        # Gamma API sometimes includes these in the response
+        metadata = dict(data)
+        if 'tokens' in data and data['tokens']:
+            metadata['clobTokenIds'] = data['tokens']
+        elif 'clobTokenIds' not in metadata and 'tokenID' in data:
+            # Single token ID - might be a simplified response
+            metadata['clobTokenIds'] = [data['tokenID']]
+
         return Market(
             id=data.get("id", ""),
             question=data.get("question", ""),
@@ -249,8 +415,150 @@ class Polymarket(Exchange):
             volume=volume,
             liquidity=liquidity,
             prices=prices,
-            metadata=data
+            metadata=metadata
         )
+
+    def fetch_token_ids(self, condition_id: str) -> list[str]:
+        """
+        Fetch token IDs for a specific market from CLOB API
+        
+        The Gamma API doesn't include token IDs, so we need to fetch them
+        from the CLOB API when we need to trade.
+        
+        Based on actual CLOB API response structure.
+        
+        Args:
+            condition_id: The market/condition ID
+            
+        Returns:
+            List of token IDs as strings
+            
+        Raises:
+            ExchangeError: If token IDs cannot be fetched
+        """
+        try:
+            import requests
+            
+            # Try simplified-markets endpoint
+            # Response structure: {"data": [{"condition_id": ..., "tokens": [{"token_id": ..., "outcome": ...}]}]}
+            try:
+                response = requests.get(
+                    f"{self.CLOB_URL}/simplified-markets",
+                    timeout=self.timeout
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    
+                    # Check if response has "data" key
+                    markets_list = result.get("data", result if isinstance(result, list) else [])
+                    
+                    # Find the market with matching condition_id
+                    for market in markets_list:
+                        market_id = market.get("condition_id") or market.get("id")
+                        if market_id == condition_id:
+                            # Extract token IDs from tokens array
+                            # Each token is an object: {"token_id": "...", "outcome": "...", "price": ...}
+                            tokens = market.get("tokens", [])
+                            if tokens and isinstance(tokens, list):
+                                # Extract just the token_id strings
+                                token_ids = []
+                                for token in tokens:
+                                    if isinstance(token, dict) and "token_id" in token:
+                                        token_ids.append(str(token["token_id"]))
+                                    elif isinstance(token, str):
+                                        # In case it's already a string
+                                        token_ids.append(token)
+                                
+                                if token_ids:
+                                    if self.verbose:
+                                        print(f"✓ Found {len(token_ids)} token IDs via simplified-markets")
+                                        for i, tid in enumerate(token_ids):
+                                            outcome = tokens[i].get("outcome", f"outcome_{i}") if isinstance(tokens[i], dict) else f"outcome_{i}"
+                                            print(f"  [{i}] {outcome}: {tid}")
+                                    return token_ids
+                            
+                            # Fallback: check for clobTokenIds
+                            clob_tokens = market.get("clobTokenIds")
+                            if clob_tokens and isinstance(clob_tokens, list):
+                                token_ids = [str(t) for t in clob_tokens]
+                                if self.verbose:
+                                    print(f"✓ Found token IDs via clobTokenIds: {token_ids}")
+                                return token_ids
+            except Exception as e:
+                if self.verbose:
+                    print(f"simplified-markets failed: {e}")
+            
+            # Try sampling-simplified-markets endpoint
+            try:
+                response = requests.get(
+                    f"{self.CLOB_URL}/sampling-simplified-markets",
+                    timeout=self.timeout
+                )
+                
+                if response.status_code == 200:
+                    markets_list = response.json()
+                    if not isinstance(markets_list, list):
+                        markets_list = markets_list.get("data", [])
+                    
+                    for market in markets_list:
+                        market_id = market.get("condition_id") or market.get("id")
+                        if market_id == condition_id:
+                            # Extract from tokens array
+                            tokens = market.get("tokens", [])
+                            if tokens and isinstance(tokens, list):
+                                token_ids = []
+                                for token in tokens:
+                                    if isinstance(token, dict) and "token_id" in token:
+                                        token_ids.append(str(token["token_id"]))
+                                    elif isinstance(token, str):
+                                        token_ids.append(token)
+                                
+                                if token_ids:
+                                    if self.verbose:
+                                        print(f"✓ Found token IDs via sampling-simplified-markets: {len(token_ids)} tokens")
+                                    return token_ids
+            except Exception as e:
+                if self.verbose:
+                    print(f"sampling-simplified-markets failed: {e}")
+            
+            # Try markets endpoint
+            try:
+                response = requests.get(
+                    f"{self.CLOB_URL}/markets",
+                    timeout=self.timeout
+                )
+                
+                if response.status_code == 200:
+                    markets_list = response.json()
+                    if not isinstance(markets_list, list):
+                        markets_list = markets_list.get("data", [])
+                    
+                    for market in markets_list:
+                        market_id = market.get("condition_id") or market.get("id")
+                        if market_id == condition_id:
+                            # Extract from tokens array
+                            tokens = market.get("tokens", [])
+                            if tokens and isinstance(tokens, list):
+                                token_ids = []
+                                for token in tokens:
+                                    if isinstance(token, dict) and "token_id" in token:
+                                        token_ids.append(str(token["token_id"]))
+                                    elif isinstance(token, str):
+                                        token_ids.append(token)
+                                
+                                if token_ids:
+                                    if self.verbose:
+                                        print(f"✓ Found token IDs via markets endpoint: {len(token_ids)} tokens")
+                                    return token_ids
+            except Exception as e:
+                if self.verbose:
+                    print(f"markets endpoint failed: {e}")
+            
+            raise ExchangeError(f"Could not fetch token IDs for market {condition_id} from any CLOB endpoint")
+            
+        except requests.RequestException as e:
+            raise ExchangeError(f"Network error fetching token IDs: {e}")
 
     def create_order(
         self,

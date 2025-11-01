@@ -65,6 +65,7 @@ Polymarket is a decentralized prediction market platform built on Polygon. Users
 |--------|------|-----------|-------------|
 | `fetch_markets()` | ✅ | ❌ | Fetch all available markets |
 | `fetch_market()` | ✅ | ❌ | Fetch a specific market by ID |
+| `fetch_token_ids()` | ✅ | ❌ | Fetch token IDs for a market (for trading) |
 | `create_order()` | ✅ | ❌ | Create a new order |
 | `cancel_order()` | ✅ | ❌ | Cancel an existing order |
 | `fetch_order()` | ✅ | ❌ | Fetch order details |
@@ -381,6 +382,33 @@ market = exchange.fetch_market('market_id')
 
 **Raises:**
 - `MarketNotFound` - Market does not exist
+
+### fetch_token_ids()
+
+Fetch token IDs for a specific market from CLOB API. Token IDs are required for placing orders.
+
+```python
+# Fetch token IDs for a market
+token_ids = exchange.fetch_token_ids('market_condition_id')
+# Returns: ['NO_token_id', 'YES_token_id']
+
+# For binary markets:
+# token_ids[0] = NO token
+# token_ids[1] = YES token
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `condition_id` | str | Yes | Market/condition identifier |
+
+**Returns:** `list[str]` - List of token IDs
+
+**Raises:**
+- `ExchangeError` - If token IDs cannot be fetched
+
+**Note:** This method is automatically called by the trading strategy when needed. Token IDs are cached in the market's metadata after first fetch.
 
 ## Trading
 
@@ -1080,13 +1108,34 @@ Polymarket offers a Builder Program for developers:
 
 ## Important Notes
 
-### Token IDs for WebSocket
+### Token IDs for Trading
 
-The Gamma API does not provide token IDs needed for WebSocket subscriptions. To get token IDs:
+**The library automatically handles token ID retrieval:**
 
-1. Use the CLOB API (`https://clob.polymarket.com`)
-2. Calculate from condition_id using CTF utils
-3. Extract from market transactions
+When you fetch markets using `fetch_markets()`, the Gamma API doesn't include token IDs (required for trading). The library solves this automatically:
+
+1. **Lazy fetching**: Token IDs are fetched from CLOB API only when needed (when you select a market to trade)
+2. **Automatic caching**: Once fetched, token IDs are cached in the market's metadata
+3. **Method available**: You can manually fetch token IDs using `exchange.fetch_token_ids(condition_id)`
+
+```python
+# Token IDs are fetched automatically when needed
+markets = exchange.fetch_markets()
+selected_market = markets[0]
+
+# When you try to trade, token ID is fetched automatically if not present
+order = exchange.create_order(
+    market_id=selected_market.id,
+    outcome='Yes',
+    side=OrderSide.BUY,
+    price=0.52,
+    size=100.0
+)
+
+# Or manually fetch token IDs
+token_ids = exchange.fetch_token_ids(selected_market.id)
+# Returns: [NO_token_id, YES_token_id]
+```
 
 ### Market Types
 

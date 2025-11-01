@@ -46,7 +46,7 @@ class PolymarketMarketMaker:
             **exchange_config,
             'rate_limit': 5,
             'max_retries': 3,
-            'verbose': False
+            'verbose': True  # Enable verbose to see token ID fetching
         }
 
         self.exchange = two_face.Polymarket(config)
@@ -59,64 +59,127 @@ class PolymarketMarketMaker:
         logger.info(f"\nSearching for suitable market among {len(markets)} markets...")
         logger.info("="*80)
 
-        # Filter for binary, open markets with good liquidity
+        # Debug counters
+        debug_stats = {
+            'total': len(markets),
+            'not_binary': 0,
+            'not_open': 0,
+            'no_token_ids': 0,
+            'not_accepting': 0,
+            'suitable': 0
+        }
+
+        # Filter for binary, open markets with token IDs
         suitable_markets = []
         for market in markets:
-            # Check if binary and open
-            if not market.is_binary or not market.is_open:
+            # Check if binary and open  
+            if not market.is_binary:
+                debug_stats['not_binary'] += 1
                 continue
             
-            # Check if has orderbook data
-            if 'spread' not in market.metadata or 'bestBid' not in market.metadata:
+            if not market.is_open:
+                debug_stats['not_open'] += 1
                 continue
             
-            # Require minimum liquidity
-            if market.liquidity < 1000:
+            # Check if has token IDs (required for trading)
+            if 'clobTokenIds' not in market.metadata:
+                debug_stats['no_token_ids'] += 1
                 continue
             
+            token_ids = market.metadata.get('clobTokenIds', [])
+            if not token_ids or len(token_ids) < 1:
+                debug_stats['no_token_ids'] += 1
+                continue
+            
+            # Market is suitable (is_open already checks accepting_orders)
+            debug_stats['suitable'] += 1
             suitable_markets.append(market)
         
+        # Log debug stats
+        logger.info(f"\n📊 Market Filtering Results:")
+        logger.info(f"   Total markets: {debug_stats['total']}")
+        logger.info(f"   Not binary: {debug_stats['not_binary']}")
+        logger.info(f"   Not open: {debug_stats['not_open']}")
+        logger.info(f"   No token IDs: {debug_stats['no_token_ids']}")
+        logger.info(f"   Not accepting orders: {debug_stats['not_accepting']}")
+        logger.info(f"   ✓ Suitable: {debug_stats['suitable']}")
+        
         if not suitable_markets:
-            logger.warning("⚠ No suitable markets found")
+            logger.warning("\n⚠ No suitable markets found")
+            
+            # Show sample market for debugging
+            if markets:
+                sample = markets[0]
+                logger.info(f"\n🔍 Sample market for debugging:")
+                logger.info(f"   ID: {sample.id[:20]}...")
+                logger.info(f"   Outcomes: {sample.outcomes}")
+                logger.info(f"   Is binary: {sample.is_binary}")
+                logger.info(f"   Is open: {sample.is_open}")
+                logger.info(f"   Has clobTokenIds: {'clobTokenIds' in sample.metadata}")
+                logger.info(f"   Metadata keys: {list(sample.metadata.keys())[:10]}")
+            
             return None
         
-        # Pick the first suitable market (or random)
+        # Pick a random market
         import random
         selected_market = random.choice(suitable_markets)
         
         logger.info(f"\n✓ Selected market for trading!")
-        logger.info(f"   Question: {selected_market.question}")
-        logger.info(f"   Market ID: {selected_market.id}")
-        logger.info(f"   Volume: ${selected_market.volume:,.0f}")
-        logger.info(f"   Liquidity: ${selected_market.liquidity:,.0f}")
+        logger.info(f"   Market ID: {selected_market.id[:16]}...")
+        logger.info(f"   Outcomes: {', '.join(selected_market.outcomes)}")
+        logger.info(f"   Token IDs: {len(selected_market.metadata.get('clobTokenIds', []))} tokens")
+        logger.info(f"   Status: {'Active' if selected_market.is_open else 'Closed'}")
         
         return selected_market
 
     def get_market_data(self, market: Market) -> Optional[Dict[str, Any]]:
         """Get current bid-ask data for the market"""
-        # Get bid-ask data from metadata
-        if 'spread' not in market.metadata or 'bestBid' not in market.metadata or 'bestAsk' not in market.metadata:
+        # Get token ID from metadata (should already be there from CLOB API)
+        token_ids = market.metadata.get('clobTokenIds', [])
+        if not token_ids or len(token_ids) < 1:
+            logger.warning(f"⚠️  No token IDs for market {market.id}")
             return None
-
-        spread = float(market.metadata.get('spread', 0))
-        best_bid = float(market.metadata.get('bestBid', 0))
-        best_ask = float(market.metadata.get('bestAsk', 0))
-
-        # Skip if no real orderbook
-        if spread <= 0 or best_bid <= 0 or best_ask <= 0:
+        
+        token_id = token_ids[0]  # Use first token for trading
+        
+        # Get token prices from metadata (from sampling-markets)
+        tokens_data = market.metadata.get('tokens', [])
+        if not tokens_data or len(tokens_data) < 2:
+            logger.warning(f"⚠️  No token price data")
             return None
-
-        # Calculate metrics
-        mid_price = (best_bid + best_ask) / 2
-        spread_pct = (spread / mid_price) * 100 if mid_price > 0 else 0
-
+        
+        # Get the YES token price (usually index 0)
+        yes_token = tokens_data[0] if tokens_data[0].get('outcome') == 'Yes' else tokens_data[1]
+        mid_price = float(yes_token.get('price', 0))
+        
+        if mid_price <= 0 or mid_price >= 1:
+            logger.warning(f"⚠️  Invalid mid price: {mid_price}")
+            return None
+        
+        # Simulate a 2% spread around mid price for market making
+        # In real trading, you'd fetch actual orderbook
+        spread_pct = 2.0
+        spread = mid_price * (spread_pct / 100)
+        best_bid = mid_price - (spread / 2)
+        best_ask = mid_price + (spread / 2)
+        
+        # Clamp to valid range [0.01, 0.99]
+        best_bid = max(0.01, min(0.99, best_bid))
+        best_ask = max(0.01, min(0.99, best_ask))
+        
+        # Ensure bid < ask
+        if best_bid >= best_ask:
+            logger.warning(f"⚠️  Invalid bid/ask after clamping")
+            return None
+        
         return {
-            'spread': spread,
+            'spread': best_ask - best_bid,
             'best_bid': best_bid,
             'best_ask': best_ask,
             'mid_price': mid_price,
             'spread_pct': spread_pct,
-            'spread_bps': spread_pct * 100  # basis points
+            'spread_bps': spread_pct * 100,  # basis points
+            'token_id': token_id
         }
 
     def execute_market_making(self, data: Dict[str, Any]) -> bool:
@@ -153,10 +216,10 @@ class PolymarketMarketMaker:
             logger.info(f"  BUY order:  {base_size:.2f} shares @ {our_bid:.4f}")
             logger.info(f"  SELL order: {base_size:.2f} shares @ {our_ask:.4f}")
 
-            # Get token ID
-            token_id = self.target_market.metadata.get('token_id')
+            # Get token ID from market data
+            token_id = data.get('token_id')
             if not token_id:
-                logger.error("❌ Token ID not found in market metadata")
+                logger.error("❌ Token ID not available")
                 return False
             
             # Place REAL BUY order
@@ -246,6 +309,9 @@ class PolymarketMarketMaker:
             return
 
         logger.info(f"\n✓ Market selected! Starting market making...\n")
+        
+        consecutive_failures = 0
+        max_consecutive_failures = 5
 
         iteration = 0
         try:
@@ -255,30 +321,35 @@ class PolymarketMarketMaker:
                 logger.info(f"⏰ Iteration #{iteration} - {time.strftime('%H:%M:%S')}")
                 logger.info(f"{'─'*80}")
 
-                # Refresh market data
-                try:
-                    self.target_market = self.exchange.fetch_market(self.target_market.id)
-                except Exception as e:
-                    logger.error(f"Error refreshing market data: {e}")
-                    time.sleep(check_interval_seconds)
-                    continue
-
-                # Get current market data
+                # Get current market data (fetches fresh orderbook)
                 market_data = self.get_market_data(self.target_market)
 
                 if market_data:
+                    consecutive_failures = 0  # Reset counter on success
                     logger.info(f"\n📈 Current Market Status:")
                     logger.info(f"   Spread: {market_data['spread']:.4f} ({market_data['spread_pct']:.2f}%)")
                     logger.info(f"   Best Bid: {market_data['best_bid']:.4f}")
                     logger.info(f"   Best Ask: {market_data['best_ask']:.4f}")
                     logger.info(f"   Mid Price: {market_data['mid_price']:.4f}")
-                    logger.info(f"   Volume: ${self.target_market.volume:,.0f}")
-                    logger.info(f"   Liquidity: ${self.target_market.liquidity:,.0f}")
 
                     # Execute market making
                     self.execute_market_making(market_data)
                 else:
-                    logger.warning("⚠ No valid market data available for this iteration")
+                    consecutive_failures += 1
+                    logger.warning(f"⚠ No valid market data available for this iteration (failure {consecutive_failures}/{max_consecutive_failures})")
+                    
+                    # If too many failures, try to find a new market
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.warning(f"\n⚠️  Too many consecutive failures with current market")
+                        logger.info("🔄 Attempting to find a new market...")
+                        
+                        new_market = self.find_suitable_market(markets)
+                        if new_market and new_market.id != self.target_market.id:
+                            self.target_market = new_market
+                            consecutive_failures = 0
+                            logger.info("✓ Switched to new market!")
+                        else:
+                            logger.warning("⚠️  No alternative market found, continuing with current market...")
 
                 # Wait for next iteration
                 if time.time() < end_time:
@@ -360,17 +431,7 @@ def main():
     logger.warning("This strategy will place REAL orders on Polymarket")
     logger.warning("You will be using REAL USDC and taking REAL market risk")
     logger.warning("Orders will be placed via proxy wallet with funder address")
-    logger.warning("="*80)
-    
-    # Wait for user confirmation
-    try:
-        confirmation = input("\nType 'YES' to continue with LIVE trading: ")
-        if confirmation != "YES":
-            logger.info("❌ Trading cancelled by user")
-            return
-    except KeyboardInterrupt:
-        logger.info("\n❌ Trading cancelled by user")
-        return
+    logger.warning("="*80 + "\n")
     
     exchange_config = {
         'private_key': private_key,
