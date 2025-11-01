@@ -22,7 +22,6 @@ Usage:
 """
 
 import time
-import logging
 import os
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
@@ -30,9 +29,10 @@ from dotenv import load_dotenv
 import two_face
 from two_face.models import Market, Order, OrderSide
 from two_face.base.errors import ExchangeError, InsufficientFunds
+from two_face.utils import setup_logger
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Setup logger
+logger = setup_logger(__name__)
 
 class PolymarketMarketMaker:
     """Market making strategy for Polymarket"""
@@ -192,7 +192,7 @@ class PolymarketMarketMaker:
             spread = data['spread']
 
             # Calculate position size based on liquidity
-            base_size = min(100.0, self.target_market.liquidity * 0.01) if self.target_market.liquidity > 0 else 50.0
+            base_size = min(20.0, self.target_market.liquidity * 0.01) if self.target_market.liquidity > 0 else 10.0
 
             # Limit exposure
             position_cost = base_size * mid_price

@@ -1,0 +1,81 @@
+"""Shared logger configuration for Two-Face projects."""
+
+import logging
+import sys
+
+
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with colors and symbols"""
+    
+    COLORS = {
+        'DEBUG': '\033[36m',      # Cyan
+        'INFO': '\033[32m',       # Green
+        'WARNING': '\033[33m',    # Yellow
+        'ERROR': '\033[31m',      # Red
+        'CRITICAL': '\033[35m',   # Magenta
+        'RESET': '\033[0m'        # Reset
+    }
+    
+    SYMBOLS = {
+        'DEBUG': '🔍',
+        'INFO': '📊',
+        'WARNING': '⚠️ ',
+        'ERROR': '❌',
+        'CRITICAL': '🔥'
+    }
+    
+    def format(self, record):
+        # Color the level name
+        levelname = record.levelname
+        color = self.COLORS.get(levelname, '')
+        reset = self.COLORS['RESET']
+        symbol = self.SYMBOLS.get(levelname, '')
+        
+        # Format: [SYMBOL] MESSAGE
+        record.levelname = f"{symbol}"
+        
+        # Clean format without timestamp
+        if record.levelname in ['📊', '🔍']:
+            # For INFO/DEBUG, no symbol prefix
+            return f"{record.getMessage()}"
+        else:
+            # For warnings/errors, show symbol
+            return f"{symbol} {record.getMessage()}"
+
+
+def setup_logger(name: str = None, level: int = logging.INFO) -> logging.Logger:
+    """
+    Create a configured logger with colored output.
+    
+    Args:
+        name: Logger name (default: root logger)
+        level: Logging level (default: INFO)
+        
+    Returns:
+        Configured logger instance
+        
+    Example:
+        >>> from two_face.utils.logger import setup_logger
+        >>> logger = setup_logger(__name__)
+        >>> logger.info("Starting...")
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    
+    # Remove existing handlers to avoid duplicates
+    logger.handlers = []
+    
+    # Console handler with colored formatter
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(ColoredFormatter())
+    logger.addHandler(console_handler)
+    
+    # Prevent propagation to root logger
+    logger.propagate = False
+    
+    return logger
+
+
+# Default logger instance
+default_logger = setup_logger('two_face')
+
