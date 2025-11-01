@@ -21,6 +21,7 @@ from ..base.errors import NetworkError, ExchangeError, MarketNotFound
 from ..models.market import Market
 from ..models.order import Order, OrderSide, OrderStatus
 from ..models.position import Position
+from .polymarket_ws import PolymarketWebSocket
 
 
 class Polymarket(Exchange):
@@ -40,6 +41,7 @@ class Polymarket(Exchange):
         """Initialize Polymarket exchange"""
         super().__init__(config)
         self.poly_client = None
+        self._ws = None
         if self.config.get('private_key'):
             self._initialize_client()
 
@@ -363,3 +365,22 @@ class Polymarket(Exchange):
             return datetime.fromisoformat(str(timestamp))
         except (ValueError, TypeError):
             return None
+
+    def get_websocket(self) -> PolymarketWebSocket:
+        """
+        Get WebSocket instance for real-time orderbook updates.
+
+        Returns:
+            PolymarketWebSocket instance
+
+        Example:
+            ws = exchange.get_websocket()
+            await ws.watch_orderbook(asset_id, callback)
+            ws.start()
+        """
+        if self._ws is None:
+            self._ws = PolymarketWebSocket({
+                'verbose': self.verbose,
+                'auto_reconnect': True
+            })
+        return self._ws

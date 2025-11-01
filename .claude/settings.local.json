@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(uv run:*)"
+      "Bash(uv run:*)",
+      "Bash(uv add:*)",
+      "Bash(python -m py_compile:*)"
     ],
     "deny": [],
     "ask": []

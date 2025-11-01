@@ -301,35 +301,52 @@ class Exchange(ABC):
     def watch_order_book(self, market_id: str, callback):
         """
         Watch order book changes for a specific market.
-        
+        DEPRECATED: Use WebSocket implementation via get_websocket() for real-time updates.
+
         Args:
             market_id: Market ID to watch
             callback: Function to call with order book updates
         """
         import threading
         import time
-        
+
         def _order_book_worker():
             """Worker thread for watching order book"""
             last_prices = None
-            
+
             while True:
                 try:
                     market = self.fetch_market(market_id)
                     current_prices = market.prices
-                    
+
                     # Only call callback if prices changed
                     if current_prices != last_prices:
                         callback(market_id, current_prices)
                         last_prices = current_prices.copy()
-                    
+
                     time.sleep(0.5)  # Check every 500ms
-                    
+
                 except Exception as e:
                     if self.verbose:
                         print(f"Order book watch error: {e}")
                     time.sleep(2)
-        
+
         watch_thread = threading.Thread(target=_order_book_worker, daemon=True)
         watch_thread.start()
         return watch_thread
+
+    def get_websocket(self):
+        """
+        Get WebSocket instance for interrupt-driven orderbook updates.
+        Exchange implementations should override this to provide their WebSocket.
+
+        Returns:
+            OrderBookWebSocket instance or None if not supported
+
+        Example:
+            ws = exchange.get_websocket()
+            if ws:
+                await ws.watch_orderbook(market_id, callback)
+                ws.start()
+        """
+        return None
