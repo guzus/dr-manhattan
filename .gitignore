@@ -50,7 +50,3 @@ Thumbs.db
 # Project specific
 *.log
 .cache/
-
-# Symbolic links
-limitless-mm
-poly-mm

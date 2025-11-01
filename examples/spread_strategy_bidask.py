@@ -1,14 +1,34 @@
 #!/usr/bin/env python3
 """
-Bid-Ask Spread Strategy for Polymarket
+BTC Hourly Market Making Strategy for Polymarket - LIVE TRADING
 
-This strategy identifies markets with wide bid-ask spreads and could
-potentially profit by providing liquidity (market making).
+⚠️  WARNING: This script places REAL orders with REAL money on Polymarket!
+
+This strategy provides liquidity (market making) specifically on the
+Bitcoin hourly price market by placing bid and ask orders.
+
+Requirements:
+- Install dependencies: pip install python-dotenv eth-account
+- Create a .env file with your credentials (see env.example)
+- Ensure you have USDC balance on Polygon network
+
+Usage:
+    1. Copy env.example to .env:
+       cp env.example .env
+    
+    2. Edit .env with your credentials:
+       POLYMARKET_PRIVATE_KEY=your_private_key_here
+       POLYMARKET_FUNDER=0xYourFunderAddressHere
+    
+    3. Run: python spread_strategy_bidask.py
 """
 
 import time
 import logging
-from typing import List, Dict, Tuple, Any
+import os
+from typing import Dict, Any, Optional
+from dotenv import load_dotenv
+
 import two_face
 from two_face.models import Market, Order, OrderSide
 from two_face.base.errors import ExchangeError, InsufficientFunds
@@ -16,12 +36,12 @@ from two_face.base.errors import ExchangeError, InsufficientFunds
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class BidAskSpreadStrategy:
-    """Strategy that looks for wide bid-ask spreads"""
+class BTCHourlyMarketMaker:
+    """Market making strategy for BTC hourly market"""
 
-    def __init__(self, exchange_config: Dict, min_spread: float = 0.005, max_exposure: float = 1000.0):
-        self.min_spread = min_spread
+    def __init__(self, exchange_config: Dict, max_exposure: float = 1000.0):
         self.max_exposure = max_exposure
+        self.target_market_keywords = ['bitcoin', 'btc', 'hour']  # Keywords to find BTC hourly market
 
         config = {
             **exchange_config,
@@ -31,14 +51,13 @@ class BidAskSpreadStrategy:
         }
 
         self.exchange = two_face.Polymarket(config)
-        self.opportunities: Dict[str, Dict] = {}
+        self.btc_market: Optional[Market] = None
+        self.trades_executed = 0
+        self.placed_orders = []  # Track all placed orders
 
-    def analyze_markets(self, markets: List[Market]) -> List[Tuple[Market, float, Dict[str, Any]]]:
-        """Analyze markets for bid-ask spread opportunities"""
-        opportunities = []
-        spreads_info = []
-
-        logger.info(f"\nAnalyzing {len(markets)} markets for bid-ask spreads...")
+    def find_btc_hourly_market(self, markets: list) -> Optional[Market]:
+        """Find the BTC hourly market from available markets"""
+        logger.info(f"\nSearching for BTC hourly market among {len(markets)} markets...")
         logger.info("="*80)
 
         for market in markets:
@@ -46,61 +65,59 @@ class BidAskSpreadStrategy:
             if not market.is_binary or not market.is_open:
                 continue
 
-            # Get bid-ask data from metadata
-            if 'spread' not in market.metadata or 'bestBid' not in market.metadata or 'bestAsk' not in market.metadata:
-                continue
+            # Check if this is the BTC hourly market
+            question_lower = market.question.lower()
+            if all(keyword in question_lower for keyword in self.target_market_keywords):
+                logger.info(f"\n✓ Found BTC hourly market!")
+                logger.info(f"   Question: {market.question}")
+                logger.info(f"   Market ID: {market.id}")
+                logger.info(f"   Volume: ${market.volume:,.0f}")
+                logger.info(f"   Liquidity: ${market.liquidity:,.0f}")
+                return market
 
-            spread = float(market.metadata.get('spread', 0))
-            best_bid = float(market.metadata.get('bestBid', 0))
-            best_ask = float(market.metadata.get('bestAsk', 0))
+        logger.warning("⚠ BTC hourly market not found")
+        return None
 
-            # Skip if no real orderbook
-            if spread <= 0 or best_bid <= 0 or best_ask <= 0:
-                continue
+    def get_market_data(self, market: Market) -> Optional[Dict[str, Any]]:
+        """Get current bid-ask data for the market"""
+        # Get bid-ask data from metadata
+        if 'spread' not in market.metadata or 'bestBid' not in market.metadata or 'bestAsk' not in market.metadata:
+            return None
 
-            # Calculate metrics
-            mid_price = (best_bid + best_ask) / 2
-            spread_pct = (spread / mid_price) * 100 if mid_price > 0 else 0
+        spread = float(market.metadata.get('spread', 0))
+        best_bid = float(market.metadata.get('bestBid', 0))
+        best_ask = float(market.metadata.get('bestAsk', 0))
 
-            spread_data = {
-                'spread': spread,
-                'best_bid': best_bid,
-                'best_ask': best_ask,
-                'mid_price': mid_price,
-                'spread_pct': spread_pct,
-                'spread_bps': spread_pct * 100  # basis points
-            }
+        # Skip if no real orderbook
+        if spread <= 0 or best_bid <= 0 or best_ask <= 0:
+            return None
 
-            spreads_info.append((market, spread, spread_data))
+        # Calculate metrics
+        mid_price = (best_bid + best_ask) / 2
+        spread_pct = (spread / mid_price) * 100 if mid_price > 0 else 0
 
-            if spread >= self.min_spread:
-                opportunities.append((market, spread, spread_data))
+        return {
+            'spread': spread,
+            'best_bid': best_bid,
+            'best_ask': best_ask,
+            'mid_price': mid_price,
+            'spread_pct': spread_pct,
+            'spread_bps': spread_pct * 100  # basis points
+        }
 
-        # Sort by spread descending
-        spreads_info.sort(key=lambda x: x[1], reverse=True)
+    def execute_market_making(self, data: Dict[str, Any]) -> bool:
+        """Execute market making orders (LIVE TRADING)"""
+        if not self.btc_market:
+            return False
 
-        # Show top 15 spreads
-        logger.info(f"\nTop 15 Markets by Bid-Ask Spread:")
-        logger.info("-"*80)
-        for i, (market, spread, data) in enumerate(spreads_info[:15], 1):
-            logger.info(f"{i}. Spread: {spread:.4f} ({data['spread_pct']:.2f}%) | Vol: ${market.volume:,.0f}")
-            logger.info(f"   Q: {market.question[:60]}")
-            logger.info(f"   Bid: {data['best_bid']:.4f} | Ask: {data['best_ask']:.4f} | Mid: {data['mid_price']:.4f}")
-
-        logger.info(f"\n{len(opportunities)} markets above {self.min_spread:.4f} ({(self.min_spread/(spreads_info[0][2]['mid_price'] if spreads_info else 0.5))*100:.2f}%) threshold")
-        logger.info("="*80)
-
-        return opportunities
-
-    def execute_market_making_trade(self, market: Market, spread: float, data: Dict[str, Any]) -> bool:
-        """Simulate market making trade (DRY RUN)"""
         try:
             best_bid = data['best_bid']
             best_ask = data['best_ask']
             mid_price = data['mid_price']
+            spread = data['spread']
 
             # Calculate position size based on liquidity
-            base_size = min(100.0, market.liquidity * 0.01) if market.liquidity > 0 else 50.0
+            base_size = min(100.0, self.btc_market.liquidity * 0.01) if self.btc_market.liquidity > 0 else 50.0
 
             # Limit exposure
             position_cost = base_size * mid_price
@@ -111,101 +128,251 @@ class BidAskSpreadStrategy:
             our_bid = best_bid + (spread * 0.3)  # 30% inside from bid
             our_ask = best_ask - (spread * 0.3)  # 30% inside from ask
 
-            logger.info(f"\n*** MARKET MAKING OPPORTUNITY ***")
-            logger.info(f"Market: {market.question[:60]}")
+            logger.info(f"\n{'='*80}")
+            logger.info(f"*** 💰 LIVE MARKET MAKING ON BTC HOURLY MARKET ***")
+            logger.info(f"{'='*80}")
+            logger.info(f"Market: {self.btc_market.question}")
             logger.info(f"Current spread: {spread:.4f} ({data['spread_pct']:.2f}%)")
             logger.info(f"Current best bid: {best_bid:.4f} | best ask: {best_ask:.4f}")
-            logger.info(f"\nWOULD PLACE:")
-            logger.info(f"  BUY order:  {base_size:.2f} shares @ {our_bid:.4f} (better than ask)")
-            logger.info(f"  SELL order: {base_size:.2f} shares @ {our_ask:.4f} (better than bid)")
-            logger.info(f"\nPotential profit if both fill: ${base_size * (our_ask - our_bid):.2f}")
-            logger.info(f"Capital required: ${base_size * our_bid:.2f}")
-            logger.info("*** DRY RUN - NO ACTUAL TRADES ***\n")
+            logger.info(f"Mid price: {mid_price:.4f}")
+            logger.info(f"\n📊 PLACING ORDERS:")
+            logger.info(f"  BUY order:  {base_size:.2f} shares @ {our_bid:.4f}")
+            logger.info(f"  SELL order: {base_size:.2f} shares @ {our_ask:.4f}")
 
-            # Store opportunity
-            self.opportunities[market.id] = {
-                'market': market,
-                'spread': spread,
-                'spread_pct': data['spread_pct'],
-                'our_bid': our_bid,
-                'our_ask': our_ask,
-                'size': base_size,
-                'potential_profit': base_size * (our_ask - our_bid)
-            }
+            # Get token ID
+            token_id = self.btc_market.metadata.get('token_id')
+            if not token_id:
+                logger.error("❌ Token ID not found in market metadata")
+                return False
+            
+            # Place REAL BUY order
+            try:
+                buy_order = self.exchange.create_order(
+                    market_id=self.btc_market.id,
+                    outcome='Yes',
+                    side=OrderSide.BUY,
+                    price=our_bid,
+                    size=base_size,
+                    params={'token_id': token_id}
+                )
+                logger.info(f"\n✅ BUY Order Placed!")
+                logger.info(f"   Order ID: {buy_order.id}")
+                logger.info(f"   Price: {buy_order.price:.4f}")
+                logger.info(f"   Size: {buy_order.size:.2f}")
+                logger.info(f"   Status: {buy_order.status.value}")
+                self.placed_orders.append(('BUY', buy_order))
+            except Exception as e:
+                logger.error(f"❌ Failed to place BUY order: {e}")
+                return False
+
+            # Place REAL SELL order
+            try:
+                sell_order = self.exchange.create_order(
+                    market_id=self.btc_market.id,
+                    outcome='Yes',
+                    side=OrderSide.SELL,
+                    price=our_ask,
+                    size=base_size,
+                    params={'token_id': token_id}
+                )
+                logger.info(f"\n✅ SELL Order Placed!")
+                logger.info(f"   Order ID: {sell_order.id}")
+                logger.info(f"   Price: {sell_order.price:.4f}")
+                logger.info(f"   Size: {sell_order.size:.2f}")
+                logger.info(f"   Status: {sell_order.status.value}")
+                self.placed_orders.append(('SELL', sell_order))
+            except Exception as e:
+                logger.error(f"❌ Failed to place SELL order: {e}")
+                # Try to cancel the buy order if sell fails
+                try:
+                    self.exchange.cancel_order(buy_order.id)
+                    logger.info(f"⚠️  Cancelled BUY order {buy_order.id} due to SELL order failure")
+                except:
+                    pass
+                return False
+
+            self.trades_executed += 1
+
+            logger.info(f"\n💰 POTENTIAL PROFIT:")
+            logger.info(f"  If both fill: ${base_size * (our_ask - our_bid):.2f}")
+            logger.info(f"  Capital required: ${base_size * our_bid:.2f}")
+            logger.info(f"  ROI: {((our_ask - our_bid) / our_bid * 100):.2f}%")
+            logger.info(f"\n*** 🔴 LIVE ORDERS PLACED - REAL MONEY AT RISK ***")
+            logger.info(f"{'='*80}\n")
 
             return True
 
         except Exception as e:
-            logger.error(f"Error in market making calculation: {e}")
+            logger.error(f"❌ Error in market making: {e}")
             return False
 
     def run_strategy(self, duration_minutes: int = 2, check_interval_seconds: int = 30):
-        """Run the bid-ask spread strategy"""
+        """Run the BTC hourly market making strategy"""
         start_time = time.time()
         end_time = start_time + (duration_minutes * 60)
 
-        logger.info(f"\nStarting Bid-Ask Spread Strategy")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"🚀 BTC Hourly Market Making Strategy - LIVE TRADING")
+        logger.info(f"{'='*80}")
+        logger.info(f"Mode: 🔴 PRODUCTION (Real Orders)")
         logger.info(f"Duration: {duration_minutes} minutes")
-        logger.info(f"Minimum spread threshold: {self.min_spread:.4f}")
+        logger.info(f"Check interval: {check_interval_seconds} seconds")
         logger.info(f"Maximum exposure: ${self.max_exposure:.2f}")
+        logger.info(f"{'='*80}\n")
+        
+        logger.info("")
+
+        # Find the BTC hourly market
+        logger.info("Step 1: Finding BTC hourly market...")
+        markets = self.exchange.fetch_markets({'limit': 100})
+        self.btc_market = self.find_btc_hourly_market(markets)
+
+        if not self.btc_market:
+            logger.error("❌ Cannot find BTC hourly market. Exiting.")
+            return
+
+        logger.info(f"\n✓ Market found! Starting market making...\n")
 
         iteration = 0
         try:
             while time.time() < end_time:
                 iteration += 1
-                logger.info(f"\n{'='*80}")
-                logger.info(f"Iteration #{iteration} - {time.strftime('%H:%M:%S')}")
-                logger.info(f"{'='*80}")
+                logger.info(f"\n{'─'*80}")
+                logger.info(f"⏰ Iteration #{iteration} - {time.strftime('%H:%M:%S')}")
+                logger.info(f"{'─'*80}")
 
-                # Fetch markets
-                markets = self.exchange.fetch_markets({'limit': 100})
+                # Refresh market data
+                try:
+                    self.btc_market = self.exchange.fetch_market(self.btc_market.id)
+                except Exception as e:
+                    logger.error(f"Error refreshing market data: {e}")
+                    time.sleep(check_interval_seconds)
+                    continue
 
-                # Analyze for spread opportunities
-                opportunities = self.analyze_markets(markets)
+                # Get current market data
+                market_data = self.get_market_data(self.btc_market)
 
-                # Execute top 3 opportunities
-                for market, spread, data in opportunities[:3]:
-                    if market.id not in self.opportunities:
-                        self.execute_market_making_trade(market, spread, data)
+                if market_data:
+                    logger.info(f"\n📈 Current Market Status:")
+                    logger.info(f"   Spread: {market_data['spread']:.4f} ({market_data['spread_pct']:.2f}%)")
+                    logger.info(f"   Best Bid: {market_data['best_bid']:.4f}")
+                    logger.info(f"   Best Ask: {market_data['best_ask']:.4f}")
+                    logger.info(f"   Mid Price: {market_data['mid_price']:.4f}")
+                    logger.info(f"   Volume: ${self.btc_market.volume:,.0f}")
+                    logger.info(f"   Liquidity: ${self.btc_market.liquidity:,.0f}")
+
+                    # Execute market making
+                    self.execute_market_making(market_data)
+                else:
+                    logger.warning("⚠ No valid market data available for this iteration")
 
                 # Wait for next iteration
                 if time.time() < end_time:
-                    logger.info(f"\nWaiting {check_interval_seconds}s until next check...")
+                    logger.info(f"\n⏳ Waiting {check_interval_seconds}s until next check...")
                     time.sleep(check_interval_seconds)
 
         except KeyboardInterrupt:
-            logger.info("\n\nStrategy interrupted by user")
+            logger.info("\n\n⚠ Strategy interrupted by user")
         finally:
             logger.info(f"\n{'='*80}")
-            logger.info("STRATEGY COMPLETED")
+            logger.info("✓ STRATEGY COMPLETED")
             logger.info(f"{'='*80}")
-            logger.info(f"Total opportunities found: {len(self.opportunities)}")
-
-            if self.opportunities:
-                total_potential_profit = sum(o['potential_profit'] for o in self.opportunities.values())
-                logger.info(f"Total potential profit: ${total_potential_profit:.2f}")
-                logger.info(f"\nOpportunities:")
-                for i, (market_id, opp) in enumerate(self.opportunities.items(), 1):
-                    logger.info(f"  {i}. {opp['market'].question[:50]}")
-                    logger.info(f"     Spread: {opp['spread']:.4f} ({opp['spread_pct']:.2f}%)")
-                    logger.info(f"     Our bid/ask: {opp['our_bid']:.4f} / {opp['our_ask']:.4f}")
-                    logger.info(f"     Potential profit: ${opp['potential_profit']:.2f}")
-            else:
-                logger.info("No spread opportunities found above threshold")
+            logger.info(f"Market: {self.btc_market.question if self.btc_market else 'N/A'}")
+            logger.info(f"Total iterations: {iteration}")
+            logger.info(f"Market making executions: {self.trades_executed}")
+            logger.info(f"Total orders placed: {len(self.placed_orders)}")
+            
+            if self.placed_orders:
+                logger.info(f"\n📋 ORDER SUMMARY:")
+                logger.info(f"{'─'*80}")
+                for i, (side, order) in enumerate(self.placed_orders, 1):
+                    logger.info(f"{i}. {side} Order - ID: {order.id}")
+                    logger.info(f"   Price: {order.price:.4f} | Size: {order.size:.2f} | Status: {order.status.value}")
+                
+                # Check final balance
+                try:
+                    final_balance = self.exchange.fetch_balance()
+                    final_usdc = final_balance.get('USDC', 0)
+                    logger.info(f"\n💰 Final USDC Balance: ${final_usdc:,.2f}")
+                except:
+                    pass
+                
+                logger.info(f"\n⚠️  Remember to check and manage your open orders!")
+                logger.info(f"   View orders at: https://polymarket.com/")
+            
+            logger.info(f"{'='*80}\n")
 
 def main():
+    """Main entry point for BTC hourly market making strategy"""
+    
+    # Load environment variables from .env file
+    load_dotenv()
+    
+    # Get credentials from environment variables (REQUIRED)
+    private_key = os.getenv('POLYMARKET_PRIVATE_KEY')
+    funder = os.getenv('POLYMARKET_FUNDER')
+    
+    # Validate required credentials
+    missing_vars = []
+    if not private_key:
+        missing_vars.append('POLYMARKET_PRIVATE_KEY')
+    if not funder:
+        missing_vars.append('POLYMARKET_FUNDER')
+    
+    if missing_vars:
+        logger.error("❌ ERROR: Required environment variables not set!")
+        logger.error("")
+        for var in missing_vars:
+            logger.error(f"   Missing: {var}")
+        logger.error("")
+        logger.error("Create a .env file in the examples directory with:")
+        logger.error("")
+        logger.error("   POLYMARKET_PRIVATE_KEY=your_private_key_here")
+        logger.error("   POLYMARKET_FUNDER=0xYourFunderAddressHere")
+        logger.error("")
+        logger.error("Or copy env.example to .env and edit it")
+        return
+    
+    logger.info("\n" + "="*80)
+    logger.info("📋 Configuration Check")
+    logger.info("="*80)
+    logger.info(f"✓ Private Key: {'*' * 10}...{private_key[-6:]}")
+    logger.info(f"✓ Funder Address: {funder[:6]}...{funder[-4:]}")
+    logger.info("="*80)
+    
+    logger.warning("\n" + "="*80)
+    logger.warning("⚠️  WARNING: LIVE TRADING MODE - REAL MONEY WILL BE USED")
+    logger.warning("="*80)
+    logger.warning("This strategy will place REAL orders on Polymarket")
+    logger.warning("You will be using REAL USDC and taking REAL market risk")
+    logger.warning("Orders will be placed via proxy wallet with funder address")
+    logger.warning("="*80)
+    
+    # Wait for user confirmation
+    try:
+        confirmation = input("\nType 'YES' to continue with LIVE trading: ")
+        if confirmation != "YES":
+            logger.info("❌ Trading cancelled by user")
+            return
+    except KeyboardInterrupt:
+        logger.info("\n❌ Trading cancelled by user")
+        return
+    
     exchange_config = {
-        'dry_run': True
+        'private_key': private_key,
+        'funder': funder,  # Add funder address for proxy wallet
+        'verbose': True
     }
 
-    strategy = BidAskSpreadStrategy(
+    strategy = BTCHourlyMarketMaker(
         exchange_config=exchange_config,
-        min_spread=0.003,  # 0.3% minimum spread
         max_exposure=500.0
     )
 
-    # Run for 2 minutes
-    strategy.run_strategy(duration_minutes=2, check_interval_seconds=35)
+    logger.info("\n🚀 Starting LIVE trading strategy...")
+    
+    # Run for 2 minutes with 30 second intervals
+    strategy.run_strategy(duration_minutes=2, check_interval_seconds=30)
 
 if __name__ == "__main__":
     main()

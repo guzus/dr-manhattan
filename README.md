@@ -21,10 +21,6 @@ two_face/
 │   ├── order.py
 │   └── position.py
 └── utils/          # Utilities (future)
-
-Symbolic Links:
-├── poly-mm/        -> /path/to/poly-mm
-└── limitless-mm/   -> /path/to/limitless-mm
 ```
 
 ### Design Principles

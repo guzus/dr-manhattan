@@ -238,6 +238,7 @@ exchange = Polymarket({
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `private_key` | str | Yes* | Ethereum private key for signing transactions |
+| `funder` | str | No** | Funder address (public key) for proxy wallet trading |
 | `condition_id` | str | No | Market condition ID (Pattern B only) |
 | `yes_token_id` | str | No | YES outcome token ID (Pattern B only) |
 | `no_token_id` | str | No | NO outcome token ID (Pattern B only) |
@@ -245,9 +246,40 @@ exchange = Polymarket({
 | `verbose` | bool | No | Enable verbose logging (default: False) |
 | `chain_id` | int | No | Polygon chain ID (default: 137) |
 
-*Required for trading operations only
+*Required for trading operations only  
+**Required if using proxy wallet for trading
 
 **💡 Tip:** Use Pattern A for maximum flexibility when trading on multiple markets.
+
+#### Proxy Wallet Trading
+
+If you're using a proxy wallet (common for Polymarket trading), you need both:
+1. **Private Key** - Your proxy wallet's private key for signing
+2. **Funder Address** - Your main wallet's public address that funds the proxy
+
+```python
+exchange = Polymarket({
+    'private_key': 'proxy_wallet_private_key',
+    'funder': '0xYourMainWalletAddress',  # Public address of funder
+    'verbose': True
+})
+
+# Now trade as normal
+order = exchange.create_order(
+    market_id='market_id',
+    outcome='Yes',
+    side=OrderSide.BUY,
+    price=0.52,
+    size=100.0,
+    params={'token_id': 'token_id'}
+)
+```
+
+**Benefits of Proxy Wallets:**
+- Lower gas costs
+- Faster order execution
+- Main wallet retains custody of funds
+- Can be revoked at any time
 
 ### 3. WebSocket Authentication
 

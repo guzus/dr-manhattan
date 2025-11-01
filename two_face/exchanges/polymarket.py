@@ -1,20 +1,6 @@
-import sys
-from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "poly-mm"))
-
-try:
-    from poly_mm.core.client import PolymarketClient
-    from poly_mm.core.config import Config
-    POLY_MM_AVAILABLE = True
-except ImportError:
-    POLY_MM_AVAILABLE = False
-    PolymarketClient = None
-    Config = None
-    print("Warning: poly-mm package not available. Some features will be limited.")
 
 from ..base.exchange import Exchange
 from ..base.errors import NetworkError, ExchangeError, MarketNotFound
@@ -25,9 +11,10 @@ from .polymarket_ws import PolymarketWebSocket
 
 
 class Polymarket(Exchange):
-    """Polymarket exchange implementation using symbolic link"""
+    """Polymarket exchange implementation"""
 
     BASE_URL = "https://gamma-api.polymarket.com"
+    CLOB_URL = "https://clob.polymarket.com"
 
     @property
     def id(self) -> str:
@@ -40,28 +27,81 @@ class Polymarket(Exchange):
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """Initialize Polymarket exchange"""
         super().__init__(config)
-        self.poly_client = None
         self._ws = None
-        if self.config.get('private_key'):
-            self._initialize_client()
+        self.private_key = self.config.get('private_key')
+        self.funder = self.config.get('funder')
 
-    def _initialize_client(self):
-        """Initialize Polymarket client"""
-        if not POLY_MM_AVAILABLE:
-            raise ExchangeError("poly-mm package not available. Please install dependencies from poly-mm/")
-
+    def _sign_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Sign an order using EIP-712 for Polymarket CLOB
+        
+        This implements the proper signing required by Polymarket's CLOB API.
+        """
+        if not self.private_key:
+            raise ExchangeError("Private key required for signing orders")
+        
         try:
-            poly_config = Config(
-                private_key=self.config['private_key'],
-                condition_id=self.config.get('condition_id', ''),
-                yes_token_id=self.config.get('yes_token_id', ''),
-                no_token_id=self.config.get('no_token_id', ''),
-                dry_run=self.config.get('dry_run', False)
+            from eth_account import Account
+            from eth_account.messages import encode_structured_data
+        except ImportError:
+            raise ExchangeError(
+                "eth-account required for order signing. Install with: pip install eth-account"
             )
-            self.poly_client = PolymarketClient(poly_config)
-            self.poly_client.initialize()
-        except Exception as e:
-            raise ExchangeError(f"Client initialization failed: {e}")
+        
+        # EIP-712 domain for Polymarket CLOB
+        domain = {
+            "name": "ClobAuthDomain",
+            "version": "1",
+            "chainId": self.config.get('chain_id', 137),  # Polygon mainnet
+        }
+        
+        # Build EIP-712 message
+        message = {
+            "tokenID": order_data["tokenID"],
+            "price": order_data["price"],
+            "size": order_data["size"],
+            "side": order_data["side"],
+            "timestamp": int(datetime.now().timestamp()),
+        }
+        
+        # Add funder if provided (for proxy wallet)
+        if self.funder:
+            message["funder"] = self.funder
+        
+        # EIP-712 types
+        types = {
+            "Order": [
+                {"name": "tokenID", "type": "string"},
+                {"name": "price", "type": "string"},
+                {"name": "size", "type": "string"},
+                {"name": "side", "type": "string"},
+                {"name": "timestamp", "type": "uint256"},
+            ]
+        }
+        
+        if self.funder:
+            types["Order"].append({"name": "funder", "type": "address"})
+        
+        # Create structured data
+        structured_data = {
+            "types": types,
+            "primaryType": "Order",
+            "domain": domain,
+            "message": message,
+        }
+        
+        # Sign the message
+        encoded_data = encode_structured_data(structured_data)
+        account = Account.from_key(self.private_key)
+        signed_message = account.sign_message(encoded_data)
+        
+        # Return signed order payload
+        return {
+            **order_data,
+            "signature": signed_message.signature.hex(),
+            "signer": account.address,
+            "timestamp": message["timestamp"],
+        }
 
     def _request(self, method: str, endpoint: str, params: Optional[Dict] = None) -> Any:
         """Make HTTP request to Polymarket API with retry logic"""
@@ -221,44 +261,56 @@ class Polymarket(Exchange):
         size: float,
         params: Optional[Dict[str, Any]] = None
     ) -> Order:
-        """Create order on Polymarket"""
-        if self.poly_client:
-            token_id = params.get('token_id') if params else None
-            if not token_id:
-                raise ExchangeError("token_id required in params when using authenticated client")
-
-            result = self.poly_client.create_limit_order(
-                token_id=token_id,
-                price=Decimal(str(price)),
-                size=Decimal(str(size)),
-                side=side.value.upper()
-            )
-
-            if result:
-                return Order(
-                    id=result.get("orderID", ""),
-                    market_id=market_id,
-                    outcome=outcome,
-                    side=side,
-                    price=price,
-                    size=size,
-                    filled=0,
-                    status=OrderStatus.OPEN,
-                    created_at=datetime.now(),
-                    updated_at=datetime.now()
-                )
-
-        payload = {
-            "market_id": market_id,
-            "outcome": outcome,
-            "side": side.value,
-            "price": price,
-            "size": size,
-            **(params or {})
+        """
+        Create order on Polymarket CLOB
+        
+        This places a REAL order with REAL money.
+        Requires proper authentication and order signing.
+        """
+        if not self.private_key:
+            raise ExchangeError("Private key required to place orders")
+        
+        # Get token_id from params
+        token_id = params.get('token_id') if params else None
+        if not token_id:
+            raise ExchangeError("token_id required in params")
+        
+        # Build order payload for CLOB API
+        order_payload = {
+            "tokenID": token_id,
+            "price": str(price),
+            "size": str(size),
+            "side": side.value.upper(),  # BUY or SELL
         }
-
-        data = self._request("POST", "/orders", payload)
-        return self._parse_order(data)
+        
+        # Sign the order
+        signed_order = self._sign_order(order_payload)
+        
+        # Submit to CLOB API
+        import requests
+        response = requests.post(
+            f"{self.CLOB_URL}/order",
+            json=signed_order,
+            timeout=self.timeout
+        )
+        
+        if response.status_code != 200:
+            raise ExchangeError(f"Order placement failed: {response.text}")
+        
+        result = response.json()
+        
+        return Order(
+            id=result.get("orderID", ""),
+            market_id=market_id,
+            outcome=outcome,
+            side=side,
+            price=price,
+            size=size,
+            filled=0,
+            status=OrderStatus.OPEN,
+            created_at=datetime.now(),
+            updated_at=datetime.now()
+        )
 
     def cancel_order(self, order_id: str, market_id: Optional[str] = None) -> Order:
         """Cancel order on Polymarket"""
@@ -301,18 +353,22 @@ class Polymarket(Exchange):
         return [self._parse_position(pos) for pos in data]
 
     def fetch_balance(self) -> Dict[str, float]:
-        """Fetch account balance"""
-        if self.poly_client:
-            try:
-                balance = self.poly_client.get_usdc_balance()
-                return {"USDC": float(balance)}
-            except Exception as e:
-                raise ExchangeError(f"Failed to fetch balance: {e}")
-
-        data = self._request("GET", "/balance")
-        return {
-            "USDC": float(data.get("balance", 0))
-        }
+        """
+        Fetch account balance from Polymarket
+        
+        Note: This requires implementation of Data API authentication.
+        """
+        if not self.private_key and not self.funder:
+            raise ExchangeError("Private key or funder required to fetch balance")
+        
+        # TODO: Implement authenticated balance fetching via Data API
+        # For now, this needs to be implemented based on Polymarket's Data API spec
+        # You would make an authenticated request to the Data API here
+        
+        raise ExchangeError(
+            "Balance fetching via Data API not yet implemented. "
+            "You need to implement authentication for Polymarket's Data API endpoint."
+        )
 
     def _parse_order(self, data: Dict[str, Any]) -> Order:
         """Parse order data from API response"""
