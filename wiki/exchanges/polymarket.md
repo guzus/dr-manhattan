@@ -6,8 +6,11 @@
 - **Exchange Name**: Polymarket
 - **Type**: Prediction Market
 - **Base Class**: [Exchange](../../two_face/base/exchange.py)
-- **REST API**: `https://gamma-api.polymarket.com`
-- **WebSocket API**: `wss://ws-subscriptions-clob.polymarket.com/ws/market`
+- **CLOB API**: `https://clob.polymarket.com/`
+- **Data API**: `https://data-api.polymarket.com/`
+- **Gamma API**: `https://gamma-api.polymarket.com/`
+- **WebSocket API**: `wss://ws-subscriptions-clob.polymarket.com/ws/`
+- **RTDS WebSocket**: `wss://ws-live-data.polymarket.com`
 - **Documentation**: https://docs.polymarket.com/
 
 Polymarket is a decentralized prediction market platform built on Polygon. Users can trade on the outcome of real-world events.
