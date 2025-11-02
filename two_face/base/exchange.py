@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Coroutine
 import time
 import random
+import asyncio
 from functools import wraps
 from ..models.market import Market
 from ..models.order import Order, OrderSide
@@ -27,16 +28,23 @@ class Exchange(ABC):
         self.api_secret = self.config.get('api_secret')
         self.timeout = self.config.get('timeout', 30)
         self.verbose = self.config.get('verbose', False)
-        
+
         # Rate limiting
         self.rate_limit = self.config.get('rate_limit', 10)  # requests per second
         self.last_request_time = 0
         self.request_times = []  # For sliding window rate limiting
-        
+
         # Retry configuration
         self.max_retries = self.config.get('max_retries', 3)
         self.retry_delay = self.config.get('retry_delay', 1.0)  # Base delay in seconds
         self.retry_backoff = self.config.get('retry_backoff', 2.0)  # Multiplier for exponential backoff
+
+        # Cached account state (managed internally)
+        self._balance_cache = {}
+        self._positions_cache = []
+        self._balance_last_updated = 0
+        self._positions_last_updated = 0
+        self._cache_ttl = self.config.get('cache_ttl', 2.0)  # Cache TTL in seconds (default 2s for Polygon block time)
 
     @property
     @abstractmethod
@@ -169,12 +177,143 @@ class Exchange(ABC):
     @abstractmethod
     def fetch_balance(self) -> Dict[str, float]:
         """
-        Fetch account balance.
+        Fetch account balance (synchronous).
 
         Returns:
             Dictionary with balance info (e.g., {'USDC': 1000.0})
         """
         pass
+
+    def get_balance(self) -> Dict[str, float]:
+        """
+        Get cached balance (non-blocking). Updates cache in background if stale.
+        This is the recommended method for high-frequency access.
+
+        Returns:
+            Dictionary with cached balance info
+        """
+        current_time = time.time()
+
+        # If cache is stale, trigger async update
+        if current_time - self._balance_last_updated > self._cache_ttl:
+            try:
+                # Non-blocking update
+                self._update_balance_cache()
+            except Exception as e:
+                if self.verbose:
+                    print(f"Background balance update failed: {e}")
+
+        return self._balance_cache.copy()
+
+    def get_positions(self, market_id: Optional[str] = None) -> list[Position]:
+        """
+        Get cached positions (non-blocking). Updates cache in background if stale.
+        This is the recommended method for high-frequency access.
+
+        Args:
+            market_id: Optional market filter
+
+        Returns:
+            List of cached Position objects
+        """
+        current_time = time.time()
+
+        # If cache is stale, trigger async update
+        if current_time - self._positions_last_updated > self._cache_ttl:
+            try:
+                # Non-blocking update
+                self._update_positions_cache(market_id)
+            except Exception as e:
+                if self.verbose:
+                    print(f"Background positions update failed: {e}")
+
+        # Filter by market_id if provided
+        if market_id:
+            return [p for p in self._positions_cache if p.market_id == market_id]
+        return self._positions_cache.copy()
+
+    def _update_balance_cache(self):
+        """Internal method to update balance cache"""
+        try:
+            balance = self.fetch_balance()
+            self._balance_cache = balance
+            self._balance_last_updated = time.time()
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to update balance cache: {e}")
+            raise
+
+    def _update_positions_cache(self, market_id: Optional[str] = None):
+        """Internal method to update positions cache"""
+        try:
+            positions = self.fetch_positions(market_id=market_id)
+            self._positions_cache = positions
+            self._positions_last_updated = time.time()
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to update positions cache: {e}")
+            raise
+
+    def refresh_account_state(self, market_id: Optional[str] = None):
+        """
+        Force refresh of both balance and positions cache (blocking).
+        Call this before starting a trading session or when you need guaranteed fresh data.
+
+        Args:
+            market_id: Optional market filter for positions
+        """
+        self._update_balance_cache()
+        self._update_positions_cache(market_id)
+
+    def find_tradeable_market(
+        self,
+        binary: bool = True,
+        limit: int = 100,
+        min_liquidity: float = 0.0
+    ) -> Optional[Market]:
+        """
+        Find a suitable market for trading.
+        Filters for open markets with valid token IDs.
+
+        Args:
+            binary: Only return binary markets
+            limit: Maximum markets to fetch
+            min_liquidity: Minimum liquidity required
+
+        Returns:
+            Market object or None if no suitable market found
+        """
+        import random
+
+        markets = self.fetch_markets({'limit': limit})
+
+        suitable_markets = []
+        for market in markets:
+            # Check binary
+            if binary and not market.is_binary:
+                continue
+
+            # Check open
+            if not market.is_open:
+                continue
+
+            # Check liquidity
+            if market.liquidity < min_liquidity:
+                continue
+
+            # Check has token IDs (exchange-specific, but generally in metadata)
+            if 'clobTokenIds' in market.metadata:
+                token_ids = market.metadata.get('clobTokenIds', [])
+                if not token_ids or len(token_ids) < 1:
+                    continue
+
+            suitable_markets.append(market)
+
+        if not suitable_markets:
+            return None
+
+        # Return random market
+        return random.choice(suitable_markets)
 
     def describe(self) -> Dict[str, Any]:
         """

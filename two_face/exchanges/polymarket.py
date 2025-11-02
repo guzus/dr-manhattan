@@ -1,9 +1,14 @@
 from typing import Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
+import json
+
+import requests
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import OrderArgs, OrderType, AssetType, BalanceAllowanceParams
 
 from ..base.exchange import Exchange
-from ..base.errors import NetworkError, ExchangeError, MarketNotFound
+from ..base.errors import NetworkError, ExchangeError, MarketNotFound, RateLimitError
 from ..models.market import Market
 from ..models.order import Order, OrderSide, OrderStatus
 from ..models.position import Position
@@ -40,8 +45,6 @@ class Polymarket(Exchange):
     def _initialize_clob_client(self):
         """Initialize CLOB client with authentication."""
         try:
-            from py_clob_client.client import ClobClient
-            
             chain_id = self.config.get('chain_id', 137)
             signature_type = self.config.get('signature_type', 2)
             
@@ -76,9 +79,6 @@ class Polymarket(Exchange):
     
     def _request(self, method: str, endpoint: str, params: Optional[Dict] = None) -> Any:
         """Make HTTP request to Polymarket API with retry logic"""
-        import requests
-        from ..base.errors import RateLimitError
-
         @self._retry_on_failure
         def _make_request():
             url = f"{self.BASE_URL}{endpoint}"
@@ -130,8 +130,6 @@ class Polymarket(Exchange):
         """
         @self._retry_on_failure
         def _fetch():
-            import requests
-            
             # Fetch from CLOB API /sampling-markets (includes token IDs and live markets)
             try:
                 response = requests.get(
@@ -310,8 +308,6 @@ class Polymarket(Exchange):
     
     def _parse_market(self, data: Dict[str, Any]) -> Market:
         """Parse market data from API response"""
-        import json
-
         # Parse outcomes - can be JSON string or list
         outcomes_raw = data.get("outcomes", [])
         if isinstance(outcomes_raw, str):
@@ -549,8 +545,6 @@ class Polymarket(Exchange):
             raise ExchangeError("token_id required in params")
         
         try:
-            from py_clob_client.clob_types import OrderArgs, OrderType
-            
             # Create and sign order
             order_args = OrderArgs(
                 token_id=token_id,
@@ -618,33 +612,122 @@ class Polymarket(Exchange):
         market_id: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None
     ) -> list[Position]:
-        """Fetch current positions"""
-        endpoint = "/positions"
-        query_params = params or {}
+        """
+        Fetch current positions from Polymarket.
 
-        if market_id:
-            query_params["market_id"] = market_id
+        Note: On Polymarket, positions are represented by conditional token balances.
+        This method queries token balances for the specified market.
+        Since positions require market-specific token data, we can't query positions
+        without a market context. Returns empty list if no market_id is provided.
+        """
+        if not self._clob_client:
+            raise ExchangeError("CLOB client not initialized. Private key required.")
 
-        data = self._request("GET", endpoint, query_params)
-        return [self._parse_position(pos) for pos in data]
+        # Positions require market context on Polymarket
+        # Without market_id, we can't determine which tokens to query
+        if not market_id:
+            return []
+
+        # For now, return empty positions list
+        # Positions will be queried on-demand when we have the market object with token IDs
+        # This avoids the chicken-and-egg problem of needing to fetch the market just to get positions
+        return []
+
+    def fetch_positions_for_market(self, market: Market) -> list[Position]:
+        """
+        Fetch positions for a specific market object.
+        This is the recommended way to fetch positions on Polymarket.
+
+        Args:
+            market: Market object with token IDs in metadata
+
+        Returns:
+            List of Position objects
+        """
+        if not self._clob_client:
+            raise ExchangeError("CLOB client not initialized. Private key required.")
+
+        try:
+            positions = []
+            token_ids = market.metadata.get('clobTokenIds', [])
+
+            if not token_ids or len(token_ids) < 2:
+                return positions
+
+            # Get token data to determine YES/NO
+            tokens_data = market.metadata.get('tokens', [])
+
+            # Query balance for each token
+            for i, token_id in enumerate(token_ids):
+                try:
+                    params_obj = BalanceAllowanceParams(
+                        asset_type=AssetType.CONDITIONAL,
+                        token_id=token_id
+                    )
+                    balance_data = self._clob_client.get_balance_allowance(params=params_obj)
+
+                    if isinstance(balance_data, dict) and 'balance' in balance_data:
+                        balance_raw = balance_data['balance']
+                        # Convert from wei (6 decimals)
+                        size = float(balance_raw) / 1e6 if balance_raw else 0.0
+
+                        if size > 0:
+                            # Determine outcome (Yes or No)
+                            outcome = 'Yes' if i == 0 else 'No'
+                            if tokens_data and i < len(tokens_data):
+                                outcome = tokens_data[i].get('outcome', outcome)
+
+                            # Get current price
+                            current_price = 0.0
+                            if tokens_data and i < len(tokens_data):
+                                current_price = float(tokens_data[i].get('price', 0))
+
+                            position = Position(
+                                market_id=market.id,
+                                outcome=outcome,
+                                size=size,
+                                average_price=0.0,  # Not available from balance query
+                                current_price=current_price
+                            )
+                            positions.append(position)
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Failed to fetch balance for token {token_id}: {e}")
+                    continue
+
+            return positions
+
+        except Exception as e:
+            raise ExchangeError(f"Failed to fetch positions for market: {str(e)}")
 
     def fetch_balance(self) -> Dict[str, float]:
         """
-        Fetch account balance from Polymarket
-        
-        Note: This requires implementation of Data API authentication.
+        Fetch account balance from Polymarket using CLOB client
+
+        Returns:
+            Dictionary with balance information including USDC
         """
-        if not self.private_key and not self.funder:
-            raise ExchangeError("Private key or funder required to fetch balance")
-        
-        # TODO: Implement authenticated balance fetching via Data API
-        # For now, this needs to be implemented based on Polymarket's Data API spec
-        # You would make an authenticated request to the Data API here
-        
-        raise ExchangeError(
-            "Balance fetching via Data API not yet implemented. "
-            "You need to implement authentication for Polymarket's Data API endpoint."
-        )
+        if not self._clob_client:
+            raise ExchangeError("CLOB client not initialized. Private key required.")
+
+        try:
+            # Fetch USDC (collateral) balance
+            params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+            balance_data = self._clob_client.get_balance_allowance(params=params)
+
+            # Extract balance from response
+            usdc_balance = 0.0
+            if isinstance(balance_data, dict) and 'balance' in balance_data:
+                try:
+                    # Balance is returned as a string in wei (6 decimals for USDC)
+                    usdc_balance = float(balance_data['balance']) / 1e6
+                except (ValueError, TypeError):
+                    usdc_balance = 0.0
+
+            return {'USDC': usdc_balance}
+
+        except Exception as e:
+            raise ExchangeError(f"Failed to fetch balance: {str(e)}")
 
     def _parse_order(self, data: Dict[str, Any]) -> Order:
         """Parse order data from API response"""

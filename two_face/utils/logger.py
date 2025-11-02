@@ -13,6 +13,7 @@ class ColoredFormatter(logging.Formatter):
         'WARNING': '\033[33m',    # Yellow
         'ERROR': '\033[31m',      # Red
         'CRITICAL': '\033[35m',   # Magenta
+        'TIMESTAMP': '\033[90m',  # Bright Black (Gray)
         'RESET': '\033[0m'        # Reset
     }
     
@@ -30,17 +31,19 @@ class ColoredFormatter(logging.Formatter):
         color = self.COLORS.get(levelname, '')
         reset = self.COLORS['RESET']
         symbol = self.SYMBOLS.get(levelname, '')
-        
-        # Format: [SYMBOL] MESSAGE
-        record.levelname = f"{symbol}"
-        
-        # Clean format without timestamp
-        if record.levelname in ['📊', '🔍']:
+        timestamp_color = self.COLORS['TIMESTAMP']
+
+        # Format timestamp
+        from datetime import datetime
+        timestamp = datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+
+        # Format: [TIMESTAMP] [SYMBOL] MESSAGE
+        if record.levelname in ['INFO', 'DEBUG']:
             # For INFO/DEBUG, no symbol prefix
-            return f"{record.getMessage()}"
+            return f"{timestamp_color}[{timestamp}]{reset} {record.getMessage()}"
         else:
             # For warnings/errors, show symbol
-            return f"{symbol} {record.getMessage()}"
+            return f"{timestamp_color}[{timestamp}]{reset} {symbol} {record.getMessage()}"
 
 
 def setup_logger(name: str = None, level: int = logging.INFO) -> logging.Logger:
