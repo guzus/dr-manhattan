@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """
-Simplified Market Making Strategy for Polymarket
+BTC Hourly Market Making Strategy for Polymarket
 
-This example shows how to use the MarketMakingStrategy base class
-to build a strategy with minimal boilerplate.
+This example shows how to automatically find and trade on currently active
+BTC hourly markets using the find_crypto_hourly_market() function.
+
+The strategy:
+1. Finds the currently active BTC hourly market
+2. Places spread orders on Up/Down outcomes
+3. Runs for 2 minutes (or until market expires)
 
 Usage:
-    uv run examples/simple_spread_strategy.py
+    uv run examples/spread_strategy.py
 """
 
 import os
@@ -23,7 +28,7 @@ logger = setup_logger(__name__)
 class SimpleSpreadStrategy(MarketMakingStrategy):
     """
     Simple spread strategy: places orders inside the bid-ask spread.
-    If no position, buy NO at 1-price.
+    Handles both Yes/No and Up/Down markets.
     """
 
     def on_tick(self, market):
@@ -35,15 +40,20 @@ class SimpleSpreadStrategy(MarketMakingStrategy):
         positions = account['positions']
         balance = account['balance'].get('USDC', 0.0)
 
-        # Get market data
-        tokens_data = market.metadata.get('tokens', [])
-        if not tokens_data or len(tokens_data) < 2:
-            logger.warning("No token price data")
+        # Detect market type from outcomes
+        if not market.outcomes or len(market.outcomes) < 2:
+            logger.warning("Invalid market outcomes")
             return
 
-        # Get YES price and calculate spread
-        yes_token = tokens_data[0] if tokens_data[0].get('outcome') == 'Yes' else tokens_data[1]
-        mid_price = float(yes_token.get('price', 0))
+        first_outcome = market.outcomes[0]
+        is_up_down_market = first_outcome in ['Up', 'Down']
+
+        # Get primary outcome price (Yes or Up)
+        primary_outcome = 'Up' if is_up_down_market else 'Yes'
+        secondary_outcome = 'Down' if is_up_down_market else 'No'
+
+        # Get price from market.prices dictionary
+        mid_price = market.prices.get(primary_outcome, 0)
 
         if mid_price <= 0 or mid_price >= 1:
             logger.warning(f"Invalid mid price: {mid_price}")
@@ -58,44 +68,51 @@ class SimpleSpreadStrategy(MarketMakingStrategy):
         # Calculate order size
         size = self.calculate_order_size(market, mid_price, max_exposure=500.0)
 
-        # Get token IDs
-        token_ids = market.metadata.get('clobTokenIds', [])
+        # Get token IDs (parse from JSON string if needed)
+        token_ids_raw = market.metadata.get('clobTokenIds', [])
+        if isinstance(token_ids_raw, str):
+            import json
+            token_ids = json.loads(token_ids_raw)
+        else:
+            token_ids = token_ids_raw
+
         if len(token_ids) < 2:
             logger.error("Need 2 token IDs")
             return
 
-        yes_token_id = token_ids[0]
-        no_token_id = token_ids[1]
+        # Map outcomes to token IDs (assume order matches market.outcomes)
+        primary_token_id = token_ids[0] if market.outcomes[0] == primary_outcome else token_ids[1]
+        secondary_token_id = token_ids[1] if market.outcomes[0] == primary_outcome else token_ids[0]
 
-        # Check if we have YES position
-        yes_position = next((p for p in positions if p.outcome == 'Yes' and p.size > 0), None)
+        # Check if we have primary outcome position (Yes or Up)
+        primary_position = next((p for p in positions if p.outcome == primary_outcome and p.size > 0), None)
 
         logger.info(f"\n{'='*80}")
-        logger.info(f"LIVE MARKET MAKING")
+        logger.info(f"LIVE MARKET MAKING - BTC HOURLY")
         logger.info(f"{'='*80}")
         logger.info(f"Market: {market.question[:70]}...")
-        logger.info(f"Mid price: {mid_price:.4f} | Spread: {spread:.4f}")
+        logger.info(f"{primary_outcome} price: {mid_price:.4f} | Spread: {spread:.4f}")
         logger.info(f"USDC: ${balance:.2f}")
 
-        if yes_position:
+        if primary_position:
             # Market making: place both sides
             our_bid = best_bid + (spread * 0.3)
             our_ask = best_ask - (spread * 0.3)
 
-            logger.info(f"\nStrategy: Market making (have YES position)")
-            logger.info(f"  BUY YES:  {size:.2f} @ {our_bid:.4f}")
-            logger.info(f"  SELL YES: {size:.2f} @ {our_ask:.4f}")
+            logger.info(f"\nStrategy: Market making (have {primary_outcome} position)")
+            logger.info(f"  BUY {primary_outcome}:  {size:.2f} @ {our_bid:.4f}")
+            logger.info(f"  SELL {primary_outcome}: {size:.2f} @ {our_ask:.4f}")
 
             try:
                 buy_order = self.exchange.create_order(
                     market_id=market.id,
-                    outcome='Yes',
+                    outcome=primary_outcome,
                     side=OrderSide.BUY,
                     price=our_bid,
                     size=size,
-                    params={'token_id': yes_token_id}
+                    params={'token_id': primary_token_id}
                 )
-                logger.info(f"BUY YES placed: {buy_order.id}")
+                logger.info(f"BUY {primary_outcome} placed: {buy_order.id}")
                 self.placed_orders.append(buy_order)
             except Exception as e:
                 logger.error(f"Failed to place BUY order: {e}")
@@ -104,36 +121,36 @@ class SimpleSpreadStrategy(MarketMakingStrategy):
             try:
                 sell_order = self.exchange.create_order(
                     market_id=market.id,
-                    outcome='Yes',
+                    outcome=primary_outcome,
                     side=OrderSide.SELL,
                     price=our_ask,
                     size=size,
-                    params={'token_id': yes_token_id}
+                    params={'token_id': primary_token_id}
                 )
-                logger.info(f"SELL YES placed: {sell_order.id}")
+                logger.info(f"SELL {primary_outcome} placed: {sell_order.id}")
                 self.placed_orders.append(sell_order)
             except Exception as e:
                 logger.error(f"Failed to place SELL order: {e}")
 
         else:
-            # No position: buy NO at 1-price
-            no_price = 1 - mid_price
-            our_no_bid = max(0.01, min(0.99, no_price + (spread * 0.3)))
+            # No position: buy secondary outcome (No or Down) at 1-price
+            secondary_price = 1 - mid_price
+            our_secondary_bid = max(0.01, min(0.99, secondary_price + (spread * 0.3)))
 
-            logger.info(f"\nStrategy: Buy NO (no YES position)")
-            logger.info(f"  BUY NO: {size:.2f} @ {our_no_bid:.4f}")
+            logger.info(f"\nStrategy: Buy {secondary_outcome} (no {primary_outcome} position)")
+            logger.info(f"  BUY {secondary_outcome}: {size:.2f} @ {our_secondary_bid:.4f}")
 
             try:
-                buy_no_order = self.exchange.create_order(
+                buy_order = self.exchange.create_order(
                     market_id=market.id,
-                    outcome='No',
+                    outcome=secondary_outcome,
                     side=OrderSide.BUY,
-                    price=our_no_bid,
+                    price=our_secondary_bid,
                     size=size,
-                    params={'token_id': no_token_id}
+                    params={'token_id': secondary_token_id}
                 )
-                logger.info(f"BUY NO placed: {buy_no_order.id}")
-                self.placed_orders.append(buy_no_order)
+                logger.info(f"BUY {secondary_outcome} placed: {buy_order.id}")
+                self.placed_orders.append(buy_order)
             except Exception as e:
                 logger.error(f"Failed to place order: {e}")
 
@@ -160,15 +177,37 @@ def main():
         'verbose': True
     })
 
-    # Create and run strategy (that's it!)
+    # Find currently active BTC hourly market
+    logger.info("Finding currently active BTC hourly market...")
+    result = exchange.find_crypto_hourly_market(
+        token_symbol='BTC',
+        is_active=True,
+        is_expired=False
+    )
+
+    if not result:
+        logger.error("No active BTC hourly market found!")
+        return
+
+    market, crypto_info = result
+    logger.info(f"Found market: {crypto_info}")
+    logger.info(f"Question: {market.question}")
+    logger.info(f"Expiry: {crypto_info.expiry_time}")
+    logger.info(f"Market ID: {market.id}")
+    logger.info(f"UP price: {market.prices.get('Up', 0):.4f}")
+    logger.info(f"DOWN price: {market.prices.get('Down', 0):.4f}")
+    logger.info(f"Liquidity: ${market.liquidity:,.2f}")
+    logger.info("")
+
+    # Create and run strategy on this market
     strategy = SimpleSpreadStrategy(
         exchange=exchange,
         max_exposure=500.0,
         check_interval=2.0  # 2 seconds = Polygon block time
     )
 
-    # Run for 2 minutes
-    strategy.run(duration_minutes=2)
+    # Run strategy on the specific BTC hourly market for 2 minutes
+    strategy.run(market=market, duration_minutes=2)
 
 
 if __name__ == "__main__":

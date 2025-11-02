@@ -665,13 +665,16 @@ class Polymarket(Exchange):
 
         try:
             positions = []
-            token_ids = market.metadata.get('clobTokenIds', [])
+            token_ids_raw = market.metadata.get('clobTokenIds', [])
+
+            # Parse token IDs if they're stored as JSON string
+            if isinstance(token_ids_raw, str):
+                token_ids = json.loads(token_ids_raw)
+            else:
+                token_ids = token_ids_raw
 
             if not token_ids or len(token_ids) < 2:
                 return positions
-
-            # Get token data to determine YES/NO
-            tokens_data = market.metadata.get('tokens', [])
 
             # Query balance for each token
             for i, token_id in enumerate(token_ids):
@@ -688,15 +691,11 @@ class Polymarket(Exchange):
                         size = float(balance_raw) / 1e6 if balance_raw else 0.0
 
                         if size > 0:
-                            # Determine outcome (Yes or No)
-                            outcome = 'Yes' if i == 0 else 'No'
-                            if tokens_data and i < len(tokens_data):
-                                outcome = tokens_data[i].get('outcome', outcome)
+                            # Determine outcome from market.outcomes
+                            outcome = market.outcomes[i] if i < len(market.outcomes) else ('Yes' if i == 0 else 'No')
 
-                            # Get current price
-                            current_price = 0.0
-                            if tokens_data and i < len(tokens_data):
-                                current_price = float(tokens_data[i].get('price', 0))
+                            # Get current price from market.prices
+                            current_price = market.prices.get(outcome, 0.0)
 
                             position = Position(
                                 market_id=market.id,
