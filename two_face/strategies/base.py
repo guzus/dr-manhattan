@@ -198,7 +198,7 @@ class MarketMakingStrategy(BaseStrategy):
             max_exposure = self.max_exposure
 
         # Base size on liquidity
-        base_size = min(20.0, market.liquidity * 0.01) if market.liquidity > 0 else 10.0
+        base_size = min(20.0, market.liquidity * 0.01) if market.liquidity > 0 else 5
 
         # Limit by exposure
         position_cost = base_size * price
