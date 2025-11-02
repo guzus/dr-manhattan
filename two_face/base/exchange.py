@@ -315,6 +315,134 @@ class Exchange(ABC):
         # Return random market
         return random.choice(suitable_markets)
 
+    def find_crypto_hourly_market(
+        self,
+        token_symbol: Optional[str] = None,
+        min_liquidity: float = 0.0,
+        limit: int = 100,
+        is_active: bool = True,
+        is_expired: bool = False,
+        params: Optional[Dict[str, Any]] = None
+    ) -> Optional[tuple['Market', 'CryptoHourlyMarket']]:
+        """
+        Find a crypto hourly price market.
+
+        These are markets that predict whether a token's price will be above/below
+        a certain threshold at a specific time (usually hourly expiry).
+
+        This is a generic implementation that can be overridden by exchanges
+        for more efficient filtering (e.g., using tags, categories).
+
+        Args:
+            token_symbol: Filter by token (e.g., "BTC", "ETH", "SOL"). None = any token
+            min_liquidity: Minimum liquidity required
+            limit: Maximum markets to fetch and search
+            is_active: If True, only return markets currently in progress (expiring within 1 hour)
+            is_expired: If True, only return expired markets. If False, exclude expired markets.
+            params: Exchange-specific parameters
+
+        Returns:
+            Tuple of (Market, CryptoHourlyMarket) or None if no match found
+        """
+        # Default implementation - can be overridden by specific exchanges
+        return self._parse_crypto_hourly_from_markets(
+            token_symbol=token_symbol,
+            min_liquidity=min_liquidity,
+            limit=limit
+        )
+
+    def _parse_crypto_hourly_from_markets(
+        self,
+        token_symbol: Optional[str] = None,
+        direction: Optional[str] = None,
+        min_liquidity: float = 0.0,
+        limit: int = 100
+    ) -> Optional[tuple['Market', 'CryptoHourlyMarket']]:
+        """
+        Generic parser for crypto hourly markets using pattern matching.
+        Used as fallback when exchange doesn't have specific tag/category support.
+        """
+        import re
+        from datetime import datetime, timedelta
+        from ..models import CryptoHourlyMarket
+
+        markets = self.fetch_markets({'limit': limit})
+
+        # Pattern to match crypto price predictions
+        pattern = re.compile(
+            r'(?:(?P<token1>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA)\s+.*?'
+            r'(?P<direction>above|below|over|under|reach)\s+'
+            r'[\$]?(?P<price1>[\d,]+(?:\.\d+)?))|'
+            r'(?:[\$]?(?P<price2>[\d,]+(?:\.\d+)?)\s+.*?'
+            r'(?P<token2>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA))',
+            re.IGNORECASE
+        )
+
+        for market in markets:
+            # Must be binary and open
+            if not market.is_binary or not market.is_open:
+                continue
+
+            # Check liquidity
+            if market.liquidity < min_liquidity:
+                continue
+
+            # Check has token IDs
+            if 'clobTokenIds' in market.metadata:
+                token_ids = market.metadata.get('clobTokenIds', [])
+                if not token_ids or len(token_ids) < 2:
+                    continue
+
+            # Try to parse the question
+            match = pattern.search(market.question)
+            if not match:
+                continue
+
+            # Extract matched groups (pattern has two alternatives)
+            parsed_token = (match.group('token1') or match.group('token2') or '').upper()
+            parsed_price_str = match.group('price1') or match.group('price2') or '0'
+            parsed_direction_raw = (match.group('direction') or 'reach').lower()
+
+            # Normalize token names
+            if parsed_token in ['BITCOIN']:
+                parsed_token = 'BTC'
+            elif parsed_token in ['ETHEREUM']:
+                parsed_token = 'ETH'
+            elif parsed_token in ['SOLANA']:
+                parsed_token = 'SOL'
+
+            # Normalize direction: over/above/reach -> up, under/below -> down
+            if parsed_direction_raw in ['above', 'over', 'reach']:
+                parsed_direction = 'up'
+            elif parsed_direction_raw in ['below', 'under']:
+                parsed_direction = 'down'
+            else:
+                parsed_direction = parsed_direction_raw
+
+            parsed_price = float(parsed_price_str.replace(',', ''))
+
+            # Apply filters
+            if token_symbol and parsed_token != token_symbol.upper():
+                continue
+
+            if direction and parsed_direction != direction.lower():
+                continue
+
+            # Estimate expiry time from close_time
+            # For hourly markets, close_time is typically the settlement time
+            expiry = market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
+
+            crypto_market = CryptoHourlyMarket(
+                token_symbol=parsed_token,
+                strike_price=parsed_price,
+                expiry_time=expiry,
+                direction=parsed_direction  # type: ignore
+            )
+
+            return (market, crypto_market)
+
+        return None
+
     def describe(self) -> Dict[str, Any]:
         """
         Return exchange metadata and capabilities.

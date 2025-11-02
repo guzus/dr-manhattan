@@ -21,6 +21,22 @@ class Polymarket(Exchange):
     BASE_URL = "https://gamma-api.polymarket.com"
     CLOB_URL = "https://clob.polymarket.com"
 
+    # Market type tags (Polymarket-specific)
+    TAG_1H = "102175"  # 1-hour crypto price markets
+
+    # Token normalization mapping
+    TOKEN_ALIASES = {
+        'BITCOIN': 'BTC',
+        'ETHEREUM': 'ETH',
+        'SOLANA': 'SOL',
+    }
+
+    @staticmethod
+    def normalize_token(token: str) -> str:
+        """Normalize token symbol to standard format (e.g., BITCOIN -> BTC)"""
+        token_upper = token.upper()
+        return Polymarket.TOKEN_ALIASES.get(token_upper, token_upper)
+
     @property
     def id(self) -> str:
         return "polymarket"
@@ -699,6 +715,194 @@ class Polymarket(Exchange):
 
         except Exception as e:
             raise ExchangeError(f"Failed to fetch positions for market: {str(e)}")
+
+    def find_crypto_hourly_market(
+        self,
+        token_symbol: Optional[str] = None,
+        min_liquidity: float = 0.0,
+        limit: int = 100,
+        is_active: bool = True,
+        is_expired: bool = False,
+        params: Optional[Dict[str, Any]] = None
+    ) -> Optional[tuple[Market, Any]]:
+        """
+        Find crypto hourly markets on Polymarket using tag-based filtering.
+
+        Polymarket uses TAG_1H for 1-hour crypto price markets, which is more
+        efficient than pattern matching on all markets.
+
+        Args:
+            token_symbol: Filter by token (e.g., "BTC", "ETH", "SOL")
+            min_liquidity: Minimum liquidity required
+            limit: Maximum markets to fetch
+            is_active: If True, only return markets currently in progress (expiring within 1 hour)
+            is_expired: If True, only return expired markets. If False, exclude expired markets.
+            params: Additional parameters (can include 'tag_id' to override default tag)
+
+        Returns:
+            Tuple of (Market, CryptoHourlyMarket) or None
+        """
+        from datetime import datetime, timedelta
+        from ..models import CryptoHourlyMarket
+        from ..utils import setup_logger
+
+        logger = setup_logger(__name__)
+
+        # Use tag-based filtering for efficiency
+        tag_id = (params or {}).get('tag_id', self.TAG_1H)
+
+        if self.verbose:
+            logger.info(f"Searching for crypto hourly markets with tag: {tag_id}")
+
+        all_markets = []
+        offset = 0
+        page_size = 100
+
+        while len(all_markets) < limit:
+            # Use gamma-api with tag filtering
+            url = f"{self.BASE_URL}/markets"
+            query_params = {
+                "active": "true",
+                "closed": "false",
+                "limit": min(page_size, limit - len(all_markets)),
+                "offset": offset,
+                "order": "volume",
+                "ascending": "false",
+            }
+
+            if tag_id:
+                query_params["tag_id"] = tag_id
+
+            try:
+                response = requests.get(url, params=query_params, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+
+                markets_data = data if isinstance(data, list) else []
+                if not markets_data:
+                    break
+
+                # Parse markets
+                for market_data in markets_data:
+                    market = self._parse_market(market_data)
+                    if market:
+                        all_markets.append(market)
+
+                offset += len(markets_data)
+
+                # If we got fewer markets than requested, we've reached the end
+                if len(markets_data) < page_size:
+                    break
+
+            except Exception as e:
+                if self.verbose:
+                    logger.error(f"Failed to fetch tagged markets: {e}")
+                break
+
+        if self.verbose:
+            logger.info(f"Found {len(all_markets)} markets with tag {tag_id}")
+
+        # Now parse and filter the markets
+        import re
+
+        # Pattern for "Up or Down" markets (e.g., "Bitcoin Up or Down - November 2, 7AM ET")
+        up_down_pattern = re.compile(
+            r'(?P<token>Bitcoin|Ethereum|Solana|BTC|ETH|SOL|XRP)\s+Up or Down',
+            re.IGNORECASE
+        )
+
+        # Pattern for strike price markets (e.g., "Will BTC be above $95,000 at 5:00 PM ET?")
+        strike_pattern = re.compile(
+            r'(?:(?P<token1>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA)\s+.*?'
+            r'(?P<direction>above|below|over|under|reach)\s+'
+            r'[\$]?(?P<price1>[\d,]+(?:\.\d+)?))|'
+            r'(?:[\$]?(?P<price2>[\d,]+(?:\.\d+)?)\s+.*?'
+            r'(?P<token2>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA))',
+            re.IGNORECASE
+        )
+
+        for market in all_markets:
+            # Must be binary and open
+            if not market.is_binary or not market.is_open:
+                continue
+
+            # Check liquidity
+            if market.liquidity < min_liquidity:
+                continue
+
+            # Check expiry time filtering based on is_active and is_expired parameters
+            if market.close_time:
+                # Handle timezone-aware datetime
+                if market.close_time.tzinfo is not None:
+                    from datetime import timezone
+                    now = datetime.now(timezone.utc)
+                else:
+                    now = datetime.now()
+
+                time_until_expiry = (market.close_time - now).total_seconds()
+
+                # Apply is_expired filter
+                if is_expired:
+                    # Only include expired markets
+                    if time_until_expiry > 0:
+                        continue
+                else:
+                    # Exclude expired markets
+                    if time_until_expiry <= 0:
+                        continue
+
+                # Apply is_active filter (only applies to non-expired markets)
+                if is_active and not is_expired:
+                    # For active hourly markets, only include if expiring within 1 hour
+                    # This ensures we get currently active hourly candles
+                    if time_until_expiry > 3600:  # 1 hour in seconds
+                        continue
+
+            # Try "Up or Down" pattern first
+            up_down_match = up_down_pattern.search(market.question)
+            if up_down_match:
+                parsed_token = self.normalize_token(up_down_match.group('token'))
+
+                # Apply token filter
+                if token_symbol and parsed_token != self.normalize_token(token_symbol):
+                    continue
+
+                expiry = market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
+
+                crypto_market = CryptoHourlyMarket(
+                    token_symbol=parsed_token,
+                    expiry_time=expiry,
+                    strike_price=None,
+                    market_type="up_down"
+                )
+
+                return (market, crypto_market)
+
+            # Try strike price pattern
+            strike_match = strike_pattern.search(market.question)
+            if strike_match:
+                parsed_token = self.normalize_token(
+                    strike_match.group('token1') or strike_match.group('token2') or ''
+                )
+                parsed_price_str = strike_match.group('price1') or strike_match.group('price2') or '0'
+                parsed_price = float(parsed_price_str.replace(',', ''))
+
+                # Apply filters
+                if token_symbol and parsed_token != self.normalize_token(token_symbol):
+                    continue
+
+                expiry = market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
+
+                crypto_market = CryptoHourlyMarket(
+                    token_symbol=parsed_token,
+                    expiry_time=expiry,
+                    strike_price=parsed_price,
+                    market_type="strike_price"
+                )
+
+                return (market, crypto_market)
+
+        return None
 
     def fetch_balance(self) -> Dict[str, float]:
         """
