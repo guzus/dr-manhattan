@@ -194,6 +194,13 @@ def main():
     logger.info(f"Question: {market.question}")
     logger.info(f"Expiry: {crypto_info.expiry_time}")
     logger.info(f"Market ID: {market.id}")
+
+    # Log Polymarket URL
+    slug = market.metadata.get('slug', '')
+    if slug:
+        market_url = f"https://polymarket.com/event/{slug}"
+        logger.info(f"Market URL: {market_url}")
+
     logger.info(f"UP price: {market.prices.get('Up', 0):.4f}")
     logger.info(f"DOWN price: {market.prices.get('Down', 0):.4f}")
     logger.info(f"Liquidity: ${market.liquidity:,.2f}")
