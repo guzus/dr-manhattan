@@ -103,6 +103,38 @@ balance = polymarket.fetch_balance()
 print(f"USDC: {balance['USDC']}")
 ```
 
+### Builder Profile (Order Attribution)
+
+Polymarket's Builder Profile allows you to attribute orders to your builder account for tracking and analytics:
+
+```python
+import two_face
+
+# Initialize with builder credentials
+polymarket = two_face.Polymarket({
+    'private_key': 'your_private_key',
+    'builder_api_key': 'your_builder_api_key',
+    'builder_secret': 'your_builder_secret',
+    'builder_passphrase': 'your_builder_passphrase',
+    'timeout': 30
+})
+
+# All orders will now be attributed to your builder profile
+order = polymarket.create_order(
+    market_id="market_123",
+    outcome="Yes",
+    side=two_face.OrderSide.BUY,
+    price=0.65,
+    size=100,
+    params={'token_id': 'token_id'}
+)
+```
+
+To get your builder credentials:
+1. Visit the Polymarket Builder Portal
+2. Create a builder profile
+3. Generate API keys (key, secret, passphrase)
+
 ### Unified API Pattern
 
 ```python

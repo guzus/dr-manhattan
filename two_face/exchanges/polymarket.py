@@ -15,6 +15,14 @@ except ImportError:
     PolymarketClient = None
     Config = None
 
+try:
+    from py_builder_signing_sdk import BuilderConfig, BuilderApiKeyCreds
+    BUILDER_SDK_AVAILABLE = True
+except ImportError:
+    BUILDER_SDK_AVAILABLE = False
+    BuilderConfig = None
+    BuilderApiKeyCreds = None
+
 from ..base.exchange import Exchange
 from ..base.errors import NetworkError, ExchangeError, MarketNotFound
 from ..models.market import Market
@@ -36,9 +44,22 @@ class Polymarket(Exchange):
         return "Polymarket"
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """Initialize Polymarket exchange"""
+        """Initialize Polymarket exchange
+
+        Args:
+            config: Configuration dictionary with optional keys:
+                - private_key: Private key for authenticated trading
+                - builder_api_key: Builder API key for order attribution
+                - builder_secret: Builder secret for order attribution
+                - builder_passphrase: Builder passphrase for order attribution
+        """
         super().__init__(config)
         self.poly_client = None
+        self.builder_config = None
+
+        if self.config.get('builder_api_key') and self.config.get('builder_secret') and self.config.get('builder_passphrase'):
+            self._initialize_builder_config()
+
         if self.config.get('private_key'):
             self._initialize_client()
 
@@ -60,21 +81,43 @@ class Polymarket(Exchange):
         except Exception as e:
             raise ExchangeError(f"Client initialization failed: {e}")
 
-    def _request(self, method: str, endpoint: str, params: Optional[Dict] = None) -> Any:
+    def _initialize_builder_config(self):
+        """Initialize builder configuration for order attribution"""
+        if not BUILDER_SDK_AVAILABLE:
+            raise ExchangeError("py-builder-signing-sdk not available. Install with: uv pip install py-builder-signing-sdk")
+
+        try:
+            creds = BuilderApiKeyCreds(
+                key=self.config['builder_api_key'],
+                secret=self.config['builder_secret'],
+                passphrase=self.config['builder_passphrase']
+            )
+            self.builder_config = BuilderConfig(local_builder_creds=creds)
+        except Exception as e:
+            raise ExchangeError(f"Builder config initialization failed: {e}")
+
+    def _request(self, method: str, endpoint: str, params: Optional[Dict] = None, json_data: Optional[Dict] = None) -> Any:
         """Make HTTP request to Polymarket API"""
         import requests
+        import json as json_module
 
         url = f"{self.BASE_URL}{endpoint}"
-        headers = {}
+        headers = {"Content-Type": "application/json"}
 
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+
+        if self.builder_config:
+            body = json_module.dumps(json_data) if json_data else ""
+            builder_headers = self.builder_config.generate_builder_headers(method, endpoint, body)
+            headers.update(builder_headers)
 
         try:
             response = requests.request(
                 method,
                 url,
                 params=params,
+                json=json_data,
                 headers=headers,
                 timeout=self.timeout
             )
@@ -165,7 +208,7 @@ class Polymarket(Exchange):
             **(params or {})
         }
 
-        data = self._request("POST", "/orders", payload)
+        data = self._request("POST", "/orders", json_data=payload)
         return self._parse_order(data)
 
     def cancel_order(self, order_id: str, market_id: Optional[str] = None) -> Order:
