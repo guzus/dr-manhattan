@@ -3,7 +3,10 @@
     "allow": [
       "Bash(uv run:*)",
       "Bash(uv add:*)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(timeout 30 uv run:*)",
+      "Bash(find:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

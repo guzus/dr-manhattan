@@ -2,9 +2,9 @@
 
 import pytest
 from datetime import datetime
-from two_face.models.market import Market
-from two_face.models.order import Order, OrderSide, OrderStatus
-from two_face.models.position import Position
+from dr_manhattan.models.market import Market
+from dr_manhattan.models.order import Order, OrderSide, OrderStatus
+from dr_manhattan.models.position import Position
 
 
 class TestMarket:

@@ -1,6 +1,6 @@
 from .exchange import Exchange
 from .errors import (
-    TwoFaceError,
+    DrManhattanError,
     ExchangeError,
     NetworkError,
     RateLimitError,
@@ -12,7 +12,7 @@ from .errors import (
 
 __all__ = [
     "Exchange",
-    "TwoFaceError",
+    "DrManhattanError",
     "ExchangeError",
     "NetworkError",
     "RateLimitError",

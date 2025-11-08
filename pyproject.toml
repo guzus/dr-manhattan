@@ -1,5 +1,5 @@
 [project]
-name = "two-face"
+name = "dr-manhattan"
 version = "0.1.0"
 description = "CCXT-style unified API for prediction markets"
 readme = "README.md"

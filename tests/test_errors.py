@@ -1,8 +1,8 @@
 """Tests for error handling"""
 
 import pytest
-from two_face.base.errors import (
-    TwoFaceError,
+from dr_manhattan.base.errors import (
+    DrManhattanError,
     ExchangeError,
     NetworkError,
     RateLimitError,
@@ -17,8 +17,8 @@ class TestErrorHierarchy:
     """Test error class hierarchy"""
 
     def test_base_error(self):
-        """Test TwoFaceError base class"""
-        error = TwoFaceError("Test error")
+        """Test DrManhattanError base class"""
+        error = DrManhattanError("Test error")
         assert str(error) == "Test error"
         assert isinstance(error, Exception)
 
@@ -26,44 +26,44 @@ class TestErrorHierarchy:
         """Test ExchangeError"""
         error = ExchangeError("Exchange error")
         assert str(error) == "Exchange error"
-        assert isinstance(error, TwoFaceError)
+        assert isinstance(error, DrManhattanError)
         assert isinstance(error, Exception)
 
     def test_network_error(self):
         """Test NetworkError"""
         error = NetworkError("Network error")
         assert str(error) == "Network error"
-        assert isinstance(error, TwoFaceError)
+        assert isinstance(error, DrManhattanError)
 
     def test_rate_limit_error(self):
         """Test RateLimitError"""
         error = RateLimitError("Rate limit exceeded")
         assert str(error) == "Rate limit exceeded"
-        assert isinstance(error, TwoFaceError)
+        assert isinstance(error, DrManhattanError)
 
     def test_authentication_error(self):
         """Test AuthenticationError"""
         error = AuthenticationError("Auth failed")
         assert str(error) == "Auth failed"
-        assert isinstance(error, TwoFaceError)
+        assert isinstance(error, DrManhattanError)
 
     def test_insufficient_funds(self):
         """Test InsufficientFunds"""
         error = InsufficientFunds("Not enough balance")
         assert str(error) == "Not enough balance"
-        assert isinstance(error, TwoFaceError)
+        assert isinstance(error, DrManhattanError)
 
     def test_invalid_order(self):
         """Test InvalidOrder"""
         error = InvalidOrder("Invalid order parameters")
         assert str(error) == "Invalid order parameters"
-        assert isinstance(error, TwoFaceError)
+        assert isinstance(error, DrManhattanError)
 
     def test_market_not_found(self):
         """Test MarketNotFound"""
         error = MarketNotFound("Market not found")
         assert str(error) == "Market not found"
-        assert isinstance(error, TwoFaceError)
+        assert isinstance(error, DrManhattanError)
 
 
 class TestErrorRaising:
@@ -98,14 +98,14 @@ class TestErrorRaising:
         assert "Market ID: 123 not found" in str(exc_info.value)
 
     def test_catch_base_error(self):
-        """Test catching TwoFaceError catches all subclasses"""
-        with pytest.raises(TwoFaceError):
+        """Test catching DrManhattanError catches all subclasses"""
+        with pytest.raises(DrManhattanError):
             raise ExchangeError("Test")
 
-        with pytest.raises(TwoFaceError):
+        with pytest.raises(DrManhattanError):
             raise NetworkError("Test")
 
-        with pytest.raises(TwoFaceError):
+        with pytest.raises(DrManhattanError):
             raise AuthenticationError("Test")
 
 
@@ -136,8 +136,8 @@ class TestErrorMessages:
         auth_err = AuthenticationError("Auth issue")
 
         assert type(network_err) != type(auth_err)
-        assert isinstance(network_err, TwoFaceError)
-        assert isinstance(auth_err, TwoFaceError)
+        assert isinstance(network_err, DrManhattanError)
+        assert isinstance(auth_err, DrManhattanError)
 
 
 class TestErrorContext:

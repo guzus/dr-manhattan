@@ -4,7 +4,7 @@ List all currently active crypto hourly markets
 import os
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-import two_face
+import dr_manhattan
 
 load_dotenv()
 
@@ -15,7 +15,7 @@ def find_all_active_crypto_hourly_markets(exchange, limit=200):
     Returns a list of (Market, CryptoHourlyMarket) tuples.
     """
     import re
-    from two_face.models import CryptoHourlyMarket
+    from dr_manhattan.models import CryptoHourlyMarket
 
     # Fetch markets with 1H tag
     import requests
@@ -85,7 +85,7 @@ def find_all_active_crypto_hourly_markets(exchange, limit=200):
 
 def main():
     # Initialize Polymarket exchange
-    exchange = two_face.Polymarket({
+    exchange = dr_manhattan.Polymarket({
         'private_key': os.getenv('POLYMARKET_PRIVATE_KEY'),
         'funder': os.getenv('POLYMARKET_FUNDER'),
     })

@@ -17,10 +17,10 @@ Usage:
 import os
 from dotenv import load_dotenv
 
-import two_face
-from two_face.strategies import MarketMakingStrategy
-from two_face.models import OrderSide
-from two_face.utils import setup_logger
+import dr_manhattan
+from dr_manhattan.strategies import MarketMakingStrategy
+from dr_manhattan.models import OrderSide
+from dr_manhattan.utils import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -170,7 +170,7 @@ def main():
         return
 
     # Create exchange
-    exchange = two_face.Polymarket({
+    exchange = dr_manhattan.Polymarket({
         'private_key': private_key,
         'funder': funder,
         'cache_ttl': 2.0,  # Polygon block time

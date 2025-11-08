@@ -2,9 +2,9 @@
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from two_face.exchanges.polymarket import Polymarket
-from two_face.models.order import OrderSide, OrderStatus
-from two_face.base.errors import ExchangeError, MarketNotFound
+from dr_manhattan.exchanges.polymarket import Polymarket
+from dr_manhattan.models.order import OrderSide, OrderStatus
+from dr_manhattan.base.errors import ExchangeError, MarketNotFound
 
 
 def test_polymarket_properties():
@@ -94,7 +94,7 @@ def test_fetch_market(mock_request):
 @patch('requests.request')
 def test_fetch_market_not_found(mock_request):
     """Test fetching non-existent market"""
-    from two_face.base.errors import ExchangeError
+    from dr_manhattan.base.errors import ExchangeError
     mock_request.side_effect = ExchangeError("Not found")
 
     exchange = Polymarket()

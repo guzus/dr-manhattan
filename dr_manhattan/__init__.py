@@ -1,10 +1,10 @@
 """
-Two-Face: CCXT-style unified API for prediction markets
+Dr. Manhattan: CCXT-style unified API for prediction markets
 """
 
 from .base.exchange import Exchange
 from .base.errors import (
-    TwoFaceError,
+    DrManhattanError,
     ExchangeError,
     NetworkError,
     RateLimitError,
@@ -26,7 +26,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "Exchange",
-    "TwoFaceError",
+    "DrManhattanError",
     "ExchangeError",
     "NetworkError",
     "RateLimitError",

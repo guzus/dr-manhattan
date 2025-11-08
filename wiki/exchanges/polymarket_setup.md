@@ -11,7 +11,7 @@
 ### 1. Install
 
 ```bash
-cd two-face
+cd dr-manhattan
 uv sync
 ```
 

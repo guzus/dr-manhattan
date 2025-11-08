@@ -1,10 +1,10 @@
 """Tests for base Exchange class"""
 
 import pytest
-from two_face.base.exchange import Exchange
-from two_face.models.market import Market
-from two_face.models.order import Order, OrderSide
-from two_face.models.position import Position
+from dr_manhattan.base.exchange import Exchange
+from dr_manhattan.models.market import Market
+from dr_manhattan.models.order import Order, OrderSide
+from dr_manhattan.models.position import Position
 
 
 class MockExchange(Exchange):

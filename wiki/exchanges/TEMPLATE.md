@@ -5,7 +5,7 @@
 - **Exchange ID**: `exchange_id`
 - **Exchange Name**: Exchange Name
 - **Type**: Prediction Market / Derivatives / Spot
-- **Base Class**: [Exchange](../../two_face/base/exchange.py)
+- **Base Class**: [Exchange](../../dr_manhattan/base/exchange.py)
 - **REST API**: `https://api.example.com`
 - **WebSocket API**: `wss://ws.example.com` (if supported)
 - **Documentation**: https://docs.example.com/
@@ -69,7 +69,7 @@ Describe authentication methods supported by the exchange.
 ### 1. Public API (Read-Only)
 
 ```python
-from two_face.exchanges.exchange_name import ExchangeName
+from dr_manhattan.exchanges.exchange_name import ExchangeName
 
 exchange = ExchangeName()
 markets = exchange.fetch_markets()
@@ -156,7 +156,7 @@ market = exchange.fetch_market('market_id')
 Create a new order.
 
 ```python
-from two_face.models.order import OrderSide
+from dr_manhattan.models.order import OrderSide
 
 order = exchange.create_order(
     market_id='market_id',
@@ -240,7 +240,7 @@ positions = exchange.fetch_positions(
 
 ```python
 import asyncio
-from two_face.exchanges.exchange_name import ExchangeName
+from dr_manhattan.exchanges.exchange_name import ExchangeName
 
 async def main():
     exchange = ExchangeName({'verbose': True})
@@ -277,7 +277,7 @@ ws = exchange.get_websocket()
 ### Basic Usage
 
 ```python
-from two_face.exchanges.exchange_name import ExchangeName
+from dr_manhattan.exchanges.exchange_name import ExchangeName
 
 exchange = ExchangeName({'verbose': True})
 
@@ -290,8 +290,8 @@ for market in markets:
 ### Trading Example
 
 ```python
-from two_face.exchanges.exchange_name import ExchangeName
-from two_face.models.order import OrderSide
+from dr_manhattan.exchanges.exchange_name import ExchangeName
+from dr_manhattan.models.order import OrderSide
 
 exchange = ExchangeName({
     'api_key': 'your_api_key',
@@ -313,8 +313,8 @@ print(f"Order created: {order.id}")
 ### Error Handling
 
 ```python
-from two_face.exchanges.exchange_name import ExchangeName
-from two_face.base.errors import NetworkError, RateLimitError, MarketNotFound
+from dr_manhattan.exchanges.exchange_name import ExchangeName
+from dr_manhattan.base.errors import NetworkError, RateLimitError, MarketNotFound
 
 exchange = ExchangeName()
 
@@ -339,7 +339,7 @@ except RateLimitError as e:
 
 - [Exchange Documentation](https://docs.example.com/)
 - [API Reference](https://docs.example.com/api)
-- [Base Exchange Class](../../two_face/base/exchange.py)
+- [Base Exchange Class](../../dr_manhattan/base/exchange.py)
 - [Examples](../../examples/)
 
 ## See Also

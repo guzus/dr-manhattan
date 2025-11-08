@@ -1,4 +1,4 @@
-"""Shared logger configuration for Two-Face projects."""
+"""Shared logger configuration for Dr. Manhattan projects."""
 
 import logging
 import sys
@@ -58,7 +58,7 @@ def setup_logger(name: str = None, level: int = logging.INFO) -> logging.Logger:
         Configured logger instance
         
     Example:
-        >>> from two_face.utils.logger import setup_logger
+        >>> from dr_manhattan.utils.logger import setup_logger
         >>> logger = setup_logger(__name__)
         >>> logger.info("Starting...")
     """
@@ -80,5 +80,5 @@ def setup_logger(name: str = None, level: int = logging.INFO) -> logging.Logger:
 
 
 # Default logger instance
-default_logger = setup_logger('two_face')
+default_logger = setup_logger('dr_manhattan')
 

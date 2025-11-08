@@ -1,4 +1,4 @@
-"""Utility functions and helpers for Two-Face."""
+"""Utility functions and helpers for Dr. Manhattan."""
 
 from .logger import setup_logger, ColoredFormatter, default_logger
 

@@ -1,6 +1,6 @@
 # Examples
 
-Trading strategy examples for Two-Face library.
+Trading strategy examples for Dr. Manhattan library.
 
 ## Setup
 
@@ -50,11 +50,11 @@ Create new strategy files following this structure:
 
 ```python
 from dotenv import load_dotenv
-import two_face
+import dr_manhattan
 
 load_dotenv()  # Loads .env from project root
 
-exchange = two_face.Polymarket({
+exchange = dr_manhattan.Polymarket({
     'private_key': os.getenv('POLYMARKET_PRIVATE_KEY'),
     'funder': os.getenv('POLYMARKET_FUNDER'),
 })

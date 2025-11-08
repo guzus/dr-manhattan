@@ -1,4 +1,4 @@
-"""Strategy base classes and utilities for two-face"""
+"""Strategy base classes and utilities for dr-manhattan"""
 
 from .base import BaseStrategy, MarketMakingStrategy
 

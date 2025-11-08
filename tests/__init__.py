@@ -1,1 +1,1 @@
-"""Tests for two-face prediction market API"""
+"""Tests for dr-manhattan prediction market API"""

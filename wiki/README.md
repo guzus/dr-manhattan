@@ -1,6 +1,6 @@
-# Two-Face Wiki
+# Dr. Manhattan Wiki
 
-Documentation for the Two-Face prediction market trading library.
+Documentation for the Dr. Manhattan prediction market trading library.
 
 ## Exchanges
 
@@ -179,7 +179,7 @@ The library defines several exception types:
 Example:
 
 ```python
-from two_face.base.errors import MarketNotFound, RateLimitError
+from dr_manhattan.base.errors import MarketNotFound, RateLimitError
 
 try:
     market = exchange.fetch_market('invalid_id')
@@ -202,7 +202,7 @@ Check the [examples/](../examples/) directory for:
 ## Architecture
 
 ```
-two_face/
+dr_manhattan/
 ├── base/
 │   ├── exchange.py         # Base exchange class
 │   ├── websocket.py        # Base WebSocket class
@@ -221,7 +221,7 @@ two_face/
 
 ### Adding a New Exchange
 
-1. Create `two_face/exchanges/your_exchange.py`
+1. Create `dr_manhattan/exchanges/your_exchange.py`
 2. Inherit from `Exchange` base class
 3. Implement required methods
 4. Add WebSocket support (optional)
@@ -245,7 +245,7 @@ uv run python examples/test_polymarket_ws.py
 
 ## Resources
 
-- [GitHub Repository](https://github.com/yourusername/two-face)
+- [GitHub Repository](https://github.com/guzus/dr-manhattan)
 - [CCXT Documentation](https://docs.ccxt.com/) - Inspiration for API design
 - [Polymarket Docs](https://docs.polymarket.com/)
 

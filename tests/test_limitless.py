@@ -2,9 +2,9 @@
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from two_face.exchanges.limitless import Limitless
-from two_face.models.order import OrderSide, OrderStatus
-from two_face.base.errors import ExchangeError, MarketNotFound
+from dr_manhattan.exchanges.limitless import Limitless
+from dr_manhattan.models.order import OrderSide, OrderStatus
+from dr_manhattan.base.errors import ExchangeError, MarketNotFound
 
 
 def test_limitless_properties():
@@ -42,8 +42,8 @@ def test_request_without_auth():
         exchange._request("GET", "/markets")
 
 
-@patch('two_face.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('two_face.exchanges.limitless.AuthManager')
+@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
+@patch('dr_manhattan.exchanges.limitless.AuthManager')
 def test_fetch_markets(mock_auth_manager):
     """Test fetching markets"""
     # Mock auth manager
@@ -78,8 +78,8 @@ def test_fetch_markets(mock_auth_manager):
     assert markets[0].prices["Yes"] == 0.6
 
 
-@patch('two_face.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('two_face.exchanges.limitless.AuthManager')
+@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
+@patch('dr_manhattan.exchanges.limitless.AuthManager')
 def test_fetch_market(mock_auth_manager):
     """Test fetching a specific market"""
     mock_auth = Mock()
@@ -109,8 +109,8 @@ def test_fetch_market(mock_auth_manager):
     assert market.volume == 5000
 
 
-@patch('two_face.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('two_face.exchanges.limitless.AuthManager')
+@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
+@patch('dr_manhattan.exchanges.limitless.AuthManager')
 def test_fetch_market_not_found(mock_auth_manager):
     """Test fetching non-existent market"""
     mock_auth = Mock()
@@ -126,8 +126,8 @@ def test_fetch_market_not_found(mock_auth_manager):
         exchange.fetch_market("invalid_market")
 
 
-@patch('two_face.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('two_face.exchanges.limitless.AuthManager')
+@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
+@patch('dr_manhattan.exchanges.limitless.AuthManager')
 def test_create_order(mock_auth_manager):
     """Test creating an order"""
     mock_auth = Mock()
@@ -168,8 +168,8 @@ def test_create_order(mock_auth_manager):
     assert order.size == 100
 
 
-@patch('two_face.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('two_face.exchanges.limitless.AuthManager')
+@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
+@patch('dr_manhattan.exchanges.limitless.AuthManager')
 def test_fetch_balance(mock_auth_manager):
     """Test fetching account balance"""
     mock_auth = Mock()
@@ -189,8 +189,8 @@ def test_fetch_balance(mock_auth_manager):
     assert balance["USD"] == 1000.50
 
 
-@patch('two_face.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('two_face.exchanges.limitless.AuthManager')
+@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
+@patch('dr_manhattan.exchanges.limitless.AuthManager')
 def test_cancel_order(mock_auth_manager):
     """Test canceling an order"""
     mock_auth = Mock()
@@ -221,8 +221,8 @@ def test_cancel_order(mock_auth_manager):
     assert order.status == OrderStatus.CANCELLED
 
 
-@patch('two_face.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('two_face.exchanges.limitless.AuthManager')
+@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
+@patch('dr_manhattan.exchanges.limitless.AuthManager')
 def test_fetch_open_orders(mock_auth_manager):
     """Test fetching open orders"""
     mock_auth = Mock()
@@ -255,8 +255,8 @@ def test_fetch_open_orders(mock_auth_manager):
     assert orders[0].id == "order_1"
 
 
-@patch('two_face.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('two_face.exchanges.limitless.AuthManager')
+@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
+@patch('dr_manhattan.exchanges.limitless.AuthManager')
 def test_fetch_positions(mock_auth_manager):
     """Test fetching positions"""
     mock_auth = Mock()

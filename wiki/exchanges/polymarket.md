@@ -5,7 +5,7 @@
 - **Exchange ID**: `polymarket`
 - **Exchange Name**: Polymarket
 - **Type**: Prediction Market
-- **Base Class**: [Exchange](../../two_face/base/exchange.py)
+- **Base Class**: [Exchange](../../dr_manhattan/base/exchange.py)
 - **CLOB API**: `https://clob.polymarket.com/`
 - **Data API**: `https://data-api.polymarket.com/`
 - **Gamma API**: `https://gamma-api.polymarket.com/`
@@ -153,7 +153,7 @@ Polymarket supports multiple authentication methods depending on the API being u
 No authentication required for public market data via Gamma API:
 
 ```python
-from two_face.exchanges.polymarket import Polymarket
+from dr_manhattan.exchanges.polymarket import Polymarket
 
 exchange = Polymarket()
 markets = exchange.fetch_markets()
@@ -451,7 +451,7 @@ The CLOB (Central Limit Order Book) API handles all trading operations.
 Create a new order via the CLOB API.
 
 ```python
-from two_face.models.order import OrderSide
+from dr_manhattan.models.order import OrderSide
 
 order = exchange.create_order(
     market_id='market_id',
@@ -592,7 +592,7 @@ await ws.subscribe_market(asset_id, callback)
 
 ```python
 import asyncio
-from two_face.exchanges.polymarket import Polymarket
+from dr_manhattan.exchanges.polymarket import Polymarket
 
 async def main():
     exchange = Polymarket({'verbose': True})
@@ -618,7 +618,7 @@ asyncio.run(main())
 ```python
 ws = exchange.get_websocket()
 # Or with custom config:
-from two_face.exchanges.polymarket_ws import PolymarketWebSocket
+from dr_manhattan.exchanges.polymarket_ws import PolymarketWebSocket
 
 ws = PolymarketWebSocket({
     'verbose': True,
@@ -905,7 +905,7 @@ Visit the [API Showcase](https://docs.polymarket.com/quickstart/introduction/sho
 ### Basic Market Fetching
 
 ```python
-from two_face.exchanges.polymarket import Polymarket
+from dr_manhattan.exchanges.polymarket import Polymarket
 
 exchange = Polymarket({'verbose': True})
 
@@ -921,8 +921,8 @@ for market in markets:
 ### Trading Example
 
 ```python
-from two_face.exchanges.polymarket import Polymarket
-from two_face.models.order import OrderSide
+from dr_manhattan.exchanges.polymarket import Polymarket
+from dr_manhattan.models.order import OrderSide
 
 exchange = Polymarket({
     'private_key': 'your_private_key',
@@ -954,7 +954,7 @@ print(f"Order cancelled: {cancelled.status}")
 
 ```python
 import asyncio
-from two_face.exchanges.polymarket import Polymarket
+from dr_manhattan.exchanges.polymarket import Polymarket
 
 async def stream_orderbook():
     exchange = Polymarket({'verbose': True})
@@ -992,8 +992,8 @@ asyncio.run(stream_orderbook())
 ### Multi-Market Trading
 
 ```python
-from two_face.exchanges.polymarket import Polymarket
-from two_face.models.order import OrderSide
+from dr_manhattan.exchanges.polymarket import Polymarket
+from dr_manhattan.models.order import OrderSide
 
 # Single exchange instance for multiple markets
 exchange = Polymarket({
@@ -1044,8 +1044,8 @@ print(f"Total open orders: {len(open_orders)}")
 ### Error Handling
 
 ```python
-from two_face.exchanges.polymarket import Polymarket
-from two_face.base.errors import NetworkError, RateLimitError, MarketNotFound
+from dr_manhattan.exchanges.polymarket import Polymarket
+from dr_manhattan.base.errors import NetworkError, RateLimitError, MarketNotFound
 
 exchange = Polymarket({'verbose': True})
 
@@ -1320,7 +1320,7 @@ exchange = Polymarket({
 
 ## See Also
 
-- [Base Exchange Class](../../two_face/base/exchange.py)
-- [WebSocket Implementation](../../two_face/base/websocket.py)
-- [Polymarket WebSocket](../../two_face/exchanges/polymarket_ws.py)
+- [Base Exchange Class](../../dr_manhattan/base/exchange.py)
+- [WebSocket Implementation](../../dr_manhattan/base/websocket.py)
+- [Polymarket WebSocket](../../dr_manhattan/exchanges/polymarket_ws.py)
 - [Examples](../../examples/)
