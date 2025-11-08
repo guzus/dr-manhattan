@@ -2,6 +2,12 @@
 
 CCXT-style unified API for prediction markets. Simple, scalable, and easy to extend.
 
+
+<p align="center">
+  <img src="assets/polymarket.png" alt="Logo 1" width="50"/>
+  <img src="assets/kalshi.jpeg" alt="Logo 2" width="50"/>
+</p>
+
 ## Architecture
 
 `dr-manhattan` provides a unified interface to interact with multiple prediction market platforms, similar to how CCXT works for cryptocurrency exchanges.
