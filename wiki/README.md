@@ -115,17 +115,6 @@ async def main():
 asyncio.run(main())
 ```
 
-### WebSocket vs Polling
-
-| Feature | WebSocket | Polling |
-|---------|-----------|---------|
-| Latency | Real-time | 0-500ms |
-| Server Load | Low | High |
-| Rate Limits | Not affected | May hit limits |
-| Complexity | Higher | Lower |
-
-See [WEBSOCKET_README.md](../WEBSOCKET_README.md) for detailed documentation.
-
 ## Configuration
 
 ### Exchange Configuration
@@ -246,7 +235,6 @@ uv run python examples/test_polymarket_ws.py
 ## Resources
 
 - [GitHub Repository](https://github.com/guzus/dr-manhattan)
-- [CCXT Documentation](https://docs.ccxt.com/) - Inspiration for API design
 - [Polymarket Docs](https://docs.polymarket.com/)
 
 ## Contributing

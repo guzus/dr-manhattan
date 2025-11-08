@@ -1,10 +1,10 @@
-# Dr. Manhattan
+# dr-manhattan
 
 CCXT-style unified API for prediction markets. Simple, scalable, and easy to extend.
 
 ## Architecture
 
-Dr. Manhattan provides a unified interface to interact with multiple prediction market platforms, similar to how CCXT works for cryptocurrency exchanges.
+`dr-manhattan` provides a unified interface to interact with multiple prediction market platforms, similar to how CCXT works for cryptocurrency exchanges.
 
 ### Core Components
 
