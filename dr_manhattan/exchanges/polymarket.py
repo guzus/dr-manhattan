@@ -658,15 +658,47 @@ class Polymarket(Exchange):
         market_id: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None
     ) -> list[Order]:
-        """Fetch open orders"""
-        endpoint = "/orders"
-        query_params = {"status": "open", **(params or {})}
+        """
+        Fetch open orders using CLOB client
 
-        if market_id:
-            query_params["market_id"] = market_id
+        Args:
+            market_id: Can be either the numeric market ID or the hex conditionId.
+                      If numeric, we filter by exact match. If hex (0x...), we use it directly.
+        """
+        if not self._clob_client:
+            raise ExchangeError("CLOB client not initialized. Private key required.")
 
-        data = self._request("GET", endpoint, query_params)
-        return [self._parse_order(order) for order in data]
+        try:
+            # Use CLOB client's get_orders method
+            response = self._clob_client.get_orders()
+
+            # Response is a list directly
+            if isinstance(response, list):
+                orders = response
+            elif isinstance(response, dict) and 'data' in response:
+                orders = response['data']
+            else:
+                if self.verbose:
+                    print(f"Debug: Unexpected response format: {type(response)}")
+                return []
+
+            if not orders:
+                return []
+
+            # Filter by market_id if provided
+            # Note: CLOB orders use hex conditionId (0x...) in the 'market' field
+            if market_id:
+                orders = [o for o in orders if o.get('market') == market_id]
+
+            # Parse orders
+            return [self._parse_order(order) for order in orders]
+        except Exception as e:
+            # Use print instead of logger since Exchange base class may not have logger
+            import traceback
+            if self.verbose:
+                print(f"Warning: Failed to fetch open orders: {e}")
+                traceback.print_exc()
+            return []
 
     def fetch_positions(
         self,
@@ -983,7 +1015,7 @@ class Polymarket(Exchange):
             id=data.get("id", ""),
             market_id=data.get("market_id", ""),
             outcome=data.get("outcome", ""),
-            side=OrderSide(data.get("side", "buy")),
+            side=OrderSide(data.get("side", "buy").lower()),
             price=float(data.get("price", 0)),
             size=float(data.get("size", 0)),
             filled=float(data.get("filled", 0)),
