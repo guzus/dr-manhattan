@@ -645,8 +645,27 @@ class Polymarket(Exchange):
 
     def cancel_order(self, order_id: str, market_id: Optional[str] = None) -> Order:
         """Cancel order on Polymarket"""
-        data = self._request("DELETE", f"/orders/{order_id}")
-        return self._parse_order(data)
+        if not self._clob_client:
+            raise ExchangeError("CLOB client not initialized. Private key required.")
+
+        try:
+            result = self._clob_client.cancel(order_id)
+            if isinstance(result, dict):
+                return self._parse_order(result)
+            return Order(
+                id=order_id,
+                market_id=market_id or "",
+                outcome="",
+                side=OrderSide.BUY,
+                price=0,
+                size=0,
+                filled=0,
+                status=OrderStatus.CANCELLED,
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+        except Exception as e:
+            raise ExchangeError(f"Failed to cancel order {order_id}: {str(e)}")
 
     def fetch_order(self, order_id: str, market_id: Optional[str] = None) -> Order:
         """Fetch order details"""
@@ -1011,8 +1030,10 @@ class Polymarket(Exchange):
 
     def _parse_order(self, data: Dict[str, Any]) -> Order:
         """Parse order data from API response"""
+        order_id = data.get("id") or data.get("orderID") or ""
+
         return Order(
-            id=data.get("id", ""),
+            id=order_id,
             market_id=data.get("market_id", ""),
             outcome=data.get("outcome", ""),
             side=OrderSide(data.get("side", "buy").lower()),

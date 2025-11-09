@@ -166,6 +166,15 @@ class LoLSpreadStrategy(MarketMakingStrategy):
         favorite_position = team1_position if team1_price > 0.5 else team2_position
         underdog_position = team2_position if team1_price > 0.5 else team1_position
 
+        # Calculate delta (imbalance in positions)
+        favorite_size = favorite_position.size if favorite_position else 0
+        underdog_size = underdog_position.size if underdog_position else 0
+        delta = abs(favorite_size - underdog_size)
+
+        logger.info(f"\nPosition Delta: {delta:.2f} contracts")
+        logger.info(f"  {favorite_outcome}: {favorite_size:.2f}")
+        logger.info(f"  {underdog_outcome}: {underdog_size:.2f}")
+
         if favorite_bid is None or favorite_ask is None or favorite_bid <= 0.01 or favorite_ask >= 0.99:
             estimated_fav_bid = favorite_price - TICK_SIZE
             estimated_fav_ask = favorite_price + TICK_SIZE
@@ -196,64 +205,150 @@ class LoLSpreadStrategy(MarketMakingStrategy):
 
         logger.info(f"\n  Target prices: BUY @ {und_buy_price:.4f}, SELL @ {und_sell_price:.4f}")
 
+        # Check and update BUY orders to match BBO
+        orders_to_cancel = []
         if underdog_buy_orders:
             logger.info(f"  Existing BUY orders: {len(underdog_buy_orders)}")
             for order in underdog_buy_orders:
                 logger.info(f"    {order.size:.0f} @ {order.price:.4f}")
-            self.active_buy_order = underdog_buy_orders[0]  # Track the first one
+                # If price doesn't match BBO, mark for cancellation
+                if abs(order.price - und_buy_price) > 0.0001:
+                    logger.info(f"    Order price {order.price:.4f} doesn't match BBO {und_buy_price:.4f}, marking for replacement")
+                    orders_to_cancel.append(order)
+            if not orders_to_cancel:
+                self.active_buy_order = underdog_buy_orders[0]
 
+        # Check and update SELL orders to match BBO
         if underdog_sell_orders:
             logger.info(f"  Existing SELL orders: {len(underdog_sell_orders)}")
             for order in underdog_sell_orders:
                 logger.info(f"    {order.size:.0f} @ {order.price:.4f}")
-            self.active_sell_order = underdog_sell_orders[0]  # Track the first one
+                # If price doesn't match BBO, mark for cancellation
+                if abs(order.price - und_sell_price) > 0.0001:
+                    logger.info(f"    Order price {order.price:.4f} doesn't match BBO {und_sell_price:.4f}, marking for replacement")
+                    orders_to_cancel.append(order)
+            if not orders_to_cancel:
+                self.active_sell_order = underdog_sell_orders[0]
 
-        # If we have both buy and sell orders, no action needed
+        # Cancel outdated orders
+        if orders_to_cancel:
+            logger.info(f"\n  Cancelling {len(orders_to_cancel)} orders with outdated prices")
+            for order in orders_to_cancel:
+                try:
+                    self.exchange.cancel_order(order.id, market_id=market.id)
+                    logger.info(f"    ✓ Cancelled order {order.id}")
+                    # Remove from local tracking
+                    if order.side == OrderSide.BUY and order in underdog_buy_orders:
+                        underdog_buy_orders.remove(order)
+                    elif order.side == OrderSide.SELL and order in underdog_sell_orders:
+                        underdog_sell_orders.remove(order)
+                except Exception as e:
+                    logger.error(f"    ✗ Failed to cancel order {order.id}: {e}")
+
+        # If we have both buy and sell orders at correct prices, no action needed
         if underdog_buy_orders and underdog_sell_orders:
-            logger.info(f"  ✓ Already have BUY and SELL orders, no action needed")
+            logger.info(f"  ✓ Already have BUY and SELL orders at BBO, no action needed")
             logger.info(f"{'='*80}\n")
             return
 
         available_shares = underdog_position.size if underdog_position else 0
 
-        # Place BUY order if we don't have one
-        if not underdog_buy_orders:
-            logger.info(f"\n  Placing BUY order: {size:.0f} @ {und_buy_price:.4f}")
-            try:
-                buy_order = self.exchange.create_order(
-                    market_id=market.id,
-                    outcome=underdog_outcome,
-                    side=OrderSide.BUY,
-                    price=und_buy_price,
-                    size=size,
-                    params={'token_id': underdog_token_id}
-                )
-                logger.info(f"  ✓ BUY order placed: {buy_order.id}")
-                self.placed_orders.append(buy_order)
-                self.active_buy_order = buy_order
-            except Exception as e:
-                logger.error(f"  ✗ Failed to place BUY: {e}")
+        # Delta management: only place orders that decrease delta when delta > 20
+        if delta > 20:
+            # Determine which side has more contracts
+            if favorite_size > underdog_size:
+                # We have more favorite contracts, only place underdog BUY orders
+                logger.info(f"\n⚠️  Delta: {delta:.2f} contracts ({favorite_outcome} > {underdog_outcome})")
+                logger.info(f"  Strategy: Only placing {underdog_outcome} BUY orders to balance positions")
 
-        # Place SELL order if we don't have one
-        if not underdog_sell_orders:
-            if available_shares >= size:
-                logger.info(f"\n  Placing SELL order: {size:.0f} @ {und_sell_price:.4f} (have {available_shares:.1f} available)")
+                if not underdog_buy_orders:
+                    logger.info(f"\n  Placing BUY order: {size:.0f} @ {und_buy_price:.4f}")
+                    try:
+                        buy_order = self.exchange.create_order(
+                            market_id=market.id,
+                            outcome=underdog_outcome,
+                            side=OrderSide.BUY,
+                            price=und_buy_price,
+                            size=size,
+                            params={'token_id': underdog_token_id}
+                        )
+                        logger.info(f"  ✓ BUY order placed: {buy_order.id}")
+                        self.placed_orders.append(buy_order)
+                        self.active_buy_order = buy_order
+                    except Exception as e:
+                        logger.error(f"  ✗ Failed to place BUY: {e}")
+                else:
+                    logger.info(f"  Already have BUY order, skipping SELL order due to delta imbalance")
+
+            elif underdog_size > favorite_size:
+                # We have more underdog contracts, only place underdog SELL orders
+                logger.info(f"\n⚠️  Delta: {delta:.2f} contracts ({underdog_outcome} > {favorite_outcome})")
+                logger.info(f"  Strategy: Only placing {underdog_outcome} SELL orders to balance positions")
+
+                if not underdog_sell_orders:
+                    if available_shares >= size:
+                        logger.info(f"\n  Placing SELL order: {size:.0f} @ {und_sell_price:.4f} (have {available_shares:.1f} available)")
+                        try:
+                            sell_order = self.exchange.create_order(
+                                market_id=market.id,
+                                outcome=underdog_outcome,
+                                side=OrderSide.SELL,
+                                price=und_sell_price,
+                                size=size,
+                                params={'token_id': underdog_token_id}
+                            )
+                            logger.info(f"  ✓ SELL order placed: {sell_order.id}")
+                            self.placed_orders.append(sell_order)
+                            self.active_sell_order = sell_order
+                        except Exception as e:
+                            logger.error(f"  ✗ Failed to place SELL: {e}")
+                    else:
+                        logger.info(f"\n  Cannot place SELL: need {size:.0f} shares, only have {available_shares:.1f} available")
+                else:
+                    logger.info(f"  Already have SELL order, skipping BUY order due to delta imbalance")
+
+        else:
+            # Delta <= 20, acceptable imbalance - place orders on both sides
+            logger.info(f"\n✓ Delta ({delta:.2f}) <= 20: Acceptable imbalance, placing orders on both sides")
+
+            # Place BUY order if we don't have one
+            if not underdog_buy_orders:
+                logger.info(f"\n  Placing BUY order: {size:.0f} @ {und_buy_price:.4f}")
                 try:
-                    sell_order = self.exchange.create_order(
+                    buy_order = self.exchange.create_order(
                         market_id=market.id,
                         outcome=underdog_outcome,
-                        side=OrderSide.SELL,
-                        price=und_sell_price,
+                        side=OrderSide.BUY,
+                        price=und_buy_price,
                         size=size,
                         params={'token_id': underdog_token_id}
                     )
-                    logger.info(f"  ✓ SELL order placed: {sell_order.id}")
-                    self.placed_orders.append(sell_order)
-                    self.active_sell_order = sell_order
+                    logger.info(f"  ✓ BUY order placed: {buy_order.id}")
+                    self.placed_orders.append(buy_order)
+                    self.active_buy_order = buy_order
                 except Exception as e:
-                    logger.error(f"  ✗ Failed to place SELL: {e}")
-            else:
-                logger.info(f"\n  Cannot place SELL: need {size:.0f} shares, only have {available_shares:.1f} available")
+                    logger.error(f"  ✗ Failed to place BUY: {e}")
+
+            # Place SELL order if we don't have one
+            if not underdog_sell_orders:
+                if available_shares >= size:
+                    logger.info(f"\n  Placing SELL order: {size:.0f} @ {und_sell_price:.4f} (have {available_shares:.1f} available)")
+                    try:
+                        sell_order = self.exchange.create_order(
+                            market_id=market.id,
+                            outcome=underdog_outcome,
+                            side=OrderSide.SELL,
+                            price=und_sell_price,
+                            size=size,
+                            params={'token_id': underdog_token_id}
+                        )
+                        logger.info(f"  ✓ SELL order placed: {sell_order.id}")
+                        self.placed_orders.append(sell_order)
+                        self.active_sell_order = sell_order
+                    except Exception as e:
+                        logger.error(f"  ✗ Failed to place SELL: {e}")
+                else:
+                    logger.info(f"\n  Cannot place SELL: need {size:.0f} shares, only have {available_shares:.1f} available")
 
         logger.info(f"{'='*80}\n")
 
