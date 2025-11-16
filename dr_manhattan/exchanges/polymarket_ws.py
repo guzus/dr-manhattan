@@ -1,6 +1,54 @@
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable
 from ..base.websocket import OrderBookWebSocket
+
+
+class OrderbookManager:
+    """
+    Helper class to manage multiple orderbooks efficiently.
+    Stores orderbooks for multiple tokens and provides easy access.
+    """
+
+    def __init__(self):
+        self.orderbooks: Dict[str, Dict[str, Any]] = {}
+
+    def update(self, token_id: str, orderbook: Dict[str, Any]):
+        """Update orderbook for a token"""
+        self.orderbooks[token_id] = orderbook
+
+    def get(self, token_id: str) -> Optional[Dict[str, Any]]:
+        """Get orderbook for a token"""
+        return self.orderbooks.get(token_id)
+
+    def get_best_bid_ask(self, token_id: str) -> tuple[Optional[float], Optional[float]]:
+        """
+        Get best bid and ask for a token.
+
+        Returns:
+            (best_bid, best_ask) or (None, None) if no data
+        """
+        orderbook = self.get(token_id)
+        if not orderbook:
+            return None, None
+
+        bids = orderbook.get('bids', [])
+        asks = orderbook.get('asks', [])
+
+        best_bid = bids[0][0] if bids else None
+        best_ask = asks[0][0] if asks else None
+
+        return best_bid, best_ask
+
+    def has_data(self, token_id: str) -> bool:
+        """Check if we have orderbook data for a token"""
+        orderbook = self.get(token_id)
+        if not orderbook:
+            return False
+        return len(orderbook.get('bids', [])) > 0 and len(orderbook.get('asks', [])) > 0
+
+    def has_all_data(self, token_ids: list[str]) -> bool:
+        """Check if we have orderbook data for all tokens"""
+        return all(self.has_data(tid) for tid in token_ids)
 
 
 class PolymarketWebSocket(OrderBookWebSocket):
@@ -21,6 +69,9 @@ class PolymarketWebSocket(OrderBookWebSocket):
 
         # Track subscribed asset IDs
         self.subscribed_assets = set()
+
+        # Orderbook manager
+        self.orderbook_manager = OrderbookManager()
 
     @property
     def ws_url(self) -> str:
@@ -237,7 +288,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
         """
         await self.watch_orderbook(asset_id, callback)
 
-    async def watch_orderbook_by_market(self, market_id: str, asset_ids: list[str], callback):
+    async def watch_orderbook_by_market(self, market_id: str, asset_ids: list[str], callback=None):
         """
         Subscribe to orderbook updates for a market with multiple assets.
 
@@ -246,12 +297,41 @@ class PolymarketWebSocket(OrderBookWebSocket):
         Args:
             market_id: Market condition ID
             asset_ids: List of asset (token) IDs for this market
-            callback: Function to call with orderbook updates
+            callback: Optional function to call with orderbook updates.
+                     If None, data will be stored in orderbook_manager only.
         """
         # Store mapping
         for asset_id in asset_ids:
             self.market_to_asset[market_id] = asset_id
-            await self.watch_orderbook(asset_id, callback)
+
+            # Create callback that updates manager
+            def make_callback(tid):
+                def cb(market_id, orderbook):
+                    # Update manager
+                    self.orderbook_manager.update(tid, orderbook)
+                    # Call user callback if provided
+                    if callback:
+                        callback(market_id, orderbook)
+                return cb
+
+            await self.watch_orderbook(asset_id, make_callback(asset_id))
+
+    def get_orderbook_manager(self) -> OrderbookManager:
+        """
+        Get the orderbook manager for easy access to orderbook data.
+
+        Returns:
+            OrderbookManager instance
+
+        Example:
+            >>> ws = exchange.get_websocket()
+            >>> await ws.watch_orderbook_by_market(market_id, token_ids)
+            >>> ws.start()
+            >>> time.sleep(2)  # Wait for data
+            >>> manager = ws.get_orderbook_manager()
+            >>> bid, ask = manager.get_best_bid_ask(token_id)
+        """
+        return self.orderbook_manager
 
     async def _process_message_item(self, data: dict):
         """

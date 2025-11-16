@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, Callable
 import asyncio
 import json
+import time
 from enum import Enum
 
 
@@ -29,9 +30,14 @@ class OrderBookWebSocket(ABC):
 
         # Reconnection settings
         self.auto_reconnect = self.config.get('auto_reconnect', True)
-        self.max_reconnect_attempts = self.config.get('max_reconnect_attempts', 10)
-        self.reconnect_delay = self.config.get('reconnect_delay', 5.0)
+        self.max_reconnect_attempts = self.config.get('max_reconnect_attempts', 999)  # Essentially infinite
+        self.reconnect_delay = self.config.get('reconnect_delay', 3.0)
         self.reconnect_attempts = 0
+
+        # Connection timeout settings
+        self.ping_interval = self.config.get('ping_interval', 20.0)  # Send ping every 20s
+        self.ping_timeout = self.config.get('ping_timeout', 10.0)   # Wait 10s for pong
+        self.close_timeout = self.config.get('close_timeout', 10.0)
 
         # Subscriptions
         self.subscriptions: Dict[str, Callable] = {}
@@ -39,6 +45,9 @@ class OrderBookWebSocket(ABC):
         # Event loop
         self.loop = None
         self.tasks = []
+
+        # Last activity tracking
+        self.last_message_time = 0
 
     @property
     @abstractmethod
@@ -94,7 +103,7 @@ class OrderBookWebSocket(ABC):
         pass
 
     async def connect(self):
-        """Establish WebSocket connection"""
+        """Establish WebSocket connection with improved settings"""
         try:
             import websockets
         except ImportError:
@@ -108,12 +117,23 @@ class OrderBookWebSocket(ABC):
         self.state = WebSocketState.CONNECTING
 
         try:
-            self.ws = await websockets.connect(self.ws_url)
+            # Connect with ping/pong heartbeat
+            self.ws = await websockets.connect(
+                self.ws_url,
+                ping_interval=self.ping_interval,
+                ping_timeout=self.ping_timeout,
+                close_timeout=self.close_timeout,
+                max_size=10 * 1024 * 1024,  # 10MB max message size
+                compression=None  # Disable compression for lower latency
+            )
             self.state = WebSocketState.CONNECTED
             self.reconnect_attempts = 0
+            self.last_message_time = time.time()
 
             if self.verbose:
                 print(f"WebSocket connected to {self.ws_url}")
+                print(f"  Ping interval: {self.ping_interval}s")
+                print(f"  Ping timeout: {self.ping_timeout}s")
 
             # Authenticate if needed
             await self._authenticate()
@@ -153,6 +173,13 @@ class OrderBookWebSocket(ABC):
             message: Raw message string from WebSocket
         """
         try:
+            # Update last message time
+            self.last_message_time = time.time()
+
+            # Skip non-JSON messages (like PONG heartbeats)
+            if message in ('PONG', 'PING', ''):
+                return
+
             if self.verbose:
                 # Log first 200 chars of message
                 msg_preview = message[:200] + "..." if len(message) > 200 else message
@@ -168,8 +195,9 @@ class OrderBookWebSocket(ABC):
                 await self._process_message_item(data)
 
         except json.JSONDecodeError as e:
-            if self.verbose:
-                print(f"Failed to parse message: {e}")
+            # Only log JSON errors if verbose and not a known non-JSON message
+            if self.verbose and message not in ('PONG', 'PING'):
+                print(f"Failed to parse message as JSON: {message[:100]}")
         except Exception as e:
             if self.verbose:
                 print(f"Error handling message: {e}")
@@ -196,7 +224,9 @@ class OrderBookWebSocket(ABC):
                 print(f"Error processing message item: {e}")
 
     async def _receive_loop(self):
-        """Main loop for receiving WebSocket messages"""
+        """Main loop for receiving WebSocket messages with improved error handling"""
+        import websockets.exceptions
+
         while self.state != WebSocketState.CLOSED:
             try:
                 if self.ws is None or self.state != WebSocketState.CONNECTED:
@@ -209,9 +239,36 @@ class OrderBookWebSocket(ABC):
                 async for message in self.ws:
                     await self._handle_message(message)
 
+                # If loop exits normally, connection was closed
+                if self.verbose:
+                    print("WebSocket connection closed normally")
+
+                if self.auto_reconnect and self.state != WebSocketState.CLOSED:
+                    await self._reconnect()
+                else:
+                    break
+
+            except websockets.exceptions.ConnectionClosed as e:
+                if self.verbose:
+                    print(f"WebSocket connection closed: {e.code} {e.reason}")
+
+                if self.auto_reconnect and self.state != WebSocketState.CLOSED:
+                    await self._reconnect()
+                else:
+                    break
+
+            except asyncio.TimeoutError:
+                if self.verbose:
+                    print("WebSocket timeout - reconnecting...")
+
+                if self.auto_reconnect and self.state != WebSocketState.CLOSED:
+                    await self._reconnect()
+                else:
+                    break
+
             except Exception as e:
                 if self.verbose:
-                    print(f"WebSocket receive error: {e}")
+                    print(f"WebSocket receive error: {type(e).__name__}: {e}")
 
                 if self.auto_reconnect and self.state != WebSocketState.CLOSED:
                     await self._reconnect()
@@ -219,7 +276,7 @@ class OrderBookWebSocket(ABC):
                     break
 
     async def _reconnect(self):
-        """Handle reconnection with exponential backoff"""
+        """Handle reconnection with exponential backoff (capped)"""
         if self.reconnect_attempts >= self.max_reconnect_attempts:
             if self.verbose:
                 print("Max reconnection attempts reached")
@@ -229,14 +286,28 @@ class OrderBookWebSocket(ABC):
         self.state = WebSocketState.RECONNECTING
         self.reconnect_attempts += 1
 
-        delay = self.reconnect_delay * (2 ** (self.reconnect_attempts - 1))
+        # Exponential backoff with max delay of 60s
+        delay = min(60.0, self.reconnect_delay * (1.5 ** (self.reconnect_attempts - 1)))
+
         if self.verbose:
-            print(f"Reconnecting in {delay}s (attempt {self.reconnect_attempts}/{self.max_reconnect_attempts})")
+            print(f"Reconnecting in {delay:.1f}s (attempt {self.reconnect_attempts})")
 
         await asyncio.sleep(delay)
 
         try:
+            # Close old connection if exists
+            if self.ws:
+                try:
+                    await self.ws.close()
+                except:
+                    pass
+                self.ws = None
+
             await self.connect()
+
+            if self.verbose:
+                print(f"✓ Reconnected successfully")
+
         except Exception as e:
             if self.verbose:
                 print(f"Reconnection failed: {e}")

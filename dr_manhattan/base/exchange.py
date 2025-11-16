@@ -174,6 +174,74 @@ class Exchange(ABC):
         """
         pass
 
+    def get_tick_size(self, market: Market) -> float:
+        """
+        Get the minimum tick size (price increment) for a market.
+
+        This is a common interface method that exchanges should override
+        if they support dynamic tick sizes. Default implementation returns 0.01.
+
+        Args:
+            market: Market object
+
+        Returns:
+            Minimum tick size (default: 0.01)
+
+        Example:
+            >>> tick_size = exchange.get_tick_size(market)
+            >>> valid_price = exchange.round_to_tick_size(0.1234, tick_size)
+        """
+        # Check metadata first (exchange-specific)
+        tick_size = market.metadata.get('tick_size') or market.metadata.get('minimum_tick_size')
+        if tick_size:
+            return float(tick_size)
+
+        # Default to 0.01 (1 cent)
+        return 0.01
+
+    def round_to_tick_size(self, price: float, tick_size: Optional[float] = None) -> float:
+        """
+        Round a price to the nearest valid tick increment.
+
+        Args:
+            price: The price to round
+            tick_size: The minimum tick size (default: 0.01)
+
+        Returns:
+            Price rounded to nearest tick
+
+        Example:
+            >>> rounded = exchange.round_to_tick_size(0.1234, 0.01)
+            >>> # Returns: 0.12
+        """
+        if tick_size is None:
+            tick_size = 0.01
+
+        if tick_size <= 0:
+            return price
+
+        return round(price / tick_size) * tick_size
+
+    def is_valid_price(self, price: float, tick_size: Optional[float] = None) -> bool:
+        """
+        Check if a price is valid for the given tick size.
+
+        Args:
+            price: Price to check
+            tick_size: Minimum tick size (default: 0.01)
+
+        Returns:
+            True if price is valid
+        """
+        if tick_size is None:
+            tick_size = 0.01
+
+        if tick_size <= 0:
+            return True
+
+        rounded = self.round_to_tick_size(price, tick_size)
+        return abs(price - rounded) < (tick_size / 10)
+
     @abstractmethod
     def fetch_balance(self) -> Dict[str, float]:
         """
