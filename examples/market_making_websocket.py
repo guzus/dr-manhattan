@@ -41,7 +41,6 @@ class WebSocketMarketMaker:
         market_slug: str,
         max_position: float = 100.0,
         order_size: float = 5.0,
-        spread_offset: float = 0.01,
         max_delta: float = 20.0,
         check_interval: float = 5.0
     ):
@@ -53,7 +52,6 @@ class WebSocketMarketMaker:
             market_slug: Market slug or URL
             max_position: Maximum position size per outcome
             order_size: Size of each order
-            spread_offset: How far inside the spread to place orders
             max_delta: Maximum position imbalance
             check_interval: How often to check and adjust orders
         """
@@ -61,7 +59,6 @@ class WebSocketMarketMaker:
         self.market_slug = market_slug
         self.max_position = max_position
         self.order_size = order_size
-        self.spread_offset = spread_offset
         self.max_delta = max_delta
         self.check_interval = check_interval
 
@@ -103,6 +100,19 @@ class WebSocketMarketMaker:
 
         # Get tick size from market
         self.tick_size = self.exchange.get_tick_size(self.market)
+
+        # If tick size seems wrong (based on market prices), try to infer it
+        # Check if prices use smaller increments
+        for outcome, price in self.market.prices.items():
+            if price > 0:
+                # Check if price has more precision than tick_size
+                price_str = f"{price:.4f}"
+                if '.' in price_str:
+                    decimals = len(price_str.split('.')[1].rstrip('0'))
+                    if decimals == 3:  # e.g., 0.021
+                        self.tick_size = 0.001
+                        logger.info(f"  Detected tick size: 0.001 (from market prices)")
+                        break
 
         # Display market info
         logger.info(f"\n{'='*80}")
@@ -274,23 +284,35 @@ class WebSocketMarketMaker:
                 logger.warning(f"  {outcome}: No orderbook data yet, skipping...")
                 continue
 
-            # Calculate our prices (inside the spread)
-            # Use tick_size instead of hardcoded spread_offset
-            our_bid = best_bid + self.tick_size
-            our_ask = best_ask - self.tick_size
+            # Get full orderbook for debugging
+            orderbook = self.orderbook_manager.get(token_id)
+            if orderbook:
+                bids = orderbook.get('bids', [])
+                asks = orderbook.get('asks', [])
+                logger.info(f"\n  {outcome} (Token: {token_id[:8]}...):")
+                logger.info(f"    Orderbook depth: {len(bids)} bids, {len(asks)} asks")
+                if bids:
+                    logger.info(f"    Top 3 bids: {bids[:3]}")
+                if asks:
+                    logger.info(f"    Top 3 asks: {asks[:3]}")
 
-            # Round to tick size
+            # Calculate our prices (join the BBO - best bid/offer)
+            # Market making strategy: match the best prices
+            our_bid = best_bid  # Join the best bid
+            our_ask = best_ask  # Join the best ask
+
+            # Round to tick size (already should be, but ensure)
             our_bid = self.exchange.round_to_tick_size(our_bid, self.tick_size)
             our_ask = self.exchange.round_to_tick_size(our_ask, self.tick_size)
 
-            # Ensure our bid < our ask and within valid range
+            # Ensure valid range
             our_bid = max(0.01, min(0.99, our_bid))
             our_ask = max(0.01, min(0.99, our_ask))
 
+            # Sanity check: if bid >= ask, the spread is too tight
             if our_bid >= our_ask:
-                mid = (best_bid + best_ask) / 2
-                our_bid = self.exchange.round_to_tick_size(max(0.01, mid - self.tick_size), self.tick_size)
-                our_ask = self.exchange.round_to_tick_size(min(0.99, mid + self.tick_size), self.tick_size)
+                logger.warning(f"  {outcome}: Spread too tight (bid={our_bid:.4f} >= ask={our_ask:.4f}), skipping")
+                continue
 
             position_size = positions.get(outcome, 0)
 
@@ -299,8 +321,7 @@ class WebSocketMarketMaker:
             buy_orders = [o for o in outcome_orders if o.side == OrderSide.BUY]
             sell_orders = [o for o in outcome_orders if o.side == OrderSide.SELL]
 
-            logger.info(f"\n  {outcome} (Token: {token_id[:8]}...):")
-            logger.info(f"    Orderbook: Bid={best_bid:.4f} Ask={best_ask:.4f}")
+            logger.info(f"    Our prices: Bid={our_bid:.4f} Ask={our_ask:.4f}")
             logger.info(f"    Position: {position_size:.2f} shares")
 
             # Delta management
@@ -385,9 +406,9 @@ class WebSocketMarketMaker:
         logger.info(f"\n{'='*80}")
         logger.info("WEBSOCKET MARKET MAKER")
         logger.info(f"{'='*80}")
+        logger.info(f"Strategy: Join the best bid/offer (BBO)")
         logger.info(f"Max position per outcome: {self.max_position:.2f}")
         logger.info(f"Order size: {self.order_size:.2f}")
-        logger.info(f"Spread offset: {self.spread_offset:.4f}")
         logger.info(f"Max delta: {self.max_delta:.2f}")
         logger.info(f"Check interval: {self.check_interval}s")
         if duration_minutes:
@@ -409,7 +430,24 @@ class WebSocketMarketMaker:
 
         # Check if we got data using manager
         if self.orderbook_manager.has_all_data(self.token_ids):
-            logger.info("Orderbook data received for all tokens\n")
+            logger.info("Orderbook data received for all tokens")
+
+            # Infer tick size from orderbook if needed
+            if self.tick_size == 0.01:
+                for token_id in self.token_ids:
+                    orderbook = self.orderbook_manager.get(token_id)
+                    if orderbook:
+                        bids = orderbook.get('bids', [])
+                        asks = orderbook.get('asks', [])
+                        for price, size in bids + asks:
+                            # Check if price uses finer granularity
+                            if price % 0.01 != 0:
+                                self.tick_size = 0.001
+                                logger.info(f"✓ Detected finer tick size: 0.001 (from orderbook)")
+                                break
+                        if self.tick_size == 0.001:
+                            break
+            logger.info("")
         else:
             logger.warning("Some tokens missing orderbook data. Continuing anyway...\n")
 
@@ -484,7 +522,6 @@ def main():
         market_slug=market_slug,
         max_position=100.0,
         order_size=5.0,
-        spread_offset=0.01,
         max_delta=20.0,
         check_interval=5.0
     )

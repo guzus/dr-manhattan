@@ -352,33 +352,16 @@ class Polymarket(Exchange):
             market_data = markets_data[0]
             market = self._parse_market(market_data)
 
-            # Fetch token IDs and tick size from CLOB API
+            # Fetch token IDs from CLOB API
             try:
                 token_ids = self.fetch_token_ids(market.id)
                 market.metadata['clobTokenIds'] = token_ids
-
-                # Also try to fetch tick size from CLOB sampling-markets
-                try:
-                    response = requests.get(
-                        f"{self.CLOB_URL}/sampling-markets",
-                        timeout=self.timeout
-                    )
-                    if response.status_code == 200:
-                        result = response.json()
-                        markets_data = result.get("data", result if isinstance(result, list) else [])
-                        for clob_market in markets_data:
-                            if clob_market.get("condition_id") == market.id:
-                                tick_size = clob_market.get("minimum_tick_size", 0.01)
-                                market.metadata['minimum_tick_size'] = tick_size
-                                market.metadata['tick_size'] = tick_size
-                                break
-                except:
-                    pass
-
             except Exception as e:
                 if self.verbose:
                     print(f"Could not fetch token IDs from CLOB: {e}")
-                # Try to get from market data
+
+            # Try to get from market data if CLOB fetch failed
+            if 'clobTokenIds' not in market.metadata:
                 clob_token_ids = market_data.get('clobTokenIds', [])
 
                 # Parse if it's a JSON string
@@ -397,10 +380,18 @@ class Polymarket(Exchange):
                         print("No token IDs available")
                     return None
 
-            # Set default tick size if not found
-            if 'minimum_tick_size' not in market.metadata:
-                market.metadata['minimum_tick_size'] = 0.01
-                market.metadata['tick_size'] = 0.01
+            # Set default tick size if not already present
+            # Most active Polymarket markets use 0.001 tick size
+            # Note: When markets are fetched via sampling-markets endpoint,
+            # they will have minimum_tick_size already set from the API
+            if 'tick_size' not in market.metadata and 'minimum_tick_size' not in market.metadata:
+                market.metadata['minimum_tick_size'] = 0.001
+                market.metadata['tick_size'] = 0.001
+                if self.verbose:
+                    print("  Using default tick size: 0.001")
+            elif self.verbose:
+                tick_size = market.metadata.get('tick_size') or market.metadata.get('minimum_tick_size')
+                print(f"  Tick size: {tick_size}")
 
             if self.verbose:
                 print(f"✓ Fetched market: {market.question[:70]}...")
@@ -463,6 +454,8 @@ class Polymarket(Exchange):
             question = data.get("question", "")
 
             # Extract tick size (minimum price increment)
+            # The API returns minimum_tick_size (e.g., 0.01 or 0.001)
+            # Note: minimum_order_size is different - it's the min shares per order
             minimum_tick_size = data.get("minimum_tick_size", 0.01)
 
             # Extract tokens - sampling-markets has them in "tokens" array
@@ -637,6 +630,14 @@ class Polymarket(Exchange):
         elif 'clobTokenIds' not in metadata and 'tokenID' in data:
             # Single token ID - might be a simplified response
             metadata['clobTokenIds'] = [data['tokenID']]
+
+        # Ensure clobTokenIds is always a list, not a JSON string
+        if 'clobTokenIds' in metadata and isinstance(metadata['clobTokenIds'], str):
+            try:
+                metadata['clobTokenIds'] = json.loads(metadata['clobTokenIds'])
+            except (json.JSONDecodeError, TypeError):
+                # If parsing fails, remove it - will be fetched separately
+                del metadata['clobTokenIds']
 
         return Market(
             id=data.get("id", ""),
