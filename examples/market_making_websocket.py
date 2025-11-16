@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 import dr_manhattan
 from dr_manhattan.models import OrderSide
 from dr_manhattan.utils import setup_logger
+from dr_manhattan.utils.logger import Colors
 
 logger = setup_logger(__name__)
 
@@ -33,6 +34,10 @@ class WebSocketMarketMaker:
     """
     High-performance market maker using exchange interfaces.
     Supports multi-token markets with delta management.
+
+    For binary markets, only subscribes to first token (Yes) orderbook.
+    Second token (No) prices are calculated as inverse (1 - Yes price).
+    This reduces WebSocket bandwidth by 50% for binary markets.
     """
 
     def __init__(
@@ -115,42 +120,34 @@ class WebSocketMarketMaker:
                         break
 
         # Display market info
-        logger.info(f"\n{'='*80}")
-        logger.info(f"Market: {self.market.question}")
-        logger.info(f"Market ID: {self.market.id}")
-        logger.info(f"Outcomes: {self.outcomes}")
-        logger.info(f"Token IDs: {len(self.token_ids)} tokens")
-        logger.info(f"Tick size: {self.tick_size}")
+        logger.info(f"\n{Colors.bold('Market:')} {Colors.cyan(self.market.question)}")
+        logger.info(f"Outcomes: {Colors.magenta(str(self.outcomes))} | Tick: {Colors.yellow(str(self.tick_size))} | Vol: {Colors.cyan(f'${self.market.volume:,.0f}')}")
 
         for i, (outcome, token_id) in enumerate(zip(self.outcomes, self.token_ids)):
             price = self.market.prices.get(outcome, 0)
-            logger.info(f"  [{i}] {outcome}: {price:.4f} (Token: {token_id[:16]}...)")
-
-        logger.info(f"Volume: ${self.market.volume:,.2f}")
-        logger.info(f"Liquidity: ${self.market.liquidity:,.2f}")
+            logger.info(f"  [{i}] {Colors.magenta(outcome)}: {Colors.yellow(f'{price:.4f}')}")
 
         slug = self.market.metadata.get('slug', '')
         if slug:
-            logger.info(f"URL: https://polymarket.com/event/{slug}")
-        logger.info(f"{'='*80}\n")
+            logger.info(f"URL: {Colors.gray(f'https://polymarket.com/event/{slug}')}")
 
         return True
 
     def setup_websocket(self):
         """Setup WebSocket connection using exchange interface"""
-        logger.info("Setting up WebSocket connection...")
-
         # Get WebSocket from exchange
         self.ws = self.exchange.get_websocket()
 
         # Get orderbook manager
         self.orderbook_manager = self.ws.get_orderbook_manager()
 
-        logger.info(f"Initialized WebSocket for {len(self.token_ids)} tokens")
-
     def start_websocket(self):
         """Start WebSocket and subscribe to orderbooks"""
-        logger.info("Starting WebSocket...")
+        # For binary markets, only subscribe to first token (Yes)
+        # No token prices are calculated as inverse
+        tokens_to_subscribe = [self.token_ids[0]] if len(self.token_ids) == 2 else self.token_ids
+
+        logger.info(f"Starting WebSocket (subscribing to {len(tokens_to_subscribe)}/{len(self.token_ids)} tokens)...")
 
         # Create event loop if needed
         if self.ws.loop is None:
@@ -161,9 +158,7 @@ class WebSocketMarketMaker:
             await self.ws.connect()
 
             # Subscribe to market orderbooks (no callback needed, uses manager)
-            await self.ws.watch_orderbook_by_market(self.market.id, self.token_ids)
-
-            logger.info(f"  Subscribed to {len(self.token_ids)} token orderbooks")
+            await self.ws.watch_orderbook_by_market(self.market.id, tokens_to_subscribe)
 
             # Start receive loop
             await self.ws._receive_loop()
@@ -179,16 +174,13 @@ class WebSocketMarketMaker:
         self.ws_thread.start()
 
         time.sleep(2)
-        logger.info("WebSocket started\n")
 
     def stop_websocket(self):
         """Stop WebSocket connection"""
         if self.ws:
-            logger.info("Stopping WebSocket...")
             self.ws.stop()
             if self.ws_thread:
                 self.ws_thread.join(timeout=5)
-            logger.info("WebSocket stopped")
 
     def get_positions(self) -> Dict[str, float]:
         """
@@ -224,17 +216,17 @@ class WebSocketMarketMaker:
 
     def cancel_all_orders(self):
         """Cancel all open orders"""
-        logger.info("Cancelling all orders...")
         orders = self.get_open_orders()
 
+        if not orders:
+            return
+
+        logger.info(f"Cancelling {Colors.cyan(str(len(orders)))} orders...")
         for order in orders:
             try:
                 self.exchange.cancel_order(order.id, market_id=self.market.id)
-                logger.info(f"  Cancelled order {order.id}")
             except Exception as e:
-                logger.warning(f"  Failed to cancel order {order.id}: {e}")
-
-        logger.info(f"Cancelled {len(orders)} orders\n")
+                logger.warning(f"  Failed to cancel {order.id}: {e}")
 
     def place_orders(self):
         """Main market making logic using orderbook manager"""
@@ -248,53 +240,41 @@ class WebSocketMarketMaker:
         min_position_size = min(positions.values()) if positions else 0
         delta = max_position_size - min_position_size
 
-        logger.info(f"\n{'='*80}")
-        logger.info(f"MARKET MAKING ITERATION - {time.strftime('%H:%M:%S')}")
-        logger.info(f"{'='*80}")
+        logger.info(f"\n[{time.strftime('%H:%M:%S')}] Exposure: {Colors.blue(f'{total_long:.1f}')} | Delta: {Colors.yellow(f'{delta:.1f}')} | Orders: {Colors.cyan(str(len(open_orders)))}")
 
-        # Display positions
-        logger.info("\nCurrent Positions:")
+        # Display positions if any
         if positions:
-            for outcome, size in positions.items():
-                logger.info(f"  {outcome}: {size:.2f} shares")
-        else:
-            logger.info("  No positions")
+            pos_str = " | ".join([f"{Colors.magenta(o)}: {Colors.blue(f'{s:.1f}')}" for o, s in positions.items()])
+            logger.info(f"Positions: {pos_str}")
 
-        logger.info(f"\nPosition Metrics:")
-        logger.info(f"  Total exposure: {total_long:.2f} shares")
-        logger.info(f"  Delta (imbalance): {delta:.2f} shares")
-
-        logger.info(f"\nOpen Orders: {len(open_orders)}")
-        for order in open_orders:
-            logger.info(f"  {order.outcome} {order.side.value.upper()}: {order.size:.0f} @ {order.price:.4f}")
+        # Display open orders if any
+        if open_orders:
+            for order in open_orders:
+                side_colored = Colors.green(order.side.value.upper()) if order.side == OrderSide.BUY else Colors.red(order.side.value.upper())
+                logger.info(f"  {Colors.magenta(order.outcome)} {side_colored}: {order.size:.0f} @ {Colors.yellow(f'{order.price:.4f}')}")
 
         # Check delta risk
         if delta > self.max_delta:
-            logger.warning(f"\n⚠️  Delta ({delta:.2f}) exceeds max ({self.max_delta:.2f})")
-            logger.warning("  Reducing exposure on heavy side...")
-
-        # Place orders for each outcome
-        logger.info("\nPlacing orders:")
+            logger.warning(f"Delta ({delta:.2f}) > max ({self.max_delta:.2f}) - reducing exposure")
 
         for i, (outcome, token_id) in enumerate(zip(self.outcomes, self.token_ids)):
-            # Get orderbook using manager
-            best_bid, best_ask = self.orderbook_manager.get_best_bid_ask(token_id)
+            # For binary markets, calculate inverse prices for second token
+            if len(self.token_ids) == 2 and i == 1:
+                # Get first token's orderbook
+                first_bid, first_ask = self.orderbook_manager.get_best_bid_ask(self.token_ids[0])
+                if first_bid is None or first_ask is None:
+                    logger.warning(f"  {outcome}: No orderbook data, skipping...")
+                    continue
+                # Inverse prices: No bid = 1 - Yes ask, No ask = 1 - Yes bid
+                best_bid = 1.0 - first_ask
+                best_ask = 1.0 - first_bid
+            else:
+                # Get orderbook using manager
+                best_bid, best_ask = self.orderbook_manager.get_best_bid_ask(token_id)
 
-            if best_bid is None or best_ask is None:
-                logger.warning(f"  {outcome}: No orderbook data yet, skipping...")
-                continue
-
-            # Get full orderbook for debugging
-            orderbook = self.orderbook_manager.get(token_id)
-            if orderbook:
-                bids = orderbook.get('bids', [])
-                asks = orderbook.get('asks', [])
-                logger.info(f"\n  {outcome} (Token: {token_id[:8]}...):")
-                logger.info(f"    Orderbook depth: {len(bids)} bids, {len(asks)} asks")
-                if bids:
-                    logger.info(f"    Top 3 bids: {bids[:3]}")
-                if asks:
-                    logger.info(f"    Top 3 asks: {asks[:3]}")
+                if best_bid is None or best_ask is None:
+                    logger.warning(f"  {outcome}: No orderbook data, skipping...")
+                    continue
 
             # Calculate our prices (join the BBO - best bid/offer)
             # Market making strategy: match the best prices
@@ -321,12 +301,11 @@ class WebSocketMarketMaker:
             buy_orders = [o for o in outcome_orders if o.side == OrderSide.BUY]
             sell_orders = [o for o in outcome_orders if o.side == OrderSide.SELL]
 
-            logger.info(f"    Our prices: Bid={our_bid:.4f} Ask={our_ask:.4f}")
-            logger.info(f"    Position: {position_size:.2f} shares")
+            logger.info(f"  {Colors.magenta(outcome)}: Bid={Colors.green(f'{our_bid:.4f}')} Ask={Colors.red(f'{our_ask:.4f}')} | Pos={Colors.blue(f'{position_size:.1f}')}")
 
             # Delta management
             if delta > self.max_delta and position_size == max_position_size:
-                logger.info(f"    Skipping: Already at max position (delta management)")
+                logger.info(f"    Skip: max position (delta mgmt)")
                 continue
 
             # Place BUY order if needed
@@ -335,20 +314,18 @@ class WebSocketMarketMaker:
                 for order in buy_orders:
                     if abs(order.price - our_bid) < 0.001:
                         should_place_buy = False
-                        logger.info(f"    BUY: Already have order @ {order.price:.4f}")
                         break
 
                 if should_place_buy:
                     for order in buy_orders:
                         try:
                             self.exchange.cancel_order(order.id)
-                            logger.info(f"    Cancelled outdated BUY @ {order.price:.4f}")
+                            logger.info(f"    {Colors.gray('Cancel')} {Colors.green('BUY')} @ {Colors.yellow(f'{order.price:.4f}')}")
                         except:
                             pass
 
             if position_size + self.order_size > self.max_position:
                 should_place_buy = False
-                logger.info(f"    BUY: Would exceed max position")
 
             if should_place_buy:
                 try:
@@ -360,9 +337,9 @@ class WebSocketMarketMaker:
                         size=self.order_size,
                         params={'token_id': token_id}
                     )
-                    logger.info(f"    ✓ BUY: {self.order_size:.0f} @ {our_bid:.4f} (ID: {order.id[:16]}...)")
+                    logger.info(f"    {Colors.green('BUY')} {self.order_size:.0f} @ {Colors.yellow(f'{our_bid:.4f}')}")
                 except Exception as e:
-                    logger.error(f"    ✗ BUY failed: {e}")
+                    logger.error(f"    BUY failed: {e}")
 
             # Place SELL order if needed
             should_place_sell = True
@@ -370,20 +347,18 @@ class WebSocketMarketMaker:
                 for order in sell_orders:
                     if abs(order.price - our_ask) < 0.001:
                         should_place_sell = False
-                        logger.info(f"    SELL: Already have order @ {order.price:.4f}")
                         break
 
                 if should_place_sell:
                     for order in sell_orders:
                         try:
                             self.exchange.cancel_order(order.id)
-                            logger.info(f"    Cancelled outdated SELL @ {order.price:.4f}")
+                            logger.info(f"    {Colors.gray('Cancel')} {Colors.red('SELL')} @ {Colors.yellow(f'{order.price:.4f}')}")
                         except:
                             pass
 
             if position_size < self.order_size:
                 should_place_sell = False
-                logger.info(f"    SELL: Insufficient shares ({position_size:.2f} < {self.order_size:.2f})")
 
             if should_place_sell:
                 try:
@@ -395,25 +370,13 @@ class WebSocketMarketMaker:
                         size=self.order_size,
                         params={'token_id': token_id}
                     )
-                    logger.info(f"    ✓ SELL: {self.order_size:.0f} @ {our_ask:.4f} (ID: {order.id[:16]}...)")
+                    logger.info(f"    {Colors.red('SELL')} {self.order_size:.0f} @ {Colors.yellow(f'{our_ask:.4f}')}")
                 except Exception as e:
-                    logger.error(f"    ✗ SELL failed: {e}")
-
-        logger.info(f"\n{'='*80}\n")
+                    logger.error(f"    SELL failed: {e}")
 
     def run(self, duration_minutes: Optional[int] = None):
         """Run the market making bot"""
-        logger.info(f"\n{'='*80}")
-        logger.info("WEBSOCKET MARKET MAKER")
-        logger.info(f"{'='*80}")
-        logger.info(f"Strategy: Join the best bid/offer (BBO)")
-        logger.info(f"Max position per outcome: {self.max_position:.2f}")
-        logger.info(f"Order size: {self.order_size:.2f}")
-        logger.info(f"Max delta: {self.max_delta:.2f}")
-        logger.info(f"Check interval: {self.check_interval}s")
-        if duration_minutes:
-            logger.info(f"Duration: {duration_minutes} minutes")
-        logger.info(f"{'='*80}\n")
+        logger.info(f"\n{Colors.bold('Market Maker:')} {Colors.cyan('BBO Strategy')} | MaxPos: {Colors.blue(f'{self.max_position:.0f}')} | Size: {Colors.yellow(f'{self.order_size:.0f}')} | MaxDelta: {Colors.yellow(f'{self.max_delta:.0f}')} | Interval: {Colors.gray(f'{self.check_interval}s')}")
 
         # Fetch market using exchange interface
         if not self.fetch_market():
@@ -425,31 +388,27 @@ class WebSocketMarketMaker:
         self.start_websocket()
 
         # Wait for initial orderbook data
-        logger.info("Waiting for initial orderbook data...")
         time.sleep(5)
 
-        # Check if we got data using manager
-        if self.orderbook_manager.has_all_data(self.token_ids):
-            logger.info("Orderbook data received for all tokens")
+        # For binary markets, only check first token
+        tokens_to_check = [self.token_ids[0]] if len(self.token_ids) == 2 else self.token_ids
 
+        # Check if we got data using manager
+        if self.orderbook_manager.has_all_data(tokens_to_check):
             # Infer tick size from orderbook if needed
             if self.tick_size == 0.01:
-                for token_id in self.token_ids:
-                    orderbook = self.orderbook_manager.get(token_id)
-                    if orderbook:
-                        bids = orderbook.get('bids', [])
-                        asks = orderbook.get('asks', [])
-                        for price, size in bids + asks:
-                            # Check if price uses finer granularity
-                            if price % 0.01 != 0:
-                                self.tick_size = 0.001
-                                logger.info(f"✓ Detected finer tick size: 0.001 (from orderbook)")
-                                break
-                        if self.tick_size == 0.001:
+                orderbook = self.orderbook_manager.get(self.token_ids[0])
+                if orderbook:
+                    bids = orderbook.get('bids', [])
+                    asks = orderbook.get('asks', [])
+                    for price, size in bids + asks:
+                        # Check if price uses finer granularity
+                        if price % 0.01 != 0:
+                            self.tick_size = 0.001
+                            logger.info(f"Detected tick size: 0.001 (from orderbook)")
                             break
-            logger.info("")
         else:
-            logger.warning("Some tokens missing orderbook data. Continuing anyway...\n")
+            logger.warning("Missing orderbook data")
 
         # Run main loop
         self.is_running = True
@@ -468,16 +427,13 @@ class WebSocketMarketMaker:
                     time.sleep(self.check_interval)
 
         except KeyboardInterrupt:
-            logger.info("\n\nBot interrupted by user")
+            logger.info("\nStopping...")
 
         finally:
             self.is_running = False
             self.cancel_all_orders()
             self.stop_websocket()
-
-            logger.info(f"\n{'='*80}")
-            logger.info("MARKET MAKER STOPPED")
-            logger.info(f"{'='*80}\n")
+            logger.info("Market maker stopped")
 
 
 def main():
