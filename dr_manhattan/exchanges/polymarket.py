@@ -913,6 +913,13 @@ class Polymarket(Exchange):
             if market_id:
                 orders = [o for o in orders if o.get('market') == market_id]
 
+            # Debug: Print first order's fields to identify size field
+            if orders and self.verbose:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"Sample order fields: {list(orders[0].keys())}")
+                logger.debug(f"Sample order data: {orders[0]}")
+
             # Parse orders
             return [self._parse_order(order) for order in orders]
         except Exception as e:
@@ -1236,14 +1243,18 @@ class Polymarket(Exchange):
         """Parse order data from API response"""
         order_id = data.get("id") or data.get("orderID") or ""
 
+        # Try multiple field names for size (CLOB API may use different names)
+        size = float(data.get("size") or data.get("original_size") or data.get("amount") or data.get("original_amount") or 0)
+        filled = float(data.get("filled") or data.get("matched") or data.get("matched_amount") or 0)
+
         return Order(
             id=order_id,
             market_id=data.get("market_id", ""),
             outcome=data.get("outcome", ""),
             side=OrderSide(data.get("side", "buy").lower()),
             price=float(data.get("price", 0)),
-            size=float(data.get("size", 0)),
-            filled=float(data.get("filled", 0)),
+            size=size,
+            filled=filled,
             status=self._parse_order_status(data.get("status")),
             created_at=self._parse_datetime(data.get("created_at")),
             updated_at=self._parse_datetime(data.get("updated_at"))

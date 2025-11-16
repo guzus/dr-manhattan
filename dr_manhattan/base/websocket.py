@@ -4,6 +4,9 @@ import asyncio
 import json
 import time
 from enum import Enum
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class WebSocketState(Enum):
@@ -111,7 +114,7 @@ class OrderBookWebSocket(ABC):
 
         if self.state == WebSocketState.CONNECTED:
             if self.verbose:
-                print("WebSocket already connected")
+                logger.debug("WebSocket already connected")
             return
 
         self.state = WebSocketState.CONNECTING
@@ -131,9 +134,9 @@ class OrderBookWebSocket(ABC):
             self.last_message_time = time.time()
 
             if self.verbose:
-                print(f"WebSocket connected to {self.ws_url}")
-                print(f"  Ping interval: {self.ping_interval}s")
-                print(f"  Ping timeout: {self.ping_timeout}s")
+                logger.debug(f"WebSocket connected to {self.ws_url}")
+                logger.debug(f"  Ping interval: {self.ping_interval}s")
+                logger.debug(f"  Ping timeout: {self.ping_timeout}s")
 
             # Authenticate if needed
             await self._authenticate()
@@ -145,7 +148,7 @@ class OrderBookWebSocket(ABC):
         except Exception as e:
             self.state = WebSocketState.DISCONNECTED
             if self.verbose:
-                print(f"WebSocket connection failed: {e}")
+                logger.debug(f"WebSocket connection failed: {e}")
             raise
 
     async def disconnect(self):
@@ -163,7 +166,7 @@ class OrderBookWebSocket(ABC):
         self.tasks.clear()
 
         if self.verbose:
-            print("WebSocket disconnected")
+            logger.debug("WebSocket disconnected")
 
     async def _handle_message(self, message: str):
         """
@@ -183,7 +186,7 @@ class OrderBookWebSocket(ABC):
             if self.verbose:
                 # Log first 200 chars of message
                 msg_preview = message[:200] + "..." if len(message) > 200 else message
-                print(f"[WS] Received: {msg_preview}")
+                logger.debug(f"[WS] Received: {msg_preview}")
 
             data = json.loads(message)
 
@@ -197,10 +200,10 @@ class OrderBookWebSocket(ABC):
         except json.JSONDecodeError as e:
             # Only log JSON errors if verbose and not a known non-JSON message
             if self.verbose and message not in ('PONG', 'PING'):
-                print(f"Failed to parse message as JSON: {message[:100]}")
+                logger.debug(f"Failed to parse message as JSON: {message[:100]}")
         except Exception as e:
             if self.verbose:
-                print(f"Error handling message: {e}")
+                logger.debug(f"Error handling message: {e}")
 
     async def _process_message_item(self, data: dict):
         """Process a single message item"""
@@ -221,7 +224,7 @@ class OrderBookWebSocket(ABC):
                     callback(market_id, orderbook)
         except Exception as e:
             if self.verbose:
-                print(f"Error processing message item: {e}")
+                logger.debug(f"Error processing message item: {e}")
 
     async def _receive_loop(self):
         """Main loop for receiving WebSocket messages with improved error handling"""
@@ -241,7 +244,7 @@ class OrderBookWebSocket(ABC):
 
                 # If loop exits normally, connection was closed
                 if self.verbose:
-                    print("WebSocket connection closed normally")
+                    logger.debug("WebSocket connection closed normally")
 
                 if self.auto_reconnect and self.state != WebSocketState.CLOSED:
                     await self._reconnect()
@@ -250,7 +253,7 @@ class OrderBookWebSocket(ABC):
 
             except websockets.exceptions.ConnectionClosed as e:
                 if self.verbose:
-                    print(f"WebSocket connection closed: {e.code} {e.reason}")
+                    logger.debug(f"WebSocket connection closed: {e.code} {e.reason}")
 
                 if self.auto_reconnect and self.state != WebSocketState.CLOSED:
                     await self._reconnect()
@@ -259,7 +262,7 @@ class OrderBookWebSocket(ABC):
 
             except asyncio.TimeoutError:
                 if self.verbose:
-                    print("WebSocket timeout - reconnecting...")
+                    logger.debug("WebSocket timeout - reconnecting...")
 
                 if self.auto_reconnect and self.state != WebSocketState.CLOSED:
                     await self._reconnect()
@@ -268,7 +271,7 @@ class OrderBookWebSocket(ABC):
 
             except Exception as e:
                 if self.verbose:
-                    print(f"WebSocket receive error: {type(e).__name__}: {e}")
+                    logger.debug(f"WebSocket receive error: {type(e).__name__}: {e}")
 
                 if self.auto_reconnect and self.state != WebSocketState.CLOSED:
                     await self._reconnect()
@@ -279,7 +282,7 @@ class OrderBookWebSocket(ABC):
         """Handle reconnection with exponential backoff (capped)"""
         if self.reconnect_attempts >= self.max_reconnect_attempts:
             if self.verbose:
-                print("Max reconnection attempts reached")
+                logger.debug("Max reconnection attempts reached")
             self.state = WebSocketState.CLOSED
             return
 
@@ -290,7 +293,7 @@ class OrderBookWebSocket(ABC):
         delay = min(60.0, self.reconnect_delay * (1.5 ** (self.reconnect_attempts - 1)))
 
         if self.verbose:
-            print(f"Reconnecting in {delay:.1f}s (attempt {self.reconnect_attempts})")
+            logger.debug(f"Reconnecting in {delay:.1f}s (attempt {self.reconnect_attempts})")
 
         await asyncio.sleep(delay)
 
@@ -306,11 +309,11 @@ class OrderBookWebSocket(ABC):
             await self.connect()
 
             if self.verbose:
-                print(f"✓ Reconnected successfully")
+                logger.debug(f"✓ Reconnected successfully")
 
         except Exception as e:
             if self.verbose:
-                print(f"Reconnection failed: {e}")
+                logger.debug(f"Reconnection failed: {e}")
 
     async def watch_orderbook(self, market_id: str, callback: Callable):
         """
@@ -332,7 +335,7 @@ class OrderBookWebSocket(ABC):
         await self._subscribe_orderbook(market_id)
 
         if self.verbose:
-            print(f"Subscribed to orderbook for market: {market_id}")
+            logger.debug(f"Subscribed to orderbook for market: {market_id}")
 
     async def unwatch_orderbook(self, market_id: str):
         """
@@ -352,7 +355,7 @@ class OrderBookWebSocket(ABC):
             await self._unsubscribe_orderbook(market_id)
 
         if self.verbose:
-            print(f"Unsubscribed from orderbook for market: {market_id}")
+            logger.debug(f"Unsubscribed from orderbook for market: {market_id}")
 
     def start(self):
         """

@@ -240,18 +240,34 @@ class WebSocketMarketMaker:
         min_position_size = min(positions.values()) if positions else 0
         delta = max_position_size - min_position_size
 
-        logger.info(f"\n[{time.strftime('%H:%M:%S')}] Exposure: {Colors.blue(f'{total_long:.1f}')} | Delta: {Colors.yellow(f'{delta:.1f}')} | Orders: {Colors.cyan(str(len(open_orders)))}")
+        # Find which outcome has higher position for delta display
+        delta_side = ""
+        if delta > 0 and positions:
+            max_outcome = max(positions, key=positions.get)
+            delta_abbrev = max_outcome[0] if len(self.outcomes) == 2 else max_outcome
+            delta_side = f" {Colors.magenta(delta_abbrev)}"
 
-        # Display positions if any
+        # Create compact position string like "10 Y 5 N"
+        pos_compact = ""
         if positions:
-            pos_str = " | ".join([f"{Colors.magenta(o)}: {Colors.blue(f'{s:.1f}')}" for o, s in positions.items()])
-            logger.info(f"Positions: {pos_str}")
+            # Abbreviate outcome names to first letter (Y/N for Yes/No, or full name if multi-outcome)
+            parts = []
+            for outcome, size in positions.items():
+                abbrev = outcome[0] if len(self.outcomes) == 2 else outcome
+                parts.append(f"{Colors.blue(f'{size:.0f}')} {Colors.magenta(abbrev)}")
+            pos_compact = " ".join(parts)
+        else:
+            pos_compact = Colors.gray("None")
+
+        logger.info(f"\n[{time.strftime('%H:%M:%S')}] Pos: {pos_compact} | Delta: {Colors.yellow(f'{delta:.1f}')}{delta_side} | Orders: {Colors.cyan(str(len(open_orders)))}")
 
         # Display open orders if any
         if open_orders:
             for order in open_orders:
                 side_colored = Colors.green(order.side.value.upper()) if order.side == OrderSide.BUY else Colors.red(order.side.value.upper())
-                logger.info(f"  {Colors.magenta(order.outcome)} {side_colored}: {order.size:.0f} @ {Colors.yellow(f'{order.price:.4f}')}")
+                # Use original_size if available (some might show remaining size as 0)
+                size_display = order.original_size if hasattr(order, 'original_size') and order.original_size else order.size
+                logger.info(f"  {Colors.gray('Open:')} {Colors.magenta(order.outcome)} {side_colored} {size_display:.0f} @ {Colors.yellow(f'{order.price:.4f}')}")
 
         # Check delta risk
         if delta > self.max_delta:
@@ -301,8 +317,6 @@ class WebSocketMarketMaker:
             buy_orders = [o for o in outcome_orders if o.side == OrderSide.BUY]
             sell_orders = [o for o in outcome_orders if o.side == OrderSide.SELL]
 
-            logger.info(f"  {Colors.magenta(outcome)}: Bid={Colors.green(f'{our_bid:.4f}')} Ask={Colors.red(f'{our_ask:.4f}')} | Pos={Colors.blue(f'{position_size:.1f}')}")
-
             # Delta management
             if delta > self.max_delta and position_size == max_position_size:
                 logger.info(f"    Skip: max position (delta mgmt)")
@@ -320,7 +334,7 @@ class WebSocketMarketMaker:
                     for order in buy_orders:
                         try:
                             self.exchange.cancel_order(order.id)
-                            logger.info(f"    {Colors.gray('Cancel')} {Colors.green('BUY')} @ {Colors.yellow(f'{order.price:.4f}')}")
+                            logger.info(f"    {Colors.gray('✕ Cancel')} {Colors.green('BUY')} @ {Colors.yellow(f'{order.price:.4f}')}")
                         except:
                             pass
 
@@ -337,7 +351,7 @@ class WebSocketMarketMaker:
                         size=self.order_size,
                         params={'token_id': token_id}
                     )
-                    logger.info(f"    {Colors.green('BUY')} {self.order_size:.0f} @ {Colors.yellow(f'{our_bid:.4f}')}")
+                    logger.info(f"    {Colors.gray('→')} {Colors.green('BUY')} {self.order_size:.0f} {Colors.magenta(outcome)} @ {Colors.yellow(f'{our_bid:.4f}')}")
                 except Exception as e:
                     logger.error(f"    BUY failed: {e}")
 
@@ -353,7 +367,7 @@ class WebSocketMarketMaker:
                     for order in sell_orders:
                         try:
                             self.exchange.cancel_order(order.id)
-                            logger.info(f"    {Colors.gray('Cancel')} {Colors.red('SELL')} @ {Colors.yellow(f'{order.price:.4f}')}")
+                            logger.info(f"    {Colors.gray('✕ Cancel')} {Colors.red('SELL')} @ {Colors.yellow(f'{order.price:.4f}')}")
                         except:
                             pass
 
@@ -370,7 +384,7 @@ class WebSocketMarketMaker:
                         size=self.order_size,
                         params={'token_id': token_id}
                     )
-                    logger.info(f"    {Colors.red('SELL')} {self.order_size:.0f} @ {Colors.yellow(f'{our_ask:.4f}')}")
+                    logger.info(f"    {Colors.gray('→')} {Colors.red('SELL')} {self.order_size:.0f} {Colors.magenta(outcome)} @ {Colors.yellow(f'{our_ask:.4f}')}")
                 except Exception as e:
                     logger.error(f"    SELL failed: {e}")
 

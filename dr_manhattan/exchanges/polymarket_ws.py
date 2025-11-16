@@ -1,6 +1,9 @@
 import json
+import logging
 from typing import Dict, Any, Optional, Callable
 from ..base.websocket import OrderBookWebSocket
+
+logger = logging.getLogger(__name__)
 
 
 class OrderbookManager:
@@ -83,7 +86,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
         Market channel is public, no authentication required.
         """
         if self.verbose:
-            print("Market channel is public - no authentication required")
+            logger.debug("Market channel is public - no authentication required")
 
     async def _subscribe_orderbook(self, market_id: str):
         """
@@ -112,7 +115,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
         await self.ws.send(json.dumps(subscribe_message))
 
         if self.verbose:
-            print(f"Subscribed to market/asset: {asset_id}")
+            logger.debug(f"Subscribed to market/asset: {asset_id}")
 
     async def _unsubscribe_orderbook(self, market_id: str):
         """
@@ -137,7 +140,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
         await self.ws.send(json.dumps(subscribe_message))
 
         if self.verbose:
-            print(f"Unsubscribed from market/asset: {asset_id}")
+            logger.debug(f"Unsubscribed from market/asset: {asset_id}")
 
     def _parse_orderbook_message(self, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -368,4 +371,4 @@ class PolymarketWebSocket(OrderBookWebSocket):
                     callback(callback_key, orderbook)
         except Exception as e:
             if self.verbose:
-                print(f"Error processing message item: {e}")
+                logger.debug(f"Error processing message item: {e}")
