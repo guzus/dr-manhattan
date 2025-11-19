@@ -159,79 +159,143 @@ class PolymarketFetcher(dr_manhattan.Polymarket):
     def search_markets(
         self,
         *,
-        tag_id: str | None = None,
-        closed: bool | None = None,
+        # Gamma-side
+        limit: int = 200,
+        page_size: int = 200,
+        offset: int = 0,
+
+        order: str | None = "id",
+        ascending: bool | None = False,
+
+        closed: bool | None = False,
+        tag_id: int | None = None,
+
+        ids: Sequence[int] | None = None,
+        slugs: Sequence[str] | None = None,
+        clob_token_ids: Sequence[str] | None = None,
+        condition_ids: Sequence[str] | None = None,
+        market_maker_addresses: Sequence[str] | None = None,
+
+        liquidity_num_min: float | None = None,
+        liquidity_num_max: float | None = None,
+        volume_num_min: float | None = None,
+        volume_num_max: float | None = None,
+
+        start_date_min: datetime | None = None,
+        start_date_max: datetime | None = None,
+        end_date_min: datetime | None = None,
+        end_date_max: datetime | None = None,
+
+        related_tags: bool | None = None,
+        cyom: bool | None = None,
+        uma_resolution_status: str | None = None,
+        game_id: str | None = None,
+        sports_market_types: Sequence[str] | None = None,
+        rewards_min_size: float | None = None,
+        question_ids: Sequence[str] | None = None,
+        include_tag: bool | None = None,
+        extra_params: Dict[str, Any] | None = None,
+
+        # Client-side
         query: str | None = None,
         keywords: Sequence[str] | None = None,
-        categories: Sequence[str] | None = None,
-        outcomes: Sequence[str] | None = None,
         binary: bool | None = None,
         min_liquidity: float = 0.0,
-        limit: int = 200,
-        params: Dict[str, Any] | None = None,
+        categories: Sequence[str] | None = None,
+        outcomes: Sequence[str] | None = None,
         predicate: Callable[[Market], bool] | None = None,
     ) -> List[Market]:
-        """
-        Simple, opinionated search on top of Gamma /markets.
 
-        Gamma-side filters (server-side):
-          - tag_id
-          - closed (default: False when not provided)
-          - extra params via `params` (e.g. sort, status, etc.)
+        # 0) Preprocess
+        if limit <= 0:
+            return []
 
-        Client-side filters (local, after fetch):
-          - binary
-          - min_liquidity
-          - categories (via metadata)
-          - outcomes (by name)
-          - query (single substring in _build_search_text)
-          - keywords (AND over multiple substrings in _build_search_text)
-          - predicate (custom callable)
-        """
+        total_limit = int(limit)
+        page_size = max(1, min(int(page_size), total_limit))
+        current_offset = max(0, int(offset))
 
-        def lower_list(values: Sequence[str] | None) -> List[str]:
+        def _dt(v: datetime | None) -> str | None:
+            return v.isoformat() if isinstance(v, datetime) else None
+
+        def _lower_list(values: Sequence[str] | None) -> List[str]:
             return [v.lower() for v in values] if values else []
 
         query_lower = query.lower() if query else None
-        keyword_lowers = lower_list(keywords)
-        category_lowers = lower_list(categories)
-        outcome_lowers = lower_list(outcomes)
+        keyword_lowers = _lower_list(keywords)
+        category_lowers = _lower_list(categories)
+        outcome_lowers = _lower_list(outcomes)
 
-        gamma_base_params: Dict[str, Any] = {}
+        # 1) Gamma-side params
+        gamma_params: Dict[str, Any] = {
+            "limit": page_size,
+            "offset": current_offset,
+        }
 
-        # Gamma-side filters
+        if order is not None:
+            gamma_params["order"] = order
+        if ascending is not None:
+            gamma_params["ascending"] = ascending
+
         if closed is not None:
-            gamma_base_params["closed"] = "true" if closed else "false"
-        else:
-            gamma_base_params["closed"] = "false"
+            gamma_params["closed"] = closed
+        if tag_id is not None:
+            gamma_params["tag_id"] = tag_id
 
-        if tag_id:
-            gamma_base_params["tag_id"] = tag_id
+        if ids:
+            gamma_params["id"] = list(ids)
+        if slugs:
+            gamma_params["slug"] = list(slugs)
+        if clob_token_ids:
+            gamma_params["clob_token_ids"] = list(clob_token_ids)
+        if condition_ids:
+            gamma_params["condition_ids"] = list(condition_ids)
+        if market_maker_addresses:
+            gamma_params["market_maker_address"] = list(market_maker_addresses)
 
-        if params:
-            gamma_base_params.update(params)
+        if liquidity_num_min is not None:
+            gamma_params["liquidity_num_min"] = liquidity_num_min
+        if liquidity_num_max is not None:
+            gamma_params["liquidity_num_max"] = liquidity_num_max
+        if volume_num_min is not None:
+            gamma_params["volume_num_min"] = volume_num_min
+        if volume_num_max is not None:
+            gamma_params["volume_num_max"] = volume_num_max
 
-        results_raw: List[Market] = []
+        if (v := _dt(start_date_min)):
+            gamma_params["start_date_min"] = v
+        if (v := _dt(start_date_max)):
+            gamma_params["start_date_max"] = v
+        if (v := _dt(end_date_min)):
+            gamma_params["end_date_min"] = v
+        if (v := _dt(end_date_max)):
+            gamma_params["end_date_max"] = v
 
-        total_limit = max(1, int(limit))
-        offset = int(gamma_base_params.get("offset", 0))
+        if related_tags is not None:
+            gamma_params["related_tags"] = related_tags
+        if cyom is not None:
+            gamma_params["cyom"] = cyom
+        if uma_resolution_status is not None:
+            gamma_params["uma_resolution_status"] = uma_resolution_status
+        if game_id is not None:
+            gamma_params["game_id"] = game_id
+        if sports_market_types:
+            gamma_params["sports_market_types"] = list(sports_market_types)
+        if rewards_min_size is not None:
+            gamma_params["rewards_min_size"] = rewards_min_size
+        if question_ids:
+            gamma_params["question_ids"] = list(question_ids)
+        if include_tag is not None:
+            gamma_params["include_tag"] = include_tag
+        if extra_params:
+            gamma_params.update(extra_params)
 
-        DEFAULT_PAGE_SIZE = 200
-        page_size = int(gamma_base_params.get("limit", DEFAULT_PAGE_SIZE))
-        page_size = max(1, min(page_size, total_limit))
+        # 2) Gamma Pagenation
+        gamma_results: List[Market] = []
 
-        gamma_base_params.pop("limit", None)
-        gamma_base_params["offset"] = offset
-
-        while len(results_raw) < total_limit:
-            remaining = total_limit - len(results_raw)
-            page_limit = min(page_size, remaining)
-
-            gamma_params = {
-                **gamma_base_params,
-                "limit": page_limit,
-                "offset": offset,
-            }
+        while len(gamma_results) < total_limit:
+            remaining = total_limit - len(gamma_results)
+            gamma_params["limit"] = min(page_size, remaining)
+            gamma_params["offset"] = current_offset
 
             @self._retry_on_failure
             def _fetch_page() -> List[Market]:
@@ -243,45 +307,39 @@ class PolymarketFetcher(dr_manhattan.Polymarket):
                 return [self._parse_market(m) for m in raw]
 
             page = _fetch_page()
-
             if not page:
                 break
 
-            results_raw.extend(page)
-            offset += len(page)
-            gamma_base_params["offset"] = offset
+            gamma_results.extend(page)
+            current_offset += len(page)
 
+        # 3) Client-side post filtering
         filtered: List[Market] = []
 
-        for m in results_raw:
+        for m in gamma_results:
             if binary is not None and m.is_binary != binary:
                 continue
-
             if m.liquidity < min_liquidity:
                 continue
-
             if outcome_lowers:
                 outs = [o.lower() for o in m.outcomes]
                 if not all(x in outs for x in outcome_lowers):
                     continue
-
             if category_lowers:
                 cats = self._extract_categories(m)
                 if not cats or not any(c in cats for c in category_lowers):
                     continue
-
             if query_lower or keyword_lowers:
                 text = self._build_search_text(m)
                 if query_lower and query_lower not in text:
                     continue
                 if any(k not in text for k in keyword_lowers):
                     continue
-
             if predicate and not predicate(m):
                 continue
-
             filtered.append(m)
-
+        if len(filtered) > total_limit:
+            filtered = filtered[:total_limit]
         return filtered
 
     # -------------------------------------------------------------------------
