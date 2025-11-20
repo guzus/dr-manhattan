@@ -9,7 +9,10 @@ dependencies = [
     "websockets>=15.0.1",
     "python-dotenv>=1.0.0",
     "eth-account>=0.11.0",
-    "py-clob-client>=0.28.0",
+    "fastapi>=0.121.3",
+    "uvicorn>=0.38.0",
+    "pydantic>=2.12.3",
+    "py-clob-client>=0.29.0",
 ]
 
 [project.optional-dependencies]
