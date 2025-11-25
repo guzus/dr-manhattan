@@ -13,7 +13,7 @@ from ..base.errors import NetworkError, ExchangeError, MarketNotFound, RateLimit
 from ..models.market import Market
 from ..models.order import Order, OrderSide, OrderStatus
 from ..models.position import Position
-from .polymarket_ws import PolymarketWebSocket
+from .polymarket_ws import PolymarketWebSocket, PolymarketUserWebSocket
 
 @dataclass
 class PricePoint:
@@ -135,11 +135,12 @@ class Polymarket(Exchange):
         """Initialize Polymarket exchange"""
         super().__init__(config)
         self._ws = None
+        self._user_ws = None
         self.private_key = self.config.get('private_key')
         self.funder = self.config.get('funder')
         self._clob_client = None
         self._address = None
-        
+
         # Initialize CLOB client if private key is provided
         if self.private_key:
             self._initialize_clob_client()
@@ -1321,6 +1322,37 @@ class Polymarket(Exchange):
                 exchange=self
             )
         return self._ws
+
+    def get_user_websocket(self) -> PolymarketUserWebSocket:
+        """
+        Get User WebSocket instance for real-time trade/fill notifications.
+
+        Requires CLOB client to be initialized (private key required).
+
+        Returns:
+            PolymarketUserWebSocket instance
+
+        Example:
+            user_ws = exchange.get_user_websocket()
+            user_ws.on_trade(lambda trade: print(f"Fill: {trade.size} @ {trade.price}"))
+            user_ws.start()
+        """
+        if not self._clob_client:
+            raise ExchangeError("CLOB client not initialized. Private key required for user WebSocket.")
+
+        if self._user_ws is None:
+            # Get API credentials from CLOB client
+            creds = self._clob_client.creds
+            if not creds:
+                raise ExchangeError("API credentials not available")
+
+            self._user_ws = PolymarketUserWebSocket(
+                api_key=creds.api_key,
+                api_secret=creds.api_secret,
+                api_passphrase=creds.api_passphrase,
+                verbose=self.verbose,
+            )
+        return self._user_ws
 
         # -------------------------------------------------------------------------
 

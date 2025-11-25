@@ -2,12 +2,11 @@
 Order tracking and fill detection for exchanges.
 
 Provides callbacks for order lifecycle events (fill, partial fill, cancel).
-Works with any exchange via polling-based status tracking.
+Uses WebSocket trade events for real-time fill detection.
 """
 
-import time
 import threading
-from typing import Dict, List, Callable, Optional, Any
+from typing import Dict, List, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime
@@ -29,70 +28,46 @@ class OrderEvent(Enum):
 
 
 @dataclass
-class OrderState:
+class TrackedOrder:
     """Tracks the state of an order"""
     order: Order
-    initial_filled: float
-    last_filled: float
-    last_status: OrderStatus
+    total_filled: float = 0.0
     created_time: datetime = field(default_factory=datetime.now)
-    last_checked: datetime = field(default_factory=datetime.now)
 
 
-OrderCallback = Callable[[OrderEvent, Order, Optional[float]], None]
+OrderCallback = Callable[[OrderEvent, Order, float], None]
 
 
 class OrderTracker:
     """
-    Tracks orders and detects fill events via polling.
+    Tracks orders and detects fill events via WebSocket trade notifications.
 
     Usage:
-        tracker = OrderTracker(exchange, poll_interval=1.0)
+        tracker = OrderTracker(verbose=True)
 
         # Register callbacks
         tracker.on_fill(lambda event, order, fill_size: print(f"Filled: {order.id}"))
 
-        # Start tracking
-        tracker.start()
+        # Track orders
+        tracker.track_order(order)
 
-        # Create orders through the tracker to auto-track them
-        order = tracker.create_order(exchange, market_id, outcome, side, price, size)
-
-        # Or manually track an order
-        tracker.track_order(order, market_id)
-
-        # Stop when done
-        tracker.stop()
+        # Connect to WebSocket trade events
+        user_ws = exchange.get_user_websocket()
+        user_ws.on_trade(tracker.handle_trade)
+        user_ws.start()
     """
 
-    def __init__(
-        self,
-        exchange,
-        poll_interval: float = 1.0,
-        auto_start: bool = False,
-        verbose: bool = False,
-    ):
+    def __init__(self, verbose: bool = False):
         """
         Initialize order tracker.
 
         Args:
-            exchange: Exchange instance to track orders on
-            poll_interval: How often to poll for order updates (seconds)
-            auto_start: Start polling immediately
             verbose: Enable verbose logging
         """
-        self.exchange = exchange
-        self.poll_interval = poll_interval
         self.verbose = verbose
-
-        self._tracked_orders: Dict[str, OrderState] = {}
+        self._tracked_orders: Dict[str, TrackedOrder] = {}
         self._callbacks: List[OrderCallback] = []
-        self._running = False
-        self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
-
-        if auto_start:
-            self.start()
 
     def on_fill(self, callback: OrderCallback) -> "OrderTracker":
         """
@@ -101,7 +76,7 @@ class OrderTracker:
         The callback receives (event, order, fill_size) where:
         - event: OrderEvent (FILLED, PARTIAL_FILL, CANCELLED, etc.)
         - order: The Order object with updated state
-        - fill_size: Size filled in this event (for partial fills)
+        - fill_size: Size filled in this event
 
         Returns self for chaining.
         """
@@ -112,149 +87,71 @@ class OrderTracker:
         """Alias for on_fill"""
         return self.on_fill(callback)
 
-    def track_order(self, order: Order, market_id: Optional[str] = None) -> None:
+    def track_order(self, order: Order) -> None:
         """
         Start tracking an order for fill events.
 
         Args:
             order: Order to track
-            market_id: Market ID (some exchanges need this to fetch order status)
         """
         with self._lock:
             if order.id in self._tracked_orders:
                 return
 
-            self._tracked_orders[order.id] = OrderState(
+            self._tracked_orders[order.id] = TrackedOrder(
                 order=order,
-                initial_filled=order.filled,
-                last_filled=order.filled,
-                last_status=order.status,
+                total_filled=order.filled,
             )
 
             if self.verbose:
-                logger.info(f"Tracking order {order.id[:16]}... ({order.side.value} {order.size} @ {order.price})")
+                logger.debug(f"Tracking order {order.id[:16]}...")
 
     def untrack_order(self, order_id: str) -> None:
         """Stop tracking an order"""
         with self._lock:
             self._tracked_orders.pop(order_id, None)
 
-    def create_order(
-        self,
-        market_id: str,
-        outcome: str,
-        side,
-        price: float,
-        size: float,
-        params: Optional[Dict[str, Any]] = None,
-    ) -> Order:
+    def handle_trade(self, trade) -> None:
         """
-        Create an order and automatically track it.
+        Handle a trade event from WebSocket.
 
-        Uses the exchange's create_order method and adds the order to tracking.
+        Args:
+            trade: Trade object from PolymarketUserWebSocket
         """
-        order = self.exchange.create_order(
-            market_id=market_id,
-            outcome=outcome,
-            side=side,
-            price=price,
-            size=size,
-            params=params,
-        )
-        self.track_order(order, market_id)
-        self._emit(OrderEvent.CREATED, order, 0)
-        return order
+        order_id = trade.order_id
 
-    def start(self) -> None:
-        """Start the background polling thread"""
-        if self._running:
-            return
-
-        self._running = True
-        self._thread = threading.Thread(target=self._poll_loop, daemon=True)
-        self._thread.start()
-
-        if self.verbose:
-            logger.info(f"OrderTracker started (poll interval: {self.poll_interval}s)")
-
-    def stop(self) -> None:
-        """Stop the background polling thread"""
-        self._running = False
-        if self._thread:
-            self._thread.join(timeout=5)
-            self._thread = None
-
-        if self.verbose:
-            logger.info("OrderTracker stopped")
-
-    def _poll_loop(self) -> None:
-        """Background polling loop"""
-        while self._running:
-            try:
-                self._check_orders()
-            except Exception as e:
-                if self.verbose:
-                    logger.warning(f"OrderTracker poll error: {e}")
-            time.sleep(self.poll_interval)
-
-    def _check_orders(self) -> None:
-        """Check all tracked orders for status changes"""
         with self._lock:
-            order_ids = list(self._tracked_orders.keys())
+            tracked = self._tracked_orders.get(order_id)
+            if not tracked:
+                return
 
-        completed_orders = []
+            # Update tracked state
+            tracked.total_filled += trade.size
 
-        for order_id in order_ids:
-            with self._lock:
-                state = self._tracked_orders.get(order_id)
-                if not state:
-                    continue
+            # Create updated order for callback
+            updated_order = Order(
+                id=tracked.order.id,
+                market_id=trade.market_id or tracked.order.market_id,
+                outcome=trade.outcome or tracked.order.outcome,
+                side=tracked.order.side,
+                price=trade.price,
+                size=tracked.order.size,
+                filled=tracked.total_filled,
+                status=OrderStatus.FILLED if tracked.total_filled >= tracked.order.size else OrderStatus.PARTIALLY_FILLED,
+                created_at=tracked.order.created_at,
+                updated_at=datetime.now(),
+            )
+            tracked.order = updated_order
 
-            try:
-                # Fetch current order status
-                market_id = state.order.market_id
-                current_order = self.exchange.fetch_order(order_id, market_id=market_id)
+            # Determine event type
+            is_complete = tracked.total_filled >= tracked.order.size
+            event = OrderEvent.FILLED if is_complete else OrderEvent.PARTIAL_FILL
 
-                # Detect fill events
-                fill_delta = current_order.filled - state.last_filled
+        # Emit event outside lock
+        self._emit(event, updated_order, trade.size)
 
-                if fill_delta > 0:
-                    # There was a fill
-                    if current_order.status == OrderStatus.FILLED:
-                        self._emit(OrderEvent.FILLED, current_order, fill_delta)
-                        completed_orders.append(order_id)
-                    else:
-                        self._emit(OrderEvent.PARTIAL_FILL, current_order, fill_delta)
-
-                    # Update state
-                    with self._lock:
-                        if order_id in self._tracked_orders:
-                            self._tracked_orders[order_id].last_filled = current_order.filled
-                            self._tracked_orders[order_id].last_status = current_order.status
-                            self._tracked_orders[order_id].order = current_order
-                            self._tracked_orders[order_id].last_checked = datetime.now()
-
-                elif current_order.status != state.last_status:
-                    # Status changed without fill (cancelled, rejected, etc.)
-                    if current_order.status == OrderStatus.CANCELLED:
-                        self._emit(OrderEvent.CANCELLED, current_order, 0)
-                        completed_orders.append(order_id)
-                    elif current_order.status == OrderStatus.REJECTED:
-                        self._emit(OrderEvent.REJECTED, current_order, 0)
-                        completed_orders.append(order_id)
-
-                    # Update state
-                    with self._lock:
-                        if order_id in self._tracked_orders:
-                            self._tracked_orders[order_id].last_status = current_order.status
-                            self._tracked_orders[order_id].order = current_order
-
-            except Exception as e:
-                if self.verbose:
-                    logger.debug(f"Error checking order {order_id[:16]}...: {e}")
-
-        # Remove completed orders from tracking
-        for order_id in completed_orders:
+        # Remove if complete
+        if is_complete:
             self.untrack_order(order_id)
 
     def _emit(self, event: OrderEvent, order: Order, fill_size: float) -> None:
@@ -275,10 +172,19 @@ class OrderTracker:
     def get_tracked_orders(self) -> List[Order]:
         """Get list of all tracked orders"""
         with self._lock:
-            return [state.order for state in self._tracked_orders.values()]
+            return [t.order for t in self._tracked_orders.values()]
+
+    def start(self) -> None:
+        """No-op for backwards compatibility. WebSocket handles events."""
+        pass
+
+    def stop(self) -> None:
+        """Clear tracked orders."""
+        with self._lock:
+            self._tracked_orders.clear()
 
 
-def create_fill_logger(name: str = "OrderFill"):
+def create_fill_logger():
     """
     Create a simple fill callback that logs to console.
 
@@ -288,36 +194,27 @@ def create_fill_logger(name: str = "OrderFill"):
     from ..utils.logger import Colors
 
     def log_fill(event: OrderEvent, order: Order, fill_size: float):
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        side_str = order.side.value.upper() if hasattr(order.side, 'value') else str(order.side).upper()
 
         if event == OrderEvent.FILLED:
             logger.info(
-                f"[{timestamp}] {Colors.green('FILLED')} "
+                f"{Colors.green('FILLED')} "
                 f"{Colors.magenta(order.outcome)} "
-                f"{order.side.value.upper()} {order.size:.2f} @ {Colors.yellow(f'{order.price:.4f}')} "
-                f"| ID: {order.id[:12]}..."
+                f"{side_str} {fill_size:.2f} @ {Colors.yellow(f'{order.price:.4f}')}"
             )
         elif event == OrderEvent.PARTIAL_FILL:
             logger.info(
-                f"[{timestamp}] {Colors.cyan('PARTIAL')} "
+                f"{Colors.cyan('PARTIAL')} "
                 f"{Colors.magenta(order.outcome)} "
-                f"{order.side.value.upper()} +{fill_size:.2f} ({order.filled:.2f}/{order.size:.2f}) "
-                f"@ {Colors.yellow(f'{order.price:.4f}')} "
-                f"| ID: {order.id[:12]}..."
+                f"{side_str} +{fill_size:.2f} ({order.filled:.2f}/{order.size:.2f}) "
+                f"@ {Colors.yellow(f'{order.price:.4f}')}"
             )
         elif event == OrderEvent.CANCELLED:
             logger.info(
-                f"[{timestamp}] {Colors.red('CANCELLED')} "
+                f"{Colors.red('CANCELLED')} "
                 f"{Colors.magenta(order.outcome)} "
-                f"{order.side.value.upper()} {order.size:.2f} @ {Colors.yellow(f'{order.price:.4f}')} "
-                f"(filled: {order.filled:.2f}) | ID: {order.id[:12]}..."
-            )
-        elif event == OrderEvent.CREATED:
-            logger.info(
-                f"[{timestamp}] {Colors.gray('CREATED')} "
-                f"{Colors.magenta(order.outcome)} "
-                f"{order.side.value.upper()} {order.size:.2f} @ {Colors.yellow(f'{order.price:.4f}')} "
-                f"| ID: {order.id[:12]}..."
+                f"{side_str} {order.size:.2f} @ {Colors.yellow(f'{order.price:.4f}')} "
+                f"(filled: {order.filled:.2f})"
             )
 
     return log_fill

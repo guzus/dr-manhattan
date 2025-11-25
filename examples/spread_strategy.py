@@ -77,6 +77,7 @@ class SpreadStrategy:
 
         # WebSocket
         self.ws = None
+        self.user_ws = None
         self.orderbook_manager = None
         self.ws_thread = None
 
@@ -148,24 +149,20 @@ class SpreadStrategy:
         self.orderbook_manager = self.ws.get_orderbook_manager()
 
     def setup_order_tracker(self):
-        """Setup order fill tracking"""
+        """Setup order fill tracking via WebSocket"""
         if not self.track_fills:
             return
 
-        self.order_tracker = OrderTracker(
-            exchange=self.exchange,
-            poll_interval=1.0,
-            verbose=True,
-        )
-
-        # Register the fill logger callback
+        # Create order tracker
+        self.order_tracker = OrderTracker(verbose=True)
         self.order_tracker.on_fill(create_fill_logger())
 
-        # You can also add custom callbacks:
-        # self.order_tracker.on_fill(self.on_order_fill)
+        # Get user WebSocket for trade notifications
+        self.user_ws = self.exchange.get_user_websocket()
+        self.user_ws.on_trade(self.order_tracker.handle_trade)
+        self.user_ws.start()
 
-        self.order_tracker.start()
-        logger.info(f"Order fill tracking {Colors.green('enabled')}")
+        logger.info(f"Order fill tracking {Colors.green('enabled')} (WebSocket)")
 
     def on_order_fill(self, event: OrderEvent, order, fill_size: float):
         """Custom callback for order fills - override this for custom behavior"""
@@ -388,7 +385,7 @@ class SpreadStrategy:
                     )
                     # Track the order for fill detection
                     if self.order_tracker:
-                        self.order_tracker.track_order(order, self.market.id)
+                        self.order_tracker.track_order(order)
                     logger.info(f"    {Colors.gray('→')} {Colors.green('BUY')} {self.order_size:.0f} {Colors.magenta(outcome)} @ {Colors.yellow(f'{our_bid:.4f}')}")
                 except Exception as e:
                     logger.error(f"    BUY failed: {e}")
@@ -424,7 +421,7 @@ class SpreadStrategy:
                     )
                     # Track the order for fill detection
                     if self.order_tracker:
-                        self.order_tracker.track_order(order, self.market.id)
+                        self.order_tracker.track_order(order)
                     logger.info(f"    {Colors.gray('→')} {Colors.red('SELL')} {self.order_size:.0f} {Colors.magenta(outcome)} @ {Colors.yellow(f'{our_ask:.4f}')}")
                 except Exception as e:
                     logger.error(f"    SELL failed: {e}")
@@ -491,6 +488,8 @@ class SpreadStrategy:
             self.is_running = False
             self.cancel_all_orders()
             self.stop_websocket()
+            if self.user_ws:
+                self.user_ws.stop()
             if self.order_tracker:
                 self.order_tracker.stop()
             logger.info("Market maker stopped")

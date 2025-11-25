@@ -1,9 +1,39 @@
 import json
 import logging
-from typing import Dict, Any, Optional, Callable
+import asyncio
+import threading
+import time
+from typing import Dict, Any, Optional, Callable, List
+from dataclasses import dataclass
+from enum import Enum
+from datetime import datetime
 from ..base.websocket import OrderBookWebSocket
 
 logger = logging.getLogger(__name__)
+
+
+class TradeEvent(Enum):
+    """Trade event types from user WebSocket"""
+    FILL = "fill"
+    PARTIAL_FILL = "partial_fill"
+
+
+@dataclass
+class Trade:
+    """Represents a trade/fill event"""
+    id: str
+    order_id: str
+    market_id: str
+    asset_id: str
+    side: str
+    price: float
+    size: float
+    fee: float
+    timestamp: datetime
+    outcome: str = ""
+    taker: str = ""
+    maker: str = ""
+    transaction_hash: str = ""
 
 
 class OrderbookManager:
@@ -378,3 +408,209 @@ class PolymarketWebSocket(OrderBookWebSocket):
         except Exception as e:
             if self.verbose:
                 logger.debug(f"Error processing message item: {e}")
+
+
+TradeCallback = Callable[[Trade], None]
+
+
+class PolymarketUserWebSocket:
+    """
+    Polymarket User WebSocket for real-time trade/fill notifications.
+
+    Connects to the user channel which provides:
+    - Trade events when orders are filled
+    - Order status updates
+
+    Requires API credentials for authentication.
+    """
+
+    WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/user"
+
+    def __init__(
+        self,
+        api_key: str,
+        api_secret: str,
+        api_passphrase: str,
+        verbose: bool = False,
+    ):
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.api_passphrase = api_passphrase
+        self.verbose = verbose
+
+        self.ws = None
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._callbacks: List[TradeCallback] = []
+        self._connected = False
+
+    def on_trade(self, callback: TradeCallback) -> "PolymarketUserWebSocket":
+        """Register a callback for trade events"""
+        self._callbacks.append(callback)
+        return self
+
+    def _build_auth_message(self) -> dict:
+        """Build authentication message for user WebSocket"""
+        timestamp = int(time.time())
+
+        return {
+            "auth": {
+                "apiKey": self.api_key,
+                "secret": self.api_secret,
+                "passphrase": self.api_passphrase,
+                "timestamp": timestamp,
+            },
+            "type": "user",
+        }
+
+    async def _connect(self):
+        """Connect and authenticate to WebSocket"""
+        try:
+            import websockets
+        except ImportError:
+            raise ImportError("websockets library required")
+
+        self.ws = await websockets.connect(
+            self.WS_URL,
+            ping_interval=20.0,
+            ping_timeout=10.0,
+        )
+        self._connected = True
+
+        # Send authentication
+        auth_msg = self._build_auth_message()
+        await self.ws.send(json.dumps(auth_msg))
+
+        if self.verbose:
+            logger.info("User WebSocket connected and authenticated")
+
+    async def _receive_loop(self):
+        """Main receive loop"""
+        import websockets.exceptions
+
+        while self._running:
+            try:
+                if not self._connected:
+                    await self._connect()
+
+                async for message in self.ws:
+                    if message in ('PONG', 'PING', ''):
+                        continue
+
+                    try:
+                        data = json.loads(message)
+                        await self._handle_message(data)
+                    except json.JSONDecodeError:
+                        pass
+
+            except websockets.exceptions.ConnectionClosed as e:
+                if self.verbose:
+                    logger.warning(f"User WebSocket closed: {e}")
+                self._connected = False
+                if self._running:
+                    await asyncio.sleep(3)
+
+            except Exception as e:
+                if self.verbose:
+                    logger.warning(f"User WebSocket error: {e}")
+                self._connected = False
+                if self._running:
+                    await asyncio.sleep(3)
+
+    async def _handle_message(self, data: dict):
+        """Handle incoming WebSocket message"""
+        if isinstance(data, list):
+            for item in data:
+                await self._process_item(item)
+        else:
+            await self._process_item(data)
+
+    async def _process_item(self, data: dict):
+        """Process a single message item"""
+        msg_type = (data.get("type", "") or "").upper()
+
+        # Polymarket sends "type": "TRADE" for fill notifications
+        if msg_type == "TRADE":
+            trade = self._parse_trade(data)
+            if trade and trade.size > 0:
+                self._emit_trade(trade)
+
+    def _parse_trade(self, data: dict) -> Optional[Trade]:
+        """Parse TRADE message from Polymarket user WebSocket"""
+        try:
+            # Parse match_time (unix timestamp in seconds)
+            ts = data.get("match_time", 0)
+            if isinstance(ts, str):
+                ts = int(ts)
+            timestamp = datetime.fromtimestamp(ts) if ts else datetime.now()
+
+            # taker_order_id is the order that got filled
+            order_id = data.get("taker_order_id", "") or data.get("maker_order_id", "")
+
+            return Trade(
+                id=data.get("id", ""),
+                order_id=order_id,
+                market_id=data.get("market", ""),
+                asset_id=data.get("asset_id", ""),
+                side=(data.get("side", "") or "").lower(),
+                price=float(data.get("price", 0)),
+                size=float(data.get("size", 0)),
+                fee=float(data.get("fee_rate_bps", 0) or 0),
+                timestamp=timestamp,
+                outcome=data.get("outcome", ""),
+                taker=data.get("taker_order_id", ""),
+                maker=data.get("maker_order_id", ""),
+                transaction_hash=data.get("transaction_hash", ""),
+            )
+        except Exception as e:
+            if self.verbose:
+                logger.warning(f"Failed to parse trade: {e}")
+            return None
+
+    def _emit_trade(self, trade: Trade):
+        """Emit trade to all callbacks"""
+        for callback in self._callbacks:
+            try:
+                callback(trade)
+            except Exception as e:
+                if self.verbose:
+                    logger.warning(f"Trade callback error: {e}")
+
+    def start(self) -> threading.Thread:
+        """Start WebSocket in background thread"""
+        if self._running:
+            return self._thread
+
+        self._running = True
+        self._loop = asyncio.new_event_loop()
+
+        def run():
+            asyncio.set_event_loop(self._loop)
+            self._loop.run_until_complete(self._receive_loop())
+
+        self._thread = threading.Thread(target=run, daemon=True)
+        self._thread.start()
+
+        if self.verbose:
+            logger.info("User WebSocket started")
+
+        return self._thread
+
+    def stop(self):
+        """Stop WebSocket"""
+        self._running = False
+
+        if self.ws and self._loop:
+            async def close():
+                if self.ws:
+                    await self.ws.close()
+
+            asyncio.run_coroutine_threadsafe(close(), self._loop)
+
+        if self._thread:
+            self._thread.join(timeout=5)
+            self._thread = None
+
+        if self.verbose:
+            logger.info("User WebSocket stopped")
