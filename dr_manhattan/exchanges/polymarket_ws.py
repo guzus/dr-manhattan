@@ -64,8 +64,11 @@ class PolymarketWebSocket(OrderBookWebSocket):
 
     WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, exchange=None):
         super().__init__(config)
+
+        # Reference to parent exchange for updating mid-price cache
+        self.exchange = exchange
 
         # Market ID to asset ID mapping
         self.market_to_asset: Dict[str, str] = {}
@@ -307,11 +310,14 @@ class PolymarketWebSocket(OrderBookWebSocket):
         for asset_id in asset_ids:
             self.market_to_asset[market_id] = asset_id
 
-            # Create callback that updates manager
+            # Create callback that updates manager and exchange mid-price cache
             def make_callback(tid):
                 def cb(market_id, orderbook):
-                    # Update manager
+                    # Update orderbook manager
                     self.orderbook_manager.update(tid, orderbook)
+                    # Update exchange mid-price cache
+                    if self.exchange:
+                        self.exchange.update_mid_price_from_orderbook(tid, orderbook)
                     # Call user callback if provided
                     if callback:
                         callback(market_id, orderbook)

@@ -13,6 +13,7 @@ from .base.errors import (
     InvalidOrder,
     MarketNotFound
 )
+from .base.order_tracker import OrderTracker, OrderEvent, create_fill_logger
 
 from .models.market import Market
 from .models.order import Order, OrderSide, OrderStatus
@@ -34,6 +35,9 @@ __all__ = [
     "InsufficientFunds",
     "InvalidOrder",
     "MarketNotFound",
+    "OrderTracker",
+    "OrderEvent",
+    "create_fill_logger",
     "Market",
     "Order",
     "OrderSide",

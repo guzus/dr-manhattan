@@ -9,6 +9,7 @@ from .errors import (
     InvalidOrder,
     MarketNotFound
 )
+from .order_tracker import OrderTracker, OrderEvent, create_fill_logger
 
 __all__ = [
     "Exchange",
@@ -20,4 +21,7 @@ __all__ = [
     "InsufficientFunds",
     "InvalidOrder",
     "MarketNotFound",
+    "OrderTracker",
+    "OrderEvent",
+    "create_fill_logger",
 ]

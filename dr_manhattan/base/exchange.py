@@ -7,6 +7,7 @@ from functools import wraps
 from ..models.market import Market
 from ..models.order import Order, OrderSide
 from ..models.position import Position
+from ..models.nav import NAV, PositionBreakdown
 from ..base.errors import NetworkError, RateLimitError
 
 
@@ -45,6 +46,10 @@ class Exchange(ABC):
         self._balance_last_updated = 0
         self._positions_last_updated = 0
         self._cache_ttl = self.config.get('cache_ttl', 2.0)  # Cache TTL in seconds (default 2s for Polygon block time)
+
+        # Mid-price cache: maps token_id/market_id -> yes_price
+        # Updated by exchange implementations when orderbook data arrives
+        self._mid_price_cache: Dict[str, float] = {}
 
     @property
     @abstractmethod
@@ -332,6 +337,205 @@ class Exchange(ABC):
         """
         self._update_balance_cache()
         self._update_positions_cache(market_id)
+
+    def calculate_nav(self, market: Optional[Market] = None) -> NAV:
+        """
+        Calculate Net Asset Value (NAV) using cached mid-prices.
+
+        Mid-prices are automatically updated by exchange implementations
+        when orderbook data is received.
+
+        Args:
+            market: Market to calculate NAV for. If provided, uses cached
+                   mid-prices for that market. If None, uses position.current_price.
+
+        Returns:
+            NAV dataclass with breakdown:
+                nav: Total NAV in USD
+                cash: USDC balance
+                positions_value: Total position value
+                positions: List of PositionBreakdown objects
+        """
+        positions = self.get_positions()
+        balance = self.get_balance()
+
+        # Get mid-prices from cache if market provided
+        prices = None
+        if market:
+            mid_prices = self.get_mid_prices(market)
+            if mid_prices:
+                prices = {market.id: mid_prices}
+
+        return self._calculate_nav_internal(positions, prices, balance)
+
+    def _calculate_nav_internal(
+        self,
+        positions: list[Position],
+        prices: Optional[Dict[str, Dict[str, float]]],
+        balance: Dict[str, float],
+    ) -> NAV:
+        """Internal NAV calculation with explicit parameters."""
+        cash = balance.get('USDC', 0.0) + balance.get('USD', 0.0)
+
+        positions_breakdown = []
+        positions_value = 0.0
+
+        for pos in positions:
+            if pos.size <= 0:
+                continue
+
+            # Get mid-price from provided prices or use current_price
+            mid_price = pos.current_price
+            if prices and pos.market_id in prices:
+                market_prices = prices[pos.market_id]
+                if pos.outcome in market_prices:
+                    mid_price = market_prices[pos.outcome]
+
+            value = pos.size * mid_price
+            positions_value += value
+
+            positions_breakdown.append(PositionBreakdown(
+                market_id=pos.market_id,
+                outcome=pos.outcome,
+                size=pos.size,
+                mid_price=mid_price,
+                value=value,
+            ))
+
+        return NAV(
+            nav=cash + positions_value,
+            cash=cash,
+            positions_value=positions_value,
+            positions=positions_breakdown,
+        )
+
+    def update_mid_price(self, token_id: str, mid_price: float) -> None:
+        """
+        Update cached mid-price for a token/market.
+
+        Call this when orderbook data is received to keep cache current.
+
+        Args:
+            token_id: Token ID or market identifier
+            mid_price: Mid-price (Yes price for binary markets)
+        """
+        self._mid_price_cache[str(token_id)] = mid_price
+
+    def update_mid_price_from_orderbook(
+        self,
+        token_id: str,
+        orderbook: Dict[str, Any],
+    ) -> Optional[float]:
+        """
+        Calculate mid-price from orderbook and update cache.
+
+        Call this when orderbook data is received.
+
+        Args:
+            token_id: Token ID or market identifier
+            orderbook: Orderbook dict with 'bids' and 'asks'
+
+        Returns:
+            Calculated mid-price or None if orderbook invalid
+        """
+        if not orderbook:
+            return None
+
+        bids = orderbook.get('bids', [])
+        asks = orderbook.get('asks', [])
+
+        if not bids or not asks:
+            return None
+
+        # Get best bid - handle both tuple and dict formats
+        if isinstance(bids[0], (list, tuple)):
+            best_bid = bids[0][0]
+        elif isinstance(bids[0], dict):
+            best_bid = bids[0].get('price', 0)
+        else:
+            best_bid = float(bids[0]) if bids[0] else 0
+
+        # Get best ask - handle both tuple and dict formats
+        if isinstance(asks[0], (list, tuple)):
+            best_ask = asks[0][0]
+        elif isinstance(asks[0], dict):
+            best_ask = asks[0].get('price', 0)
+        else:
+            best_ask = float(asks[0]) if asks[0] else 0
+
+        if best_bid <= 0 or best_ask <= 0:
+            return None
+
+        mid_price = (best_bid + best_ask) / 2
+        self._mid_price_cache[str(token_id)] = mid_price
+        return mid_price
+
+    def get_mid_price(self, token_id: str) -> Optional[float]:
+        """
+        Get cached mid-price for a token/market.
+
+        Args:
+            token_id: Token ID or market identifier
+
+        Returns:
+            Cached mid-price or None if not available
+        """
+        return self._mid_price_cache.get(str(token_id))
+
+    def get_mid_prices(self, market: Market) -> Dict[str, float]:
+        """
+        Get mid-prices for all outcomes in a market from cache.
+
+        For binary markets, uses cached Yes mid-price and derives No price
+        as (1 - Yes mid-price).
+
+        Args:
+            market: Market object
+
+        Returns:
+            Dict mapping outcome name to mid-price, e.g. {'Yes': 0.55, 'No': 0.45}
+        """
+        mid_prices = {}
+
+        # Try to find Yes token mid-price from cache
+        yes_mid = None
+
+        # Try token IDs first (Polymarket style)
+        token_ids = market.metadata.get('clobTokenIds', [])
+        tokens = market.metadata.get('tokens', {})
+
+        yes_token_id = None
+        if tokens:
+            yes_token_id = tokens.get('yes') or tokens.get('Yes')
+        elif token_ids:
+            yes_token_id = token_ids[0]
+
+        # Check cache for Yes token
+        if yes_token_id:
+            yes_mid = self.get_mid_price(str(yes_token_id))
+
+        # Try market.id if token lookup failed
+        if yes_mid is None:
+            yes_mid = self.get_mid_price(market.id)
+
+        # Build mid-prices dict
+        if yes_mid is not None:
+            if market.is_binary:
+                mid_prices['Yes'] = yes_mid
+                mid_prices['No'] = 1.0 - yes_mid
+            else:
+                # For non-binary, just use as first outcome price
+                if market.outcomes:
+                    mid_prices[market.outcomes[0]] = yes_mid
+            return mid_prices
+
+        # Fallback: use market prices if available
+        if market.prices:
+            for outcome in market.outcomes:
+                if outcome in market.prices:
+                    mid_prices[outcome] = market.prices[outcome]
+
+        return mid_prices
 
     def find_tradeable_market(
         self,

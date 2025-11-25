@@ -1301,6 +1301,9 @@ class Polymarket(Exchange):
         """
         Get WebSocket instance for real-time orderbook updates.
 
+        The WebSocket automatically updates the exchange's mid-price cache
+        when orderbook data is received.
+
         Returns:
             PolymarketWebSocket instance
 
@@ -1310,10 +1313,13 @@ class Polymarket(Exchange):
             ws.start()
         """
         if self._ws is None:
-            self._ws = PolymarketWebSocket({
-                'verbose': self.verbose,
-                'auto_reconnect': True
-            })
+            self._ws = PolymarketWebSocket(
+                config={
+                    'verbose': self.verbose,
+                    'auto_reconnect': True
+                },
+                exchange=self
+            )
         return self._ws
 
         # -------------------------------------------------------------------------
