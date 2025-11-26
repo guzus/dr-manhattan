@@ -1050,7 +1050,7 @@ class Polymarket(Exchange):
 
         # -------------------------------------------------------------------------
 
-    #polymarket_fetcher
+    # ---------- polymarket_fetcher ----------
     
     def _ensure_market(self, market: Market | str) -> Market:
         if isinstance(market, Market):
@@ -1138,12 +1138,72 @@ class Polymarket(Exchange):
 
         return points
 
+    def _collect_paginated(
+        self,
+        fetch_page: Callable[[int, int], List[Any]],
+        *,
+        total_limit: int,
+        initial_offset: int = 0,
+        page_size: int = 500,
+        dedup_key: Callable[[Any], Any] | None = None,
+        log: bool | None = False
+    ) -> List[Any]:
+
+        if total_limit <= 0:
+            return []
+
+        results: List[Any] = []
+        current_offset = int(initial_offset)
+        total_limit = int(total_limit)
+        page_size = max(1, int(page_size))
+
+        seen: set[Any] = set() if dedup_key else set()
+
+        while len(results) < total_limit:
+            remaining = total_limit - len(results)
+            page_limit = min(page_size, remaining)
+
+            if log:
+                print('current-offset:', current_offset)
+                print('page_limit:', page_limit)
+                print('----------')
+
+            page = fetch_page(current_offset, page_limit)
+
+            if not page:
+                break
+
+            if dedup_key:
+                new_items: List[Any] = []
+                for item in page:
+                    key = dedup_key(item)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    new_items.append(item)
+
+                if not new_items:
+                    break
+
+                results.extend(new_items)
+            else:
+                results.extend(page)
+
+            current_offset += len(page)
+
+            if len(page) < page_limit:
+                break
+
+        if len(results) > total_limit:
+            results = results[:total_limit]
+
+        return results
+
     def search_markets(
         self,
         *,
         # Gamma-side
         limit: int = 200,
-        page_size: int = 200,
         offset: int = 0,
 
         order: str | None = "id",
@@ -1186,15 +1246,19 @@ class Polymarket(Exchange):
         categories: Sequence[str] | None = None,
         outcomes: Sequence[str] | None = None,
         predicate: Callable[[Market], bool] | None = None,
-    ) -> List[Market]:
 
-        # 0) Preprocess
-        if limit <= 0:
+        # Log
+        log: bool | None = False
+    ) -> List[Market]:
+        
+        # ---------- 0) Pre-process ----------
+        total_limit = int(limit)
+        if total_limit <= 0:
             return []
 
-        total_limit = int(limit)
-        page_size = max(1, min(int(page_size), total_limit))
-        current_offset = max(0, int(offset))
+        initial_offset = max(0, int(offset))
+        DEFAULT_PAGE_SIZE_MARKETS = 200 
+        page_size = min(DEFAULT_PAGE_SIZE_MARKETS, total_limit)
 
         def _dt(v: datetime | None) -> str | None:
             return v.isoformat() if isinstance(v, datetime) else None
@@ -1207,11 +1271,8 @@ class Polymarket(Exchange):
         category_lowers = _lower_list(categories)
         outcome_lowers = _lower_list(outcomes)
 
-        # 1) Gamma-side params
-        gamma_params: Dict[str, Any] = {
-            "limit": page_size,
-            "offset": current_offset,
-        }
+        # ---------- 1) Gamma-side params ----------
+        gamma_params: Dict[str, Any] = {}
 
         if order is not None:
             gamma_params["order"] = order
@@ -1271,31 +1332,35 @@ class Polymarket(Exchange):
         if extra_params:
             gamma_params.update(extra_params)
 
-        # 2) Gamma Pagenation
-        gamma_results: List[Market] = []
+        # ---------- 2) Gamma pagination via helper ----------
+        @self._retry_on_failure
+        def _fetch_page(offset_: int, limit_: int) -> List[Market]:
+            params = {
+                **gamma_params,
+                "limit": limit_,
+                "offset": offset_,
+            }
+            resp = requests.get(
+                f"{self.BASE_URL}/markets",
+                params=params,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            raw = resp.json()
+            if not isinstance(raw, list):
+                raise ExchangeError("Gamma /markets response must be a list.")
+            return [self._parse_market(m) for m in raw]
 
-        while len(gamma_results) < total_limit:
-            remaining = total_limit - len(gamma_results)
-            gamma_params["limit"] = min(page_size, remaining)
-            gamma_params["offset"] = current_offset
+        gamma_results: List[Market] = self._collect_paginated(
+            _fetch_page,
+            total_limit=total_limit,
+            initial_offset=initial_offset,
+            page_size=page_size,
+            dedup_key=None,
+            log=log
+        )
 
-            @self._retry_on_failure
-            def _fetch_page() -> List[Market]:
-                resp = requests.get(f"{self.BASE_URL}/markets", params=gamma_params, timeout=self.timeout)
-                resp.raise_for_status()
-                raw = resp.json()
-                if not isinstance(raw, list):
-                    raise ExchangeError("Gamma /markets response must be a list.")
-                return [self._parse_market(m) for m in raw]
-
-            page = _fetch_page()
-            if not page:
-                break
-
-            gamma_results.extend(page)
-            current_offset += len(page)
-
-        # 3) Client-side post filtering
+        # ---------- 3) Client-side filtering ----------
         filtered: List[Market] = []
 
         for m in gamma_results:
@@ -1320,34 +1385,40 @@ class Polymarket(Exchange):
             if predicate and not predicate(m):
                 continue
             filtered.append(m)
+
         if len(filtered) > total_limit:
             filtered = filtered[:total_limit]
+
         return filtered
 
     def fetch_public_trades(
         self,
         market: Market | str | None = None,
         *,
+        limit: int = 100,
+        offset: int = 0,
         event_id: int | None = None,
         user: str | None = None,
         side: Literal["BUY", "SELL"] | None = None,
         taker_only: bool = True,
-        limit: int = 100,
-        offset: int = 0,
         filter_type: Literal["CASH", "TOKENS"] | None = None,
         filter_amount: float | None = None,
-    ) -> List[PublicTrade]:
-        """
-        Fetch global trade history from the Data-API /trades endpoint.
-        """
+        as_dataframe: bool = False,
+        log: bool = False,
+    ) -> List[PublicTrade] | "pandas.DataFrame":
 
-        if limit < 0 or limit > 10_000:
-            raise ValueError("limit must be between 0 and 10_000")
-        if offset < 0 or offset > 10_000:
-            raise ValueError("offset must be between 0 and 10_000")
+        total_limit = int(limit)
+        if total_limit <= 0:
+            return []
 
-        total_limit = max(1, int(limit))
+        if offset < 0 or offset > 10000:
+            raise ValueError("offset must be between 0 and 10000")
 
+        initial_offset = int(offset)
+        DEFAULT_PAGE_SIZE_TRADES = 500
+        page_size = min(DEFAULT_PAGE_SIZE_TRADES, total_limit)
+
+        # ---------- condition_id resolve ----------
         condition_id: str | None = None
         if isinstance(market, Market):
             condition_id = str(market.metadata.get("conditionId", market.id))
@@ -1373,44 +1444,46 @@ class Polymarket(Exchange):
             base_params["filterType"] = filter_type
             base_params["filterAmount"] = filter_amount
 
-        current_offset = int(offset)
-
-        DEFAULT_PAGE_SIZE = 200
-        page_size = min(DEFAULT_PAGE_SIZE, total_limit)
-
-        raw_trades: List[Dict[str, Any]] = []
-
-        while len(raw_trades) < total_limit:
-            remaining = total_limit - len(raw_trades)
-            page_limit = min(page_size, remaining)
-
+        # ---------- pagination via helper ----------
+        @self._retry_on_failure
+        def _fetch_page(offset_: int, limit_: int) -> List[Dict[str, Any]]:
             params = {
                 **base_params,
-                "limit": page_limit,
-                "offset": current_offset,
+                "limit": limit_,
+                "offset": offset_,
             }
 
-            @self._retry_on_failure
-            def _fetch_page() -> List[Dict[str, Any]]:
-                resp = requests.get(f"{self.DATA_API_URL}/trades", params=params, timeout=self.timeout)
-                resp.raise_for_status()
-                data = resp.json()
-                if not isinstance(data, list):
-                    raise ExchangeError("Data-API /trades response must be a list.")
-                return data
+            resp = requests.get(
+                f"{self.DATA_API_URL}/trades",
+                params=params,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not isinstance(data, list):
+                raise ExchangeError("Data-API /trades response must be a list.")
+            return data
 
-            page = _fetch_page()
+        def _dedup_key(row: Dict[str, Any]) -> tuple[Any, ...]:
+            # transactionHash + timestamp + side + asset + size + price
+            return (
+                row.get("transactionHash"),
+                row.get("outcomeIndex")
+            )
 
-            if not page:
-                break
+        raw_trades: List[Dict[str, Any]] = self._collect_paginated(
+            _fetch_page,
+            total_limit=total_limit,
+            initial_offset=initial_offset,
+            page_size=page_size,
+            dedup_key=_dedup_key,
+            log=log
+        )
 
-            raw_trades.extend(page)
-
-            current_offset += len(page)
-
+        # ---------- Dict -> PublicTrade ----------
         trades: List[PublicTrade] = []
 
-        for row in raw_trades:
+        for row in raw_trades[:total_limit]:
             ts = row.get("timestamp")
             if isinstance(ts, (int, float)):
                 ts_dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
@@ -1443,7 +1516,42 @@ class Polymarket(Exchange):
                 )
             )
 
-        return trades
+        if not as_dataframe:
+            return trades
+
+        # ---------- as_dataframe=True: Convert to DataFrame----------
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise RuntimeError("pandas is required when as_dataframe=True.") from exc
+
+        df = pd.DataFrame(
+            [
+                {
+                    "timestamp": t.timestamp,
+                    "side": t.side,
+                    "asset": t.asset,
+                    "condition_id": t.condition_id,
+                    "size": t.size,
+                    "price": t.price,
+                    "proxy_wallet": t.proxy_wallet,
+                    "title": t.title,
+                    "slug": t.slug,
+                    "event_slug": t.event_slug,
+                    "outcome": t.outcome,
+                    "outcome_index": t.outcome_index,
+                    "name": t.name,
+                    "pseudonym": t.pseudonym,
+                    "bio": t.bio,
+                    "profile_image": t.profile_image,
+                    "profile_image_optimized": t.profile_image_optimized,
+                    "transaction_hash": t.transaction_hash,
+                }
+                for t in trades
+            ]
+        )
+
+        return df.sort_values("timestamp").reset_index(drop=True)
 
     @staticmethod
     def _extract_categories(market: Market) -> List[str]:
