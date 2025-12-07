@@ -1,9 +1,14 @@
 [project]
 name = "dr-manhattan"
-version = "0.1.0"
+version = "0.0.1"
 description = "CCXT-style unified API for prediction markets"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "guzus" }
+]
+keywords = ["prediction-markets", "polymarket", "trading", "api", "ccxt"]
 dependencies = [
     "requests>=2.31.0",
     "websockets>=15.0.1",
@@ -11,6 +16,11 @@ dependencies = [
     "eth-account>=0.11.0",
     "py-clob-client>=0.28.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/guzus/dr-manhattan"
+Repository = "https://github.com/guzus/dr-manhattan"
+Issues = "https://github.com/guzus/dr-manhattan/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -33,3 +43,27 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/.github",
+    "/frontend",
+    "/backtest",
+    "/wiki",
+    "/scripts",
+    "/examples",
+    "*.ipynb",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["dr_manhattan"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "twine>=6.2.0",
+]
