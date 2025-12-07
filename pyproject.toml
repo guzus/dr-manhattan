@@ -3,7 +3,7 @@ name = "dr-manhattan"
 version = "0.0.1"
 description = "CCXT-style unified API for prediction markets"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [
     { name = "guzus" }
