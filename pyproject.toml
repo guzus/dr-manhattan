@@ -22,12 +22,6 @@ Homepage = "https://github.com/guzus/dr-manhattan"
 Repository = "https://github.com/guzus/dr-manhattan"
 Issues = "https://github.com/guzus/dr-manhattan/issues"
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-    "black>=24.0.0",
-    "ruff>=0.1.0",
-]
 
 [build-system]
 requires = ["hatchling"]
@@ -43,6 +37,10 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
+ignore = [
+    "N818",  # Exception names don't need Error suffix for backward compatibility
+    "E501",  # Line too long (handled by black where possible)
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -64,6 +62,8 @@ packages = ["dr_manhattan"]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.4.2",
-    "twine>=6.2.0",
+    "pytest>=8.0.0",
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+    "twine>=6.0.0",
 ]

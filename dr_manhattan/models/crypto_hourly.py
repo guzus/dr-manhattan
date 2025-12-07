@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Literal
+from typing import Literal, Optional
 
 
 @dataclass
@@ -11,6 +11,7 @@ class CryptoHourlyMarket:
     These are markets that predict whether a token's price will be above/below
     a certain threshold, or whether it will go up/down from the open price.
     """
+
     token_symbol: str  # e.g., "BTC", "ETH", "SOL"
     expiry_time: datetime  # When the market expires/settles
     strike_price: Optional[float] = None  # The price threshold (if applicable)

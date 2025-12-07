@@ -21,6 +21,7 @@ class OrderStatus(Enum):
 @dataclass
 class Order:
     """Represents an order on a prediction market"""
+
     id: str
     market_id: str
     outcome: str

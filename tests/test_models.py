@@ -1,7 +1,7 @@
 """Tests for data models"""
 
-import pytest
 from datetime import datetime
+
 from dr_manhattan.models.market import Market
 from dr_manhattan.models.order import Order, OrderSide, OrderStatus
 from dr_manhattan.models.position import Position
@@ -20,7 +20,7 @@ class TestMarket:
             volume=10000.0,
             liquidity=5000.0,
             prices={"Yes": 0.6, "No": 0.4},
-            metadata={"category": "weather"}
+            metadata={"category": "weather"},
         )
 
         assert market.id == "market_123"
@@ -41,7 +41,7 @@ class TestMarket:
             volume=0,
             liquidity=0,
             prices={},
-            metadata={}
+            metadata={},
         )
         assert binary_market.is_binary is True
 
@@ -53,7 +53,7 @@ class TestMarket:
             volume=0,
             liquidity=0,
             prices={},
-            metadata={}
+            metadata={},
         )
         assert multi_outcome_market.is_binary is False
 
@@ -67,7 +67,7 @@ class TestMarket:
             volume=0,
             liquidity=0,
             prices={},
-            metadata={}
+            metadata={},
         )
         assert future_market.is_open is True
 
@@ -79,7 +79,7 @@ class TestMarket:
             volume=0,
             liquidity=0,
             prices={},
-            metadata={}
+            metadata={},
         )
         assert past_market.is_open is False
 
@@ -91,7 +91,7 @@ class TestMarket:
             volume=0,
             liquidity=0,
             prices={},
-            metadata={}
+            metadata={},
         )
         assert no_close_time_market.is_open is True
 
@@ -106,7 +106,7 @@ class TestMarket:
             volume=0,
             liquidity=0,
             prices={"Yes": 0.6, "No": 0.4},
-            metadata={}
+            metadata={},
         )
         assert market.spread is not None
         assert abs(market.spread) < 0.01  # Should be very close to 0
@@ -120,7 +120,7 @@ class TestMarket:
             volume=0,
             liquidity=0,
             prices={"Yes": 0.55, "No": 0.40},
-            metadata={}
+            metadata={},
         )
         spread = market_with_spread.spread
         assert spread is not None
@@ -135,7 +135,7 @@ class TestMarket:
             volume=0,
             liquidity=0,
             prices={"A": 0.33, "B": 0.33, "C": 0.33},
-            metadata={}
+            metadata={},
         )
         assert multi_market.spread is None
 
@@ -155,7 +155,7 @@ class TestOrder:
             filled=50,
             status=OrderStatus.PARTIALLY_FILLED,
             created_at=datetime(2025, 1, 1, 0, 0, 0),
-            updated_at=datetime(2025, 1, 1, 0, 1, 0)
+            updated_at=datetime(2025, 1, 1, 0, 1, 0),
         )
 
         assert order.id == "order_123"
@@ -179,7 +179,7 @@ class TestOrder:
             filled=30,
             status=OrderStatus.PARTIALLY_FILLED,
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
         assert order.remaining == 70
 
@@ -195,7 +195,7 @@ class TestOrder:
             filled=0,
             status=OrderStatus.OPEN,
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
         assert open_order.is_open is True
 
@@ -209,7 +209,7 @@ class TestOrder:
             filled=100,
             status=OrderStatus.FILLED,
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
         assert filled_order.is_open is False
 
@@ -223,7 +223,7 @@ class TestOrder:
             filled=0,
             status=OrderStatus.CANCELLED,
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
         assert cancelled_order.is_open is False
 
@@ -239,7 +239,7 @@ class TestOrder:
             filled=100,
             status=OrderStatus.FILLED,
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
         assert filled_order.is_filled is True
 
@@ -253,7 +253,7 @@ class TestOrder:
             filled=50,
             status=OrderStatus.PARTIALLY_FILLED,
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
         assert partial_order.is_filled is False
 
@@ -269,7 +269,7 @@ class TestOrder:
             filled=75,
             status=OrderStatus.PARTIALLY_FILLED,
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
         assert order.fill_percentage == 0.75
 
@@ -280,11 +280,7 @@ class TestPosition:
     def test_position_creation(self):
         """Test creating a position"""
         position = Position(
-            market_id="market_123",
-            outcome="Yes",
-            size=100,
-            average_price=0.60,
-            current_price=0.65
+            market_id="market_123", outcome="Yes", size=100, average_price=0.60, current_price=0.65
         )
 
         assert position.market_id == "market_123"
@@ -296,11 +292,7 @@ class TestPosition:
     def test_position_unrealized_pnl(self):
         """Test unrealized PnL calculation"""
         position = Position(
-            market_id="m1",
-            outcome="Yes",
-            size=100,
-            average_price=0.60,
-            current_price=0.65
+            market_id="m1", outcome="Yes", size=100, average_price=0.60, current_price=0.65
         )
         # (0.65 - 0.60) * 100 = 5.0
         assert position.unrealized_pnl == 5.0
@@ -308,11 +300,7 @@ class TestPosition:
     def test_position_unrealized_pnl_percent(self):
         """Test unrealized PnL percentage calculation"""
         position = Position(
-            market_id="m1",
-            outcome="Yes",
-            size=100,
-            average_price=0.60,
-            current_price=0.65
+            market_id="m1", outcome="Yes", size=100, average_price=0.60, current_price=0.65
         )
         # ((0.65 - 0.60) / 0.60) * 100 = 8.333...
         assert abs(position.unrealized_pnl_percent - 8.333) < 0.01
@@ -320,11 +308,7 @@ class TestPosition:
     def test_position_cost_basis(self):
         """Test cost basis calculation"""
         position = Position(
-            market_id="m1",
-            outcome="Yes",
-            size=100,
-            average_price=0.60,
-            current_price=0.65
+            market_id="m1", outcome="Yes", size=100, average_price=0.60, current_price=0.65
         )
         # 0.60 * 100 = 60.0
         assert position.cost_basis == 60.0
@@ -332,11 +316,7 @@ class TestPosition:
     def test_position_current_value(self):
         """Test current value calculation"""
         position = Position(
-            market_id="m1",
-            outcome="Yes",
-            size=100,
-            average_price=0.60,
-            current_price=0.65
+            market_id="m1", outcome="Yes", size=100, average_price=0.60, current_price=0.65
         )
         # 0.65 * 100 = 65.0
         assert position.current_value == 65.0
@@ -344,11 +324,7 @@ class TestPosition:
     def test_position_negative_pnl(self):
         """Test position with negative PnL"""
         position = Position(
-            market_id="m1",
-            outcome="Yes",
-            size=100,
-            average_price=0.70,
-            current_price=0.60
+            market_id="m1", outcome="Yes", size=100, average_price=0.70, current_price=0.60
         )
         # (0.60 - 0.70) * 100 = -10.0
         assert position.unrealized_pnl == -10.0

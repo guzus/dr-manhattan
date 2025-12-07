@@ -1,25 +1,26 @@
-from typing import Optional, Dict, Any, Sequence, List, Literal, Callable, Iterable
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
-import json
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence
 
 import requests
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OrderType, AssetType, BalanceAllowanceParams
+from py_clob_client.clob_types import AssetType, BalanceAllowanceParams, OrderArgs, OrderType
 
+from ..base.errors import ExchangeError, MarketNotFound, NetworkError, RateLimitError
 from ..base.exchange import Exchange
-from ..base.errors import NetworkError, ExchangeError, MarketNotFound, RateLimitError
 from ..models.market import Market
 from ..models.order import Order, OrderSide, OrderStatus
 from ..models.position import Position
-from .polymarket_ws import PolymarketWebSocket, PolymarketUserWebSocket
+from .polymarket_ws import PolymarketUserWebSocket, PolymarketWebSocket
+
 
 @dataclass
 class PricePoint:
     timestamp: datetime
     price: float
     raw: Dict[str, Any]
+
 
 @dataclass
 class Tag:
@@ -33,6 +34,7 @@ class Tag:
     created_at: str | None
     updated_at: str | None
     raw: dict
+
 
 @dataclass
 class PublicTrade:
@@ -71,9 +73,9 @@ class Polymarket(Exchange):
 
     # Token normalization mapping
     TOKEN_ALIASES = {
-        'BITCOIN': 'BTC',
-        'ETHEREUM': 'ETH',
-        'SOLANA': 'SOL',
+        "BITCOIN": "BTC",
+        "ETHEREUM": "ETH",
+        "SOLANA": "SOL",
     }
 
     @staticmethod
@@ -108,14 +110,14 @@ class Polymarket(Exchange):
             return ""
 
         # If it's a URL, extract the slug
-        if identifier.startswith('http'):
+        if identifier.startswith("http"):
             # Remove query parameters
-            identifier = identifier.split('?')[0]
+            identifier = identifier.split("?")[0]
             # Extract slug from URL
             # Format: https://polymarket.com/event/SLUG
-            parts = identifier.rstrip('/').split('/')
-            if 'event' in parts:
-                idx = parts.index('event')
+            parts = identifier.rstrip("/").split("/")
+            if "event" in parts:
+                idx = parts.index("event")
                 if idx + 1 < len(parts):
                     return parts[idx + 1]
             # Fallback: return last part
@@ -136,8 +138,8 @@ class Polymarket(Exchange):
         super().__init__(config)
         self._ws = None
         self._user_ws = None
-        self.private_key = self.config.get('private_key')
-        self.funder = self.config.get('funder')
+        self.private_key = self.config.get("private_key")
+        self.funder = self.config.get("funder")
         self._clob_client = None
         self._address = None
 
@@ -148,9 +150,9 @@ class Polymarket(Exchange):
     def _initialize_clob_client(self):
         """Initialize CLOB client with authentication."""
         try:
-            chain_id = self.config.get('chain_id', 137)
-            signature_type = self.config.get('signature_type', 2)
-            
+            chain_id = self.config.get("chain_id", 137)
+            signature_type = self.config.get("signature_type", 2)
+
             # Initialize authenticated client
             self._clob_client = ClobClient(
                 host=self.CLOB_URL,
@@ -159,29 +161,32 @@ class Polymarket(Exchange):
                 signature_type=signature_type,
                 funder=self.funder,
             )
-            
+
             # Derive and set API credentials for L2 authentication
             api_creds = self._clob_client.create_or_derive_api_creds()
             if not api_creds:
                 raise ExchangeError("Failed to derive API credentials")
-            
+
             self._clob_client.set_api_creds(api_creds)
-            
+
             # Verify L2 mode
             if self._clob_client.mode < 2:
-                raise ExchangeError(f"Client not in L2 mode (current mode: {self._clob_client.mode})")
-            
+                raise ExchangeError(
+                    f"Client not in L2 mode (current mode: {self._clob_client.mode})"
+                )
+
             # Store address
             try:
                 self._address = self._clob_client.get_address()
-            except:
+            except Exception:
                 self._address = None
-                
+
         except Exception as e:
             raise ExchangeError(f"Failed to initialize CLOB client: {e}")
-    
+
     def _request(self, method: str, endpoint: str, params: Optional[Dict] = None) -> Any:
         """Make HTTP request to Polymarket API with retry logic"""
+
         @self._retry_on_failure
         def _make_request():
             url = f"{self.BASE_URL}{endpoint}"
@@ -192,18 +197,14 @@ class Polymarket(Exchange):
 
             try:
                 response = requests.request(
-                    method,
-                    url,
-                    params=params,
-                    headers=headers,
-                    timeout=self.timeout
+                    method, url, params=params, headers=headers, timeout=self.timeout
                 )
-                
+
                 # Handle rate limiting
                 if response.status_code == 429:
-                    retry_after = int(response.headers.get('Retry-After', 1))
+                    retry_after = int(response.headers.get("Retry-After", 1))
                     raise RateLimitError(f"Rate limited. Retry after {retry_after}s")
-                
+
                 response.raise_for_status()
                 return response.json()
             except requests.Timeout as e:
@@ -221,58 +222,56 @@ class Polymarket(Exchange):
                     raise ExchangeError(f"HTTP error: {e}")
             except requests.RequestException as e:
                 raise ExchangeError(f"Request failed: {e}")
-        
+
         return _make_request()
 
     def fetch_markets(self, params: Optional[Dict[str, Any]] = None) -> list[Market]:
         """
         Fetch all markets from Polymarket
-        
+
         Uses CLOB API instead of Gamma API because CLOB includes token IDs
         which are required for trading.
         """
+
         @self._retry_on_failure
         def _fetch():
             # Fetch from CLOB API /sampling-markets (includes token IDs and live markets)
             try:
-                response = requests.get(
-                    f"{self.CLOB_URL}/sampling-markets",
-                    timeout=self.timeout
-                )
-                
+                response = requests.get(f"{self.CLOB_URL}/sampling-markets", timeout=self.timeout)
+
                 if response.status_code == 200:
                     result = response.json()
                     markets_data = result.get("data", result if isinstance(result, list) else [])
-                    
+
                     markets = []
                     for item in markets_data:
                         market = self._parse_sampling_market(item)
                         if market:
                             markets.append(market)
-                    
+
                     # Apply filters if provided
                     query_params = params or {}
-                    if query_params.get('active') or (not query_params.get('closed', True)):
+                    if query_params.get("active") or (not query_params.get("closed", True)):
                         markets = [m for m in markets if m.is_open]
-                    
+
                     # Apply limit if provided
-                    limit = query_params.get('limit')
+                    limit = query_params.get("limit")
                     if limit:
                         markets = markets[:limit]
-                    
+
                     if self.verbose:
                         print(f"✓ Fetched {len(markets)} markets from CLOB API (sampling-markets)")
-                    
+
                     return markets
-                    
+
             except Exception as e:
                 if self.verbose:
                     print(f"CLOB API fetch failed: {e}, falling back to Gamma API")
-            
+
             # Fallback to Gamma API (but won't have token IDs)
             query_params = params or {}
-            if 'active' not in query_params and 'closed' not in query_params:
-                query_params = {'active': True, 'closed': False, **query_params}
+            if "active" not in query_params and "closed" not in query_params:
+                query_params = {"active": True, "closed": False, **query_params}
 
             data = self._request("GET", "/markets", query_params)
             markets = []
@@ -285,6 +284,7 @@ class Polymarket(Exchange):
 
     def fetch_market(self, market_id: str) -> Market:
         """Fetch specific market by ID with retry logic"""
+
         @self._retry_on_failure
         def _fetch():
             try:
@@ -325,10 +325,7 @@ class Polymarket(Exchange):
 
         try:
             # Fetch from Gamma API events endpoint
-            response = requests.get(
-                f"{self.BASE_URL}/events?slug={slug}",
-                timeout=self.timeout
-            )
+            response = requests.get(f"{self.BASE_URL}/events?slug={slug}", timeout=self.timeout)
 
             if response.status_code != 200:
                 if self.verbose:
@@ -342,7 +339,7 @@ class Polymarket(Exchange):
                 return None
 
             event = event_data[0]
-            markets_data = event.get('markets', [])
+            markets_data = event.get("markets", [])
 
             if not markets_data:
                 if self.verbose:
@@ -356,26 +353,26 @@ class Polymarket(Exchange):
             # Fetch token IDs from CLOB API
             try:
                 token_ids = self.fetch_token_ids(market.id)
-                market.metadata['clobTokenIds'] = token_ids
+                market.metadata["clobTokenIds"] = token_ids
             except Exception as e:
                 if self.verbose:
                     print(f"Could not fetch token IDs from CLOB: {e}")
 
             # Try to get from market data if CLOB fetch failed
-            if 'clobTokenIds' not in market.metadata:
-                clob_token_ids = market_data.get('clobTokenIds', [])
+            if "clobTokenIds" not in market.metadata:
+                clob_token_ids = market_data.get("clobTokenIds", [])
 
                 # Parse if it's a JSON string
                 if isinstance(clob_token_ids, str):
                     try:
                         clob_token_ids = json.loads(clob_token_ids)
-                    except:
+                    except Exception:
                         if self.verbose:
-                            print(f"Failed to parse clobTokenIds")
+                            print("Failed to parse clobTokenIds")
                         return None
 
                 if clob_token_ids and isinstance(clob_token_ids, list):
-                    market.metadata['clobTokenIds'] = clob_token_ids
+                    market.metadata["clobTokenIds"] = clob_token_ids
                 else:
                     if self.verbose:
                         print("No token IDs available")
@@ -385,19 +382,21 @@ class Polymarket(Exchange):
             # Most active Polymarket markets use 0.001 tick size
             # Note: When markets are fetched via sampling-markets endpoint,
             # they will have minimum_tick_size already set from the API
-            if 'tick_size' not in market.metadata and 'minimum_tick_size' not in market.metadata:
-                market.metadata['minimum_tick_size'] = 0.001
-                market.metadata['tick_size'] = 0.001
+            if "tick_size" not in market.metadata and "minimum_tick_size" not in market.metadata:
+                market.metadata["minimum_tick_size"] = 0.001
+                market.metadata["tick_size"] = 0.001
                 if self.verbose:
                     print("  Using default tick size: 0.001")
             elif self.verbose:
-                tick_size = market.metadata.get('tick_size') or market.metadata.get('minimum_tick_size')
+                tick_size = market.metadata.get("tick_size") or market.metadata.get(
+                    "minimum_tick_size"
+                )
                 print(f"  Tick size: {tick_size}")
 
             if self.verbose:
                 print(f"✓ Fetched market: {market.question[:70]}...")
-                token_ids = market.metadata.get('clobTokenIds', [])
-                tick_size = market.metadata.get('minimum_tick_size', 0.01)
+                token_ids = market.metadata.get("clobTokenIds", [])
+                tick_size = market.metadata.get("minimum_tick_size", 0.01)
                 print(f"  Market ID: {market.id}")
                 print(f"  Outcomes: {len(market.outcomes)}")
                 print(f"  Token IDs: {len(token_ids)}")
@@ -428,20 +427,18 @@ class Polymarket(Exchange):
         """
         try:
             response = requests.get(
-                f"{self.CLOB_URL}/book",
-                params={"token_id": token_id},
-                timeout=self.timeout
+                f"{self.CLOB_URL}/book", params={"token_id": token_id}, timeout=self.timeout
             )
 
             if response.status_code == 200:
                 return response.json()
 
-            return {'bids': [], 'asks': []}
+            return {"bids": [], "asks": []}
 
         except Exception as e:
             if self.verbose:
                 print(f"Failed to fetch orderbook: {e}")
-            return {'bids': [], 'asks': []}
+            return {"bids": [], "asks": []}
 
     def _parse_sampling_market(self, data: Dict[str, Any]) -> Optional[Market]:
         """Parse market data from CLOB sampling-markets API response"""
@@ -481,16 +478,13 @@ class Polymarket(Exchange):
                         except (ValueError, TypeError):
                             pass
 
-            # Determine if market is open
-            is_open = data.get("active", False) and data.get("accepting_orders", False) and not data.get("closed", False)
-
             # Build metadata with token IDs and tick size
             metadata = {
                 **data,
                 "clobTokenIds": token_ids,
                 "condition_id": condition_id,
                 "minimum_tick_size": minimum_tick_size,
-                "tick_size": minimum_tick_size  # Alias for convenience
+                "tick_size": minimum_tick_size,  # Alias for convenience
             }
 
             return Market(
@@ -501,13 +495,13 @@ class Polymarket(Exchange):
                 volume=0,  # Not in sampling-markets
                 liquidity=0,  # Not in sampling-markets
                 prices=prices,
-                metadata=metadata
+                metadata=metadata,
             )
         except Exception as e:
             if self.verbose:
                 print(f"Error parsing sampling market: {e}")
             return None
-    
+
     def _parse_clob_market(self, data: Dict[str, Any]) -> Optional[Market]:
         """Parse market data from CLOB API response"""
         try:
@@ -515,19 +509,19 @@ class Polymarket(Exchange):
             condition_id = data.get("condition_id")
             if not condition_id:
                 return None
-            
+
             # Extract tokens (already have token_id, outcome, price, winner)
             tokens = data.get("tokens", [])
             token_ids = []
             outcomes = []
             prices = {}
-            
+
             for token in tokens:
                 if isinstance(token, dict):
                     token_id = token.get("token_id")
                     outcome = token.get("outcome", "")
                     price = token.get("price")
-                    
+
                     if token_id:
                         token_ids.append(str(token_id))
                     if outcome:
@@ -537,18 +531,10 @@ class Polymarket(Exchange):
                             prices[outcome] = float(price)
                         except (ValueError, TypeError):
                             pass
-            
-            # Determine if market is open
-            # A market is tradeable if it's active and accepting orders (even if "closed")
-            is_open = data.get("active", False) and data.get("accepting_orders", False)
-            
+
             # Build metadata with token IDs already included
-            metadata = {
-                **data,
-                "clobTokenIds": token_ids,
-                "condition_id": condition_id
-            }
-            
+            metadata = {**data, "clobTokenIds": token_ids, "condition_id": condition_id}
+
             return Market(
                 id=condition_id,
                 question="",  # CLOB API doesn't include question text
@@ -557,13 +543,13 @@ class Polymarket(Exchange):
                 volume=0,  # CLOB API doesn't include volume
                 liquidity=0,  # CLOB API doesn't include liquidity
                 prices=prices,
-                metadata=metadata
+                metadata=metadata,
             )
         except Exception as e:
             if self.verbose:
                 print(f"Error parsing CLOB market: {e}")
             return None
-    
+
     def _parse_market(self, data: Dict[str, Any]) -> Market:
         """Parse market data from API response"""
         # Parse outcomes - can be JSON string or list
@@ -626,19 +612,19 @@ class Polymarket(Exchange):
         # Try to extract token IDs from various possible fields
         # Gamma API sometimes includes these in the response
         metadata = dict(data)
-        if 'tokens' in data and data['tokens']:
-            metadata['clobTokenIds'] = data['tokens']
-        elif 'clobTokenIds' not in metadata and 'tokenID' in data:
+        if "tokens" in data and data["tokens"]:
+            metadata["clobTokenIds"] = data["tokens"]
+        elif "clobTokenIds" not in metadata and "tokenID" in data:
             # Single token ID - might be a simplified response
-            metadata['clobTokenIds'] = [data['tokenID']]
+            metadata["clobTokenIds"] = [data["tokenID"]]
 
         # Ensure clobTokenIds is always a list, not a JSON string
-        if 'clobTokenIds' in metadata and isinstance(metadata['clobTokenIds'], str):
+        if "clobTokenIds" in metadata and isinstance(metadata["clobTokenIds"], str):
             try:
-                metadata['clobTokenIds'] = json.loads(metadata['clobTokenIds'])
+                metadata["clobTokenIds"] = json.loads(metadata["clobTokenIds"])
             except (json.JSONDecodeError, TypeError):
                 # If parsing fails, remove it - will be fetched separately
-                del metadata['clobTokenIds']
+                del metadata["clobTokenIds"]
 
         return Market(
             id=data.get("id", ""),
@@ -648,44 +634,41 @@ class Polymarket(Exchange):
             volume=volume,
             liquidity=liquidity,
             prices=prices,
-            metadata=metadata
+            metadata=metadata,
         )
 
     def fetch_token_ids(self, condition_id: str) -> list[str]:
         """
         Fetch token IDs for a specific market from CLOB API
-        
+
         The Gamma API doesn't include token IDs, so we need to fetch them
         from the CLOB API when we need to trade.
-        
+
         Based on actual CLOB API response structure.
-        
+
         Args:
             condition_id: The market/condition ID
-            
+
         Returns:
             List of token IDs as strings
-            
+
         Raises:
             ExchangeError: If token IDs cannot be fetched
         """
         try:
             import requests
-            
+
             # Try simplified-markets endpoint
             # Response structure: {"data": [{"condition_id": ..., "tokens": [{"token_id": ..., "outcome": ...}]}]}
             try:
-                response = requests.get(
-                    f"{self.CLOB_URL}/simplified-markets",
-                    timeout=self.timeout
-                )
-                
+                response = requests.get(f"{self.CLOB_URL}/simplified-markets", timeout=self.timeout)
+
                 if response.status_code == 200:
                     result = response.json()
-                    
+
                     # Check if response has "data" key
                     markets_list = result.get("data", result if isinstance(result, list) else [])
-                    
+
                     # Find the market with matching condition_id
                     for market in markets_list:
                         market_id = market.get("condition_id") or market.get("id")
@@ -702,15 +685,21 @@ class Polymarket(Exchange):
                                     elif isinstance(token, str):
                                         # In case it's already a string
                                         token_ids.append(token)
-                                
+
                                 if token_ids:
                                     if self.verbose:
-                                        print(f"✓ Found {len(token_ids)} token IDs via simplified-markets")
+                                        print(
+                                            f"✓ Found {len(token_ids)} token IDs via simplified-markets"
+                                        )
                                         for i, tid in enumerate(token_ids):
-                                            outcome = tokens[i].get("outcome", f"outcome_{i}") if isinstance(tokens[i], dict) else f"outcome_{i}"
+                                            outcome = (
+                                                tokens[i].get("outcome", f"outcome_{i}")
+                                                if isinstance(tokens[i], dict)
+                                                else f"outcome_{i}"
+                                            )
                                             print(f"  [{i}] {outcome}: {tid}")
                                     return token_ids
-                            
+
                             # Fallback: check for clobTokenIds
                             clob_tokens = market.get("clobTokenIds")
                             if clob_tokens and isinstance(clob_tokens, list):
@@ -721,19 +710,18 @@ class Polymarket(Exchange):
             except Exception as e:
                 if self.verbose:
                     print(f"simplified-markets failed: {e}")
-            
+
             # Try sampling-simplified-markets endpoint
             try:
                 response = requests.get(
-                    f"{self.CLOB_URL}/sampling-simplified-markets",
-                    timeout=self.timeout
+                    f"{self.CLOB_URL}/sampling-simplified-markets", timeout=self.timeout
                 )
-                
+
                 if response.status_code == 200:
                     markets_list = response.json()
                     if not isinstance(markets_list, list):
                         markets_list = markets_list.get("data", [])
-                    
+
                     for market in markets_list:
                         market_id = market.get("condition_id") or market.get("id")
                         if market_id == condition_id:
@@ -746,27 +734,26 @@ class Polymarket(Exchange):
                                         token_ids.append(str(token["token_id"]))
                                     elif isinstance(token, str):
                                         token_ids.append(token)
-                                
+
                                 if token_ids:
                                     if self.verbose:
-                                        print(f"✓ Found token IDs via sampling-simplified-markets: {len(token_ids)} tokens")
+                                        print(
+                                            f"✓ Found token IDs via sampling-simplified-markets: {len(token_ids)} tokens"
+                                        )
                                     return token_ids
             except Exception as e:
                 if self.verbose:
                     print(f"sampling-simplified-markets failed: {e}")
-            
+
             # Try markets endpoint
             try:
-                response = requests.get(
-                    f"{self.CLOB_URL}/markets",
-                    timeout=self.timeout
-                )
-                
+                response = requests.get(f"{self.CLOB_URL}/markets", timeout=self.timeout)
+
                 if response.status_code == 200:
                     markets_list = response.json()
                     if not isinstance(markets_list, list):
                         markets_list = markets_list.get("data", [])
-                    
+
                     for market in markets_list:
                         market_id = market.get("condition_id") or market.get("id")
                         if market_id == condition_id:
@@ -779,17 +766,21 @@ class Polymarket(Exchange):
                                         token_ids.append(str(token["token_id"]))
                                     elif isinstance(token, str):
                                         token_ids.append(token)
-                                
+
                                 if token_ids:
                                     if self.verbose:
-                                        print(f"✓ Found token IDs via markets endpoint: {len(token_ids)} tokens")
+                                        print(
+                                            f"✓ Found token IDs via markets endpoint: {len(token_ids)} tokens"
+                                        )
                                     return token_ids
             except Exception as e:
                 if self.verbose:
                     print(f"markets endpoint failed: {e}")
-            
-            raise ExchangeError(f"Could not fetch token IDs for market {condition_id} from any CLOB endpoint")
-            
+
+            raise ExchangeError(
+                f"Could not fetch token IDs for market {condition_id} from any CLOB endpoint"
+            )
+
         except requests.RequestException as e:
             raise ExchangeError(f"Network error fetching token IDs: {e}")
 
@@ -800,16 +791,16 @@ class Polymarket(Exchange):
         side: OrderSide,
         price: float,
         size: float,
-        params: Optional[Dict[str, Any]] = None
+        params: Optional[Dict[str, Any]] = None,
     ) -> Order:
         """Create order on Polymarket CLOB"""
         if not self._clob_client:
             raise ExchangeError("CLOB client not initialized. Private key required.")
-        
-        token_id = params.get('token_id') if params else None
+
+        token_id = params.get("token_id") if params else None
         if not token_id:
             raise ExchangeError("token_id required in params")
-        
+
         try:
             # Create and sign order
             order_args = OrderArgs(
@@ -818,20 +809,20 @@ class Polymarket(Exchange):
                 size=float(size),
                 side=side.value.upper(),
             )
-            
+
             signed_order = self._clob_client.create_order(order_args)
             result = self._clob_client.post_order(signed_order, OrderType.GTC)
-            
+
             # Parse result
             order_id = result.get("orderID", "") if isinstance(result, dict) else str(result)
             status_str = result.get("status", "LIVE") if isinstance(result, dict) else "LIVE"
-            
+
             status_map = {
                 "LIVE": OrderStatus.OPEN,
                 "MATCHED": OrderStatus.FILLED,
                 "CANCELLED": OrderStatus.CANCELLED,
             }
-            
+
             return Order(
                 id=order_id,
                 market_id=market_id,
@@ -842,9 +833,9 @@ class Polymarket(Exchange):
                 filled=0,
                 status=status_map.get(status_str, OrderStatus.OPEN),
                 created_at=datetime.now(),
-                updated_at=datetime.now()
+                updated_at=datetime.now(),
             )
-            
+
         except Exception as e:
             raise ExchangeError(f"Order placement failed: {str(e)}")
 
@@ -867,7 +858,7 @@ class Polymarket(Exchange):
                 filled=0,
                 status=OrderStatus.CANCELLED,
                 created_at=datetime.now(),
-                updated_at=datetime.now()
+                updated_at=datetime.now(),
             )
         except Exception as e:
             raise ExchangeError(f"Failed to cancel order {order_id}: {str(e)}")
@@ -878,9 +869,7 @@ class Polymarket(Exchange):
         return self._parse_order(data)
 
     def fetch_open_orders(
-        self,
-        market_id: Optional[str] = None,
-        params: Optional[Dict[str, Any]] = None
+        self, market_id: Optional[str] = None, params: Optional[Dict[str, Any]] = None
     ) -> list[Order]:
         """
         Fetch open orders using CLOB client
@@ -899,8 +888,8 @@ class Polymarket(Exchange):
             # Response is a list directly
             if isinstance(response, list):
                 orders = response
-            elif isinstance(response, dict) and 'data' in response:
-                orders = response['data']
+            elif isinstance(response, dict) and "data" in response:
+                orders = response["data"]
             else:
                 if self.verbose:
                     print(f"Debug: Unexpected response format: {type(response)}")
@@ -912,11 +901,12 @@ class Polymarket(Exchange):
             # Filter by market_id if provided
             # Note: CLOB orders use hex conditionId (0x...) in the 'market' field
             if market_id:
-                orders = [o for o in orders if o.get('market') == market_id]
+                orders = [o for o in orders if o.get("market") == market_id]
 
             # Debug: Print first order's fields to identify size field
             if orders and self.verbose:
                 import logging
+
                 logger = logging.getLogger(__name__)
                 logger.debug(f"Sample order fields: {list(orders[0].keys())}")
                 logger.debug(f"Sample order data: {orders[0]}")
@@ -926,15 +916,14 @@ class Polymarket(Exchange):
         except Exception as e:
             # Use print instead of logger since Exchange base class may not have logger
             import traceback
+
             if self.verbose:
                 print(f"Warning: Failed to fetch open orders: {e}")
                 traceback.print_exc()
             return []
 
     def fetch_positions(
-        self,
-        market_id: Optional[str] = None,
-        params: Optional[Dict[str, Any]] = None
+        self, market_id: Optional[str] = None, params: Optional[Dict[str, Any]] = None
     ) -> list[Position]:
         """
         Fetch current positions from Polymarket.
@@ -973,7 +962,7 @@ class Polymarket(Exchange):
 
         try:
             positions = []
-            token_ids_raw = market.metadata.get('clobTokenIds', [])
+            token_ids_raw = market.metadata.get("clobTokenIds", [])
 
             # Parse token IDs if they're stored as JSON string
             if isinstance(token_ids_raw, str):
@@ -988,19 +977,22 @@ class Polymarket(Exchange):
             for i, token_id in enumerate(token_ids):
                 try:
                     params_obj = BalanceAllowanceParams(
-                        asset_type=AssetType.CONDITIONAL,
-                        token_id=token_id
+                        asset_type=AssetType.CONDITIONAL, token_id=token_id
                     )
                     balance_data = self._clob_client.get_balance_allowance(params=params_obj)
 
-                    if isinstance(balance_data, dict) and 'balance' in balance_data:
-                        balance_raw = balance_data['balance']
+                    if isinstance(balance_data, dict) and "balance" in balance_data:
+                        balance_raw = balance_data["balance"]
                         # Convert from wei (6 decimals)
                         size = float(balance_raw) / 1e6 if balance_raw else 0.0
 
                         if size > 0:
                             # Determine outcome from market.outcomes
-                            outcome = market.outcomes[i] if i < len(market.outcomes) else ('Yes' if i == 0 else 'No')
+                            outcome = (
+                                market.outcomes[i]
+                                if i < len(market.outcomes)
+                                else ("Yes" if i == 0 else "No")
+                            )
 
                             # Get current price from market.prices
                             current_price = market.prices.get(outcome, 0.0)
@@ -1010,7 +1002,7 @@ class Polymarket(Exchange):
                                 outcome=outcome,
                                 size=size,
                                 average_price=0.0,  # Not available from balance query
-                                current_price=current_price
+                                current_price=current_price,
                             )
                             positions.append(position)
                 except Exception as e:
@@ -1030,7 +1022,7 @@ class Polymarket(Exchange):
         limit: int = 100,
         is_active: bool = True,
         is_expired: bool = False,
-        params: Optional[Dict[str, Any]] = None
+        params: Optional[Dict[str, Any]] = None,
     ) -> Optional[tuple[Market, Any]]:
         """
         Find crypto hourly markets on Polymarket using tag-based filtering.
@@ -1050,13 +1042,14 @@ class Polymarket(Exchange):
             Tuple of (Market, CryptoHourlyMarket) or None
         """
         from datetime import datetime, timedelta
+
         from ..models import CryptoHourlyMarket
         from ..utils import setup_logger
 
         logger = setup_logger(__name__)
 
         # Use tag-based filtering for efficiency
-        tag_id = (params or {}).get('tag_id', self.TAG_1H)
+        tag_id = (params or {}).get("tag_id", self.TAG_1H)
 
         if self.verbose:
             logger.info(f"Searching for crypto hourly markets with tag: {tag_id}")
@@ -1114,18 +1107,17 @@ class Polymarket(Exchange):
 
         # Pattern for "Up or Down" markets (e.g., "Bitcoin Up or Down - November 2, 7AM ET")
         up_down_pattern = re.compile(
-            r'(?P<token>Bitcoin|Ethereum|Solana|BTC|ETH|SOL|XRP)\s+Up or Down',
-            re.IGNORECASE
+            r"(?P<token>Bitcoin|Ethereum|Solana|BTC|ETH|SOL|XRP)\s+Up or Down", re.IGNORECASE
         )
 
         # Pattern for strike price markets (e.g., "Will BTC be above $95,000 at 5:00 PM ET?")
         strike_pattern = re.compile(
-            r'(?:(?P<token1>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA)\s+.*?'
-            r'(?P<direction>above|below|over|under|reach)\s+'
-            r'[\$]?(?P<price1>[\d,]+(?:\.\d+)?))|'
-            r'(?:[\$]?(?P<price2>[\d,]+(?:\.\d+)?)\s+.*?'
-            r'(?P<token2>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA))',
-            re.IGNORECASE
+            r"(?:(?P<token1>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA)\s+.*?"
+            r"(?P<direction>above|below|over|under|reach)\s+"
+            r"[\$]?(?P<price1>[\d,]+(?:\.\d+)?))|"
+            r"(?:[\$]?(?P<price2>[\d,]+(?:\.\d+)?)\s+.*?"
+            r"(?P<token2>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA))",
+            re.IGNORECASE,
         )
 
         for market in all_markets:
@@ -1142,6 +1134,7 @@ class Polymarket(Exchange):
                 # Handle timezone-aware datetime
                 if market.close_time.tzinfo is not None:
                     from datetime import timezone
+
                     now = datetime.now(timezone.utc)
                 else:
                     now = datetime.now()
@@ -1168,19 +1161,21 @@ class Polymarket(Exchange):
             # Try "Up or Down" pattern first
             up_down_match = up_down_pattern.search(market.question)
             if up_down_match:
-                parsed_token = self.normalize_token(up_down_match.group('token'))
+                parsed_token = self.normalize_token(up_down_match.group("token"))
 
                 # Apply token filter
                 if token_symbol and parsed_token != self.normalize_token(token_symbol):
                     continue
 
-                expiry = market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
+                expiry = (
+                    market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
+                )
 
                 crypto_market = CryptoHourlyMarket(
                     token_symbol=parsed_token,
                     expiry_time=expiry,
                     strike_price=None,
-                    market_type="up_down"
+                    market_type="up_down",
                 )
 
                 return (market, crypto_market)
@@ -1189,22 +1184,26 @@ class Polymarket(Exchange):
             strike_match = strike_pattern.search(market.question)
             if strike_match:
                 parsed_token = self.normalize_token(
-                    strike_match.group('token1') or strike_match.group('token2') or ''
+                    strike_match.group("token1") or strike_match.group("token2") or ""
                 )
-                parsed_price_str = strike_match.group('price1') or strike_match.group('price2') or '0'
-                parsed_price = float(parsed_price_str.replace(',', ''))
+                parsed_price_str = (
+                    strike_match.group("price1") or strike_match.group("price2") or "0"
+                )
+                parsed_price = float(parsed_price_str.replace(",", ""))
 
                 # Apply filters
                 if token_symbol and parsed_token != self.normalize_token(token_symbol):
                     continue
 
-                expiry = market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
+                expiry = (
+                    market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
+                )
 
                 crypto_market = CryptoHourlyMarket(
                     token_symbol=parsed_token,
                     expiry_time=expiry,
                     strike_price=parsed_price,
-                    market_type="strike_price"
+                    market_type="strike_price",
                 )
 
                 return (market, crypto_market)
@@ -1228,14 +1227,14 @@ class Polymarket(Exchange):
 
             # Extract balance from response
             usdc_balance = 0.0
-            if isinstance(balance_data, dict) and 'balance' in balance_data:
+            if isinstance(balance_data, dict) and "balance" in balance_data:
                 try:
                     # Balance is returned as a string in wei (6 decimals for USDC)
-                    usdc_balance = float(balance_data['balance']) / 1e6
+                    usdc_balance = float(balance_data["balance"]) / 1e6
                 except (ValueError, TypeError):
                     usdc_balance = 0.0
 
-            return {'USDC': usdc_balance}
+            return {"USDC": usdc_balance}
 
         except Exception as e:
             raise ExchangeError(f"Failed to fetch balance: {str(e)}")
@@ -1245,7 +1244,13 @@ class Polymarket(Exchange):
         order_id = data.get("id") or data.get("orderID") or ""
 
         # Try multiple field names for size (CLOB API may use different names)
-        size = float(data.get("size") or data.get("original_size") or data.get("amount") or data.get("original_amount") or 0)
+        size = float(
+            data.get("size")
+            or data.get("original_size")
+            or data.get("amount")
+            or data.get("original_amount")
+            or 0
+        )
         filled = float(data.get("filled") or data.get("matched") or data.get("matched_amount") or 0)
 
         return Order(
@@ -1258,7 +1263,7 @@ class Polymarket(Exchange):
             filled=filled,
             status=self._parse_order_status(data.get("status")),
             created_at=self._parse_datetime(data.get("created_at")),
-            updated_at=self._parse_datetime(data.get("updated_at"))
+            updated_at=self._parse_datetime(data.get("updated_at")),
         )
 
     def _parse_position(self, data: Dict[str, Any]) -> Position:
@@ -1268,7 +1273,7 @@ class Polymarket(Exchange):
             outcome=data.get("outcome", ""),
             size=float(data.get("size", 0)),
             average_price=float(data.get("average_price", 0)),
-            current_price=float(data.get("current_price", 0))
+            current_price=float(data.get("current_price", 0)),
         )
 
     def _parse_order_status(self, status: str) -> OrderStatus:
@@ -1279,7 +1284,7 @@ class Polymarket(Exchange):
             "filled": OrderStatus.FILLED,
             "partially_filled": OrderStatus.PARTIALLY_FILLED,
             "cancelled": OrderStatus.CANCELLED,
-            "rejected": OrderStatus.REJECTED
+            "rejected": OrderStatus.REJECTED,
         }
         return status_map.get(status, OrderStatus.OPEN)
 
@@ -1315,11 +1320,7 @@ class Polymarket(Exchange):
         """
         if self._ws is None:
             self._ws = PolymarketWebSocket(
-                config={
-                    'verbose': self.verbose,
-                    'auto_reconnect': True
-                },
-                exchange=self
+                config={"verbose": self.verbose, "auto_reconnect": True}, exchange=self
             )
         return self._ws
 
@@ -1338,7 +1339,9 @@ class Polymarket(Exchange):
             user_ws.start()
         """
         if not self._clob_client:
-            raise ExchangeError("CLOB client not initialized. Private key required for user WebSocket.")
+            raise ExchangeError(
+                "CLOB client not initialized. Private key required for user WebSocket."
+            )
 
         if self._user_ws is None:
             # Get API credentials from CLOB client
@@ -1356,8 +1359,8 @@ class Polymarket(Exchange):
 
         # -------------------------------------------------------------------------
 
-    #polymarket_fetcher
-    
+    # polymarket_fetcher
+
     def _ensure_market(self, market: Market | str) -> Market:
         if isinstance(market, Market):
             return market
@@ -1392,7 +1395,9 @@ class Polymarket(Exchange):
                 raise ExchangeError(f"Outcome {outcome} not found in market {market.id}") from err
 
         if outcome_index < 0 or outcome_index >= len(token_ids):
-            raise ExchangeError(f"Outcome index {outcome_index} out of range for market {market.id}")
+            raise ExchangeError(
+                f"Outcome index {outcome_index} out of range for market {market.id}"
+            )
 
         return token_ids[outcome_index]
 
@@ -1404,9 +1409,11 @@ class Polymarket(Exchange):
         interval: Literal["1m", "1h", "6h", "1d", "1w", "max"] = "1m",
         fidelity: int = 10,
         as_dataframe: bool = False,
-    ) -> List[PricePoint] | "pandas.DataFrame":
+    ) -> List[PricePoint] | Any:
         if interval not in self.SUPPORTED_INTERVALS:
-            raise ValueError(f"Unsupported interval '{interval}'. Pick from {self.SUPPORTED_INTERVALS}.")
+            raise ValueError(
+                f"Unsupported interval '{interval}'. Pick from {self.SUPPORTED_INTERVALS}."
+            )
 
         market_obj = self._ensure_market(market)
         token_id = self._lookup_token_id(market_obj, outcome)
@@ -1451,29 +1458,23 @@ class Polymarket(Exchange):
         limit: int = 200,
         page_size: int = 200,
         offset: int = 0,
-
         order: str | None = "id",
         ascending: bool | None = False,
-
         closed: bool | None = False,
         tag_id: int | None = None,
-
         ids: Sequence[int] | None = None,
         slugs: Sequence[str] | None = None,
         clob_token_ids: Sequence[str] | None = None,
         condition_ids: Sequence[str] | None = None,
         market_maker_addresses: Sequence[str] | None = None,
-
         liquidity_num_min: float | None = None,
         liquidity_num_max: float | None = None,
         volume_num_min: float | None = None,
         volume_num_max: float | None = None,
-
         start_date_min: datetime | None = None,
         start_date_max: datetime | None = None,
         end_date_min: datetime | None = None,
         end_date_max: datetime | None = None,
-
         related_tags: bool | None = None,
         cyom: bool | None = None,
         uma_resolution_status: str | None = None,
@@ -1483,7 +1484,6 @@ class Polymarket(Exchange):
         question_ids: Sequence[str] | None = None,
         include_tag: bool | None = None,
         extra_params: Dict[str, Any] | None = None,
-
         # Client-side
         query: str | None = None,
         keywords: Sequence[str] | None = None,
@@ -1549,13 +1549,13 @@ class Polymarket(Exchange):
         if volume_num_max is not None:
             gamma_params["volume_num_max"] = volume_num_max
 
-        if (v := _dt(start_date_min)):
+        if v := _dt(start_date_min):
             gamma_params["start_date_min"] = v
-        if (v := _dt(start_date_max)):
+        if v := _dt(start_date_max):
             gamma_params["start_date_max"] = v
-        if (v := _dt(end_date_min)):
+        if v := _dt(end_date_min):
             gamma_params["end_date_min"] = v
-        if (v := _dt(end_date_max)):
+        if v := _dt(end_date_max):
             gamma_params["end_date_max"] = v
 
         if related_tags is not None:
@@ -1587,7 +1587,9 @@ class Polymarket(Exchange):
 
             @self._retry_on_failure
             def _fetch_page() -> List[Market]:
-                resp = requests.get(f"{self.BASE_URL}/markets", params=gamma_params, timeout=self.timeout)
+                resp = requests.get(
+                    f"{self.BASE_URL}/markets", params=gamma_params, timeout=self.timeout
+                )
                 resp.raise_for_status()
                 raw = resp.json()
                 if not isinstance(raw, list):
@@ -1681,8 +1683,8 @@ class Polymarket(Exchange):
 
         current_offset = int(offset)
 
-        DEFAULT_PAGE_SIZE = 200
-        page_size = min(DEFAULT_PAGE_SIZE, total_limit)
+        default_page_size = 200
+        page_size = min(default_page_size, total_limit)
 
         raw_trades: List[Dict[str, Any]] = []
 
@@ -1698,7 +1700,9 @@ class Polymarket(Exchange):
 
             @self._retry_on_failure
             def _fetch_page() -> List[Dict[str, Any]]:
-                resp = requests.get(f"{self.DATA_API_URL}/trades", params=params, timeout=self.timeout)
+                resp = requests.get(
+                    f"{self.DATA_API_URL}/trades", params=params, timeout=self.timeout
+                )
                 resp.raise_for_status()
                 data = resp.json()
                 if not isinstance(data, list):

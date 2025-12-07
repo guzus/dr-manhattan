@@ -8,37 +8,30 @@ class ColoredFormatter(logging.Formatter):
     """Custom formatter with colors and symbols"""
 
     COLORS = {
-        'DEBUG': '\033[36m',      # Cyan
-        'INFO': '\033[32m',       # Green
-        'WARNING': '\033[33m',    # Yellow
-        'ERROR': '\033[31m',      # Red
-        'CRITICAL': '\033[35m',   # Magenta
-        'TIMESTAMP': '\033[90m',  # Bright Black (Gray)
-        'RESET': '\033[0m'        # Reset
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
+        "TIMESTAMP": "\033[90m",  # Bright Black (Gray)
+        "RESET": "\033[0m",  # Reset
     }
 
-    SYMBOLS = {
-        'DEBUG': '🔍',
-        'INFO': '📊',
-        'WARNING': '⚠️ ',
-        'ERROR': '❌',
-        'CRITICAL': '🔥'
-    }
+    SYMBOLS = {"DEBUG": "🔍", "INFO": "📊", "WARNING": "⚠️ ", "ERROR": "❌", "CRITICAL": "🔥"}
 
     def format(self, record):
         # Color the level name
-        levelname = record.levelname
-        color = self.COLORS.get(levelname, '')
-        reset = self.COLORS['RESET']
-        symbol = self.SYMBOLS.get(levelname, '')
-        timestamp_color = self.COLORS['TIMESTAMP']
+        reset = self.COLORS["RESET"]
+        symbol = self.SYMBOLS.get(record.levelname, "")
+        timestamp_color = self.COLORS["TIMESTAMP"]
 
         # Format timestamp
         from datetime import datetime
-        timestamp = datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+
+        timestamp = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
 
         # Format: [TIMESTAMP] [SYMBOL] MESSAGE
-        if record.levelname in ['INFO', 'DEBUG']:
+        if record.levelname in ["INFO", "DEBUG"]:
             # For INFO/DEBUG, no symbol prefix
             return f"{timestamp_color}[{timestamp}]{reset} {record.getMessage()}"
         else:
@@ -49,29 +42,30 @@ class ColoredFormatter(logging.Formatter):
 # Color utility functions for application code
 class Colors:
     """ANSI color codes for terminal output"""
+
     # Basic colors
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
-    DIM = '\033[2m'
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
 
     # Foreground colors
-    BLACK = '\033[30m'
-    RED = '\033[31m'
-    GREEN = '\033[32m'
-    YELLOW = '\033[33m'
-    BLUE = '\033[34m'
-    MAGENTA = '\033[35m'
-    CYAN = '\033[36m'
-    WHITE = '\033[37m'
-    GRAY = '\033[90m'
+    BLACK = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
+    GRAY = "\033[90m"
 
     # Bright foreground colors
-    BRIGHT_RED = '\033[91m'
-    BRIGHT_GREEN = '\033[92m'
-    BRIGHT_YELLOW = '\033[93m'
-    BRIGHT_BLUE = '\033[94m'
-    BRIGHT_MAGENTA = '\033[95m'
-    BRIGHT_CYAN = '\033[96m'
+    BRIGHT_RED = "\033[91m"
+    BRIGHT_GREEN = "\033[92m"
+    BRIGHT_YELLOW = "\033[93m"
+    BRIGHT_BLUE = "\033[94m"
+    BRIGHT_MAGENTA = "\033[95m"
+    BRIGHT_CYAN = "\033[96m"
 
     @staticmethod
     def colorize(text: str, color: str) -> str:
@@ -122,14 +116,14 @@ class Colors:
 def setup_logger(name: str = None, level: int = logging.INFO) -> logging.Logger:
     """
     Create a configured logger with colored output.
-    
+
     Args:
         name: Logger name (default: root logger)
         level: Logging level (default: INFO)
-        
+
     Returns:
         Configured logger instance
-        
+
     Example:
         >>> from dr_manhattan.utils.logger import setup_logger
         >>> logger = setup_logger(__name__)
@@ -137,21 +131,20 @@ def setup_logger(name: str = None, level: int = logging.INFO) -> logging.Logger:
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    
+
     # Remove existing handlers to avoid duplicates
     logger.handlers = []
-    
+
     # Console handler with colored formatter
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(ColoredFormatter())
     logger.addHandler(console_handler)
-    
+
     # Prevent propagation to root logger
     logger.propagate = False
-    
+
     return logger
 
 
 # Default logger instance
-default_logger = setup_logger('dr_manhattan')
-
+default_logger = setup_logger("dr_manhattan")

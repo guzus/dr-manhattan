@@ -1,10 +1,12 @@
 """Tests for Polymarket exchange implementation"""
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+
+from dr_manhattan.base.errors import ExchangeError, MarketNotFound
 from dr_manhattan.exchanges.polymarket import Polymarket
 from dr_manhattan.models.order import OrderSide, OrderStatus
-from dr_manhattan.base.errors import ExchangeError, MarketNotFound
 
 
 def test_polymarket_properties():
@@ -18,7 +20,7 @@ def test_polymarket_properties():
 
 def test_polymarket_initialization():
     """Test Polymarket initialization without private key"""
-    config = {'timeout': 45}
+    config = {"timeout": 45}
     exchange = Polymarket(config)
 
     assert exchange.timeout == 45
@@ -28,18 +30,18 @@ def test_polymarket_initialization():
 def test_polymarket_initialization_with_private_key():
     """Test Polymarket initialization with private key fails gracefully"""
     config = {
-        'private_key': 'test_key',
-        'condition_id': 'test_condition',
-        'yes_token_id': 'yes_token',
-        'no_token_id': 'no_token'
+        "private_key": "test_key",
+        "condition_id": "test_condition",
+        "yes_token_id": "yes_token",
+        "no_token_id": "no_token",
     }
 
     # Should raise error if poly-mm not available
     with pytest.raises(ExchangeError, match="poly-mm package not available"):
-        exchange = Polymarket(config)
+        Polymarket(config)
 
 
-@patch('requests.request')
+@patch("requests.request")
 def test_fetch_markets(mock_request):
     """Test fetching markets"""
     mock_response = Mock()
@@ -51,7 +53,7 @@ def test_fetch_markets(mock_request):
             "end_date": "2025-12-31T23:59:59Z",
             "volume": 10000,
             "liquidity": 5000,
-            "prices": {"Yes": 0.6, "No": 0.4}
+            "prices": {"Yes": 0.6, "No": 0.4},
         }
     ]
     mock_response.raise_for_status = Mock()
@@ -67,7 +69,7 @@ def test_fetch_markets(mock_request):
     assert markets[0].prices == {"Yes": 0.6, "No": 0.4}
 
 
-@patch('requests.request')
+@patch("requests.request")
 def test_fetch_market(mock_request):
     """Test fetching a specific market"""
     mock_response = Mock()
@@ -78,7 +80,7 @@ def test_fetch_market(mock_request):
         "end_date": None,
         "volume": 5000,
         "liquidity": 2500,
-        "prices": {"Yes": 0.5, "No": 0.5}
+        "prices": {"Yes": 0.5, "No": 0.5},
     }
     mock_response.raise_for_status = Mock()
     mock_request.return_value = mock_response
@@ -91,10 +93,11 @@ def test_fetch_market(mock_request):
     assert market.volume == 5000
 
 
-@patch('requests.request')
+@patch("requests.request")
 def test_fetch_market_not_found(mock_request):
     """Test fetching non-existent market"""
     from dr_manhattan.base.errors import ExchangeError
+
     mock_request.side_effect = ExchangeError("Not found")
 
     exchange = Polymarket()
@@ -103,7 +106,7 @@ def test_fetch_market_not_found(mock_request):
         exchange.fetch_market("invalid_market")
 
 
-@patch('requests.request')
+@patch("requests.request")
 def test_create_order_without_client(mock_request):
     """Test creating order without authenticated client"""
     mock_response = Mock()
@@ -117,18 +120,14 @@ def test_create_order_without_client(mock_request):
         "filled": 0,
         "status": "open",
         "created_at": "2025-01-01T00:00:00Z",
-        "updated_at": "2025-01-01T00:00:00Z"
+        "updated_at": "2025-01-01T00:00:00Z",
     }
     mock_response.raise_for_status = Mock()
     mock_request.return_value = mock_response
 
     exchange = Polymarket()
     order = exchange.create_order(
-        market_id="market_123",
-        outcome="Yes",
-        side=OrderSide.BUY,
-        price=0.65,
-        size=100
+        market_id="market_123", outcome="Yes", side=OrderSide.BUY, price=0.65, size=100
     )
 
     assert order.id == "order_123"
@@ -139,7 +138,7 @@ def test_create_order_without_client(mock_request):
     assert order.size == 100
 
 
-@patch('requests.request')
+@patch("requests.request")
 def test_fetch_balance_without_client(mock_request):
     """Test fetching balance without authenticated client"""
     mock_response = Mock()
@@ -154,7 +153,7 @@ def test_fetch_balance_without_client(mock_request):
     assert balance["USDC"] == 1000.50
 
 
-@patch('requests.request')
+@patch("requests.request")
 def test_cancel_order(mock_request):
     """Test canceling an order"""
     mock_response = Mock()
@@ -168,7 +167,7 @@ def test_cancel_order(mock_request):
         "filled": 0,
         "status": "cancelled",
         "created_at": "2025-01-01T00:00:00Z",
-        "updated_at": "2025-01-01T00:00:01Z"
+        "updated_at": "2025-01-01T00:00:01Z",
     }
     mock_response.raise_for_status = Mock()
     mock_request.return_value = mock_response
@@ -180,7 +179,7 @@ def test_cancel_order(mock_request):
     assert order.status == OrderStatus.CANCELLED
 
 
-@patch('requests.request')
+@patch("requests.request")
 def test_fetch_open_orders(mock_request):
     """Test fetching open orders"""
     mock_response = Mock()
@@ -195,7 +194,7 @@ def test_fetch_open_orders(mock_request):
             "filled": 0,
             "status": "open",
             "created_at": "2025-01-01T00:00:00Z",
-            "updated_at": "2025-01-01T00:00:00Z"
+            "updated_at": "2025-01-01T00:00:00Z",
         },
         {
             "id": "order_2",
@@ -207,8 +206,8 @@ def test_fetch_open_orders(mock_request):
             "filled": 0,
             "status": "open",
             "created_at": "2025-01-01T00:00:00Z",
-            "updated_at": "2025-01-01T00:00:00Z"
-        }
+            "updated_at": "2025-01-01T00:00:00Z",
+        },
     ]
     mock_response.raise_for_status = Mock()
     mock_request.return_value = mock_response
@@ -221,7 +220,7 @@ def test_fetch_open_orders(mock_request):
     assert orders[1].id == "order_2"
 
 
-@patch('requests.request')
+@patch("requests.request")
 def test_fetch_positions(mock_request):
     """Test fetching positions"""
     mock_response = Mock()
@@ -231,7 +230,7 @@ def test_fetch_positions(mock_request):
             "outcome": "Yes",
             "size": 100,
             "average_price": 0.60,
-            "current_price": 0.65
+            "current_price": 0.65,
         }
     ]
     mock_response.raise_for_status = Mock()

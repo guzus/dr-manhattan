@@ -1,12 +1,13 @@
+import asyncio
 import json
 import logging
-import asyncio
 import threading
 import time
-from typing import Dict, Any, Optional, Callable, List
 from dataclasses import dataclass
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Any, Callable, Dict, List, Optional
+
 from ..base.websocket import OrderBookWebSocket
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class TradeEvent(Enum):
     """Trade event types from user WebSocket"""
+
     FILL = "fill"
     PARTIAL_FILL = "partial_fill"
 
@@ -21,6 +23,7 @@ class TradeEvent(Enum):
 @dataclass
 class Trade:
     """Represents a trade/fill event"""
+
     id: str
     order_id: str
     market_id: str
@@ -64,8 +67,8 @@ class OrderbookManager:
         if not orderbook:
             return None, None
 
-        bids = orderbook.get('bids', [])
-        asks = orderbook.get('asks', [])
+        bids = orderbook.get("bids", [])
+        asks = orderbook.get("asks", [])
 
         best_bid = bids[0][0] if bids else None
         best_ask = asks[0][0] if asks else None
@@ -77,7 +80,7 @@ class OrderbookManager:
         orderbook = self.get(token_id)
         if not orderbook:
             return False
-        return len(orderbook.get('bids', [])) > 0 and len(orderbook.get('asks', [])) > 0
+        return len(orderbook.get("bids", [])) > 0 and len(orderbook.get("asks", [])) > 0
 
     def has_all_data(self, token_ids: list[str]) -> bool:
         """Check if we have orderbook data for all tokens"""
@@ -138,12 +141,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
         self.subscribed_assets.add(asset_id)
 
         # Send subscription message
-        subscribe_message = {
-            "auth": {},
-            "markets": [],
-            "assets_ids": [asset_id],
-            "type": "market"
-        }
+        subscribe_message = {"auth": {}, "markets": [], "assets_ids": [asset_id], "type": "market"}
 
         await self.ws.send(json.dumps(subscribe_message))
 
@@ -167,7 +165,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
             "auth": {},
             "markets": [],
             "assets_ids": list(self.subscribed_assets),
-            "type": "market"
+            "type": "market",
         }
 
         await self.ws.send(json.dumps(subscribe_message))
@@ -247,7 +245,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
             "bids": bids,
             "asks": asks,
             "timestamp": message.get("timestamp", 0),
-            "hash": message.get("hash", "")
+            "hash": message.get("hash", ""),
         }
 
     def _parse_price_change_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
@@ -311,7 +309,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
             "hash": change.get("hash", ""),
             "side": change.get("side"),
             "price": float(change.get("price", 0)) if change.get("price") else None,
-            "size": float(change.get("size", 0)) if change.get("size") else None
+            "size": float(change.get("size", 0)) if change.get("size") else None,
         }
 
     async def watch_orderbook_by_asset(self, asset_id: str, callback):
@@ -351,6 +349,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
                     # Call user callback if provided
                     if callback:
                         callback(market_id, orderbook)
+
                 return cb
 
             await self.watch_orderbook(asset_id, make_callback(asset_id))
@@ -384,8 +383,8 @@ class PolymarketWebSocket(OrderBookWebSocket):
                 return
 
             # Try both market_id and asset_id as subscription keys
-            market_id = orderbook.get('market_id')
-            asset_id = orderbook.get('asset_id')
+            market_id = orderbook.get("market_id")
+            asset_id = orderbook.get("asset_id")
 
             # Check which key is in subscriptions
             callback = None
@@ -401,6 +400,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
             if callback and callback_key:
                 # Call callback in a non-blocking way
                 import asyncio
+
                 if asyncio.iscoroutinefunction(callback):
                     await callback(callback_key, orderbook)
                 else:
@@ -495,7 +495,7 @@ class PolymarketUserWebSocket:
                     await self._connect()
 
                 async for message in self.ws:
-                    if message in ('PONG', 'PING', ''):
+                    if message in ("PONG", "PING", ""):
                         continue
 
                     try:
@@ -602,6 +602,7 @@ class PolymarketUserWebSocket:
         self._running = False
 
         if self.ws and self._loop:
+
             async def close():
                 if self.ws:
                     await self.ws.close()

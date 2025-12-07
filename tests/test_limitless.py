@@ -1,10 +1,12 @@
 """Tests for Limitless exchange implementation"""
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+
+from dr_manhattan.base.errors import ExchangeError, MarketNotFound
 from dr_manhattan.exchanges.limitless import Limitless
 from dr_manhattan.models.order import OrderSide, OrderStatus
-from dr_manhattan.base.errors import ExchangeError, MarketNotFound
 
 
 def test_limitless_properties():
@@ -18,7 +20,7 @@ def test_limitless_properties():
 
 def test_limitless_initialization():
     """Test Limitless initialization without private key"""
-    config = {'timeout': 45}
+    config = {"timeout": 45}
     exchange = Limitless(config)
 
     assert exchange.timeout == 45
@@ -27,11 +29,11 @@ def test_limitless_initialization():
 
 def test_limitless_initialization_with_private_key():
     """Test Limitless initialization with private key fails gracefully"""
-    config = {'private_key': 'test_key'}
+    config = {"private_key": "test_key"}
 
     # Should raise error if limitless-mm not available
     with pytest.raises(ExchangeError, match="limitless-mm package not available"):
-        exchange = Limitless(config)
+        Limitless(config)
 
 
 def test_request_without_auth():
@@ -42,8 +44,8 @@ def test_request_without_auth():
         exchange._request("GET", "/markets")
 
 
-@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('dr_manhattan.exchanges.limitless.AuthManager')
+@patch("dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE", True)
+@patch("dr_manhattan.exchanges.limitless.AuthManager")
 def test_fetch_markets(mock_auth_manager):
     """Test fetching markets"""
     # Mock auth manager
@@ -59,7 +61,7 @@ def test_fetch_markets(mock_auth_manager):
             "volume": 10000,
             "liquidity": 5000,
             "yesPrice": 0.6,
-            "noPrice": 0.4
+            "noPrice": 0.4,
         }
     ]
     mock_response.raise_for_status = Mock()
@@ -68,7 +70,7 @@ def test_fetch_markets(mock_auth_manager):
     mock_auth.login.return_value = True
     mock_auth_manager.return_value = mock_auth
 
-    exchange = Limitless({'private_key': 'test_key'})
+    exchange = Limitless({"private_key": "test_key"})
     markets = exchange.fetch_markets()
 
     assert len(markets) == 1
@@ -78,8 +80,8 @@ def test_fetch_markets(mock_auth_manager):
     assert markets[0].prices["Yes"] == 0.6
 
 
-@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('dr_manhattan.exchanges.limitless.AuthManager')
+@patch("dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE", True)
+@patch("dr_manhattan.exchanges.limitless.AuthManager")
 def test_fetch_market(mock_auth_manager):
     """Test fetching a specific market"""
     mock_auth = Mock()
@@ -93,7 +95,7 @@ def test_fetch_market(mock_auth_manager):
         "volume": 5000,
         "liquidity": 2500,
         "yesPrice": 0.5,
-        "noPrice": 0.5
+        "noPrice": 0.5,
     }
     mock_response.raise_for_status = Mock()
     mock_session.request.return_value = mock_response
@@ -101,7 +103,7 @@ def test_fetch_market(mock_auth_manager):
     mock_auth.login.return_value = True
     mock_auth_manager.return_value = mock_auth
 
-    exchange = Limitless({'private_key': 'test_key'})
+    exchange = Limitless({"private_key": "test_key"})
     market = exchange.fetch_market("market_123")
 
     assert market.id == "market_123"
@@ -109,8 +111,8 @@ def test_fetch_market(mock_auth_manager):
     assert market.volume == 5000
 
 
-@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('dr_manhattan.exchanges.limitless.AuthManager')
+@patch("dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE", True)
+@patch("dr_manhattan.exchanges.limitless.AuthManager")
 def test_fetch_market_not_found(mock_auth_manager):
     """Test fetching non-existent market"""
     mock_auth = Mock()
@@ -120,14 +122,14 @@ def test_fetch_market_not_found(mock_auth_manager):
     mock_auth.login.return_value = True
     mock_auth_manager.return_value = mock_auth
 
-    exchange = Limitless({'private_key': 'test_key'})
+    exchange = Limitless({"private_key": "test_key"})
 
     with pytest.raises(MarketNotFound):
         exchange.fetch_market("invalid_market")
 
 
-@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('dr_manhattan.exchanges.limitless.AuthManager')
+@patch("dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE", True)
+@patch("dr_manhattan.exchanges.limitless.AuthManager")
 def test_create_order(mock_auth_manager):
     """Test creating an order"""
     mock_auth = Mock()
@@ -143,7 +145,7 @@ def test_create_order(mock_auth_manager):
         "filled": 0,
         "status": "open",
         "createdAt": "2025-01-01T00:00:00Z",
-        "updatedAt": "2025-01-01T00:00:00Z"
+        "updatedAt": "2025-01-01T00:00:00Z",
     }
     mock_response.raise_for_status = Mock()
     mock_session.request.return_value = mock_response
@@ -151,13 +153,9 @@ def test_create_order(mock_auth_manager):
     mock_auth.login.return_value = True
     mock_auth_manager.return_value = mock_auth
 
-    exchange = Limitless({'private_key': 'test_key'})
+    exchange = Limitless({"private_key": "test_key"})
     order = exchange.create_order(
-        market_id="market_123",
-        outcome="Yes",
-        side=OrderSide.BUY,
-        price=0.65,
-        size=100
+        market_id="market_123", outcome="Yes", side=OrderSide.BUY, price=0.65, size=100
     )
 
     assert order.id == "order_123"
@@ -168,8 +166,8 @@ def test_create_order(mock_auth_manager):
     assert order.size == 100
 
 
-@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('dr_manhattan.exchanges.limitless.AuthManager')
+@patch("dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE", True)
+@patch("dr_manhattan.exchanges.limitless.AuthManager")
 def test_fetch_balance(mock_auth_manager):
     """Test fetching account balance"""
     mock_auth = Mock()
@@ -182,15 +180,15 @@ def test_fetch_balance(mock_auth_manager):
     mock_auth.login.return_value = True
     mock_auth_manager.return_value = mock_auth
 
-    exchange = Limitless({'private_key': 'test_key'})
+    exchange = Limitless({"private_key": "test_key"})
     balance = exchange.fetch_balance()
 
     assert "USD" in balance
     assert balance["USD"] == 1000.50
 
 
-@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('dr_manhattan.exchanges.limitless.AuthManager')
+@patch("dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE", True)
+@patch("dr_manhattan.exchanges.limitless.AuthManager")
 def test_cancel_order(mock_auth_manager):
     """Test canceling an order"""
     mock_auth = Mock()
@@ -206,7 +204,7 @@ def test_cancel_order(mock_auth_manager):
         "filled": 0,
         "status": "cancelled",
         "createdAt": "2025-01-01T00:00:00Z",
-        "updatedAt": "2025-01-01T00:00:01Z"
+        "updatedAt": "2025-01-01T00:00:01Z",
     }
     mock_response.raise_for_status = Mock()
     mock_session.request.return_value = mock_response
@@ -214,15 +212,15 @@ def test_cancel_order(mock_auth_manager):
     mock_auth.login.return_value = True
     mock_auth_manager.return_value = mock_auth
 
-    exchange = Limitless({'private_key': 'test_key'})
+    exchange = Limitless({"private_key": "test_key"})
     order = exchange.cancel_order("order_123")
 
     assert order.id == "order_123"
     assert order.status == OrderStatus.CANCELLED
 
 
-@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('dr_manhattan.exchanges.limitless.AuthManager')
+@patch("dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE", True)
+@patch("dr_manhattan.exchanges.limitless.AuthManager")
 def test_fetch_open_orders(mock_auth_manager):
     """Test fetching open orders"""
     mock_auth = Mock()
@@ -239,7 +237,7 @@ def test_fetch_open_orders(mock_auth_manager):
             "filled": 0,
             "status": "open",
             "createdAt": "2025-01-01T00:00:00Z",
-            "updatedAt": "2025-01-01T00:00:00Z"
+            "updatedAt": "2025-01-01T00:00:00Z",
         }
     ]
     mock_response.raise_for_status = Mock()
@@ -248,15 +246,15 @@ def test_fetch_open_orders(mock_auth_manager):
     mock_auth.login.return_value = True
     mock_auth_manager.return_value = mock_auth
 
-    exchange = Limitless({'private_key': 'test_key'})
+    exchange = Limitless({"private_key": "test_key"})
     orders = exchange.fetch_open_orders()
 
     assert len(orders) == 1
     assert orders[0].id == "order_1"
 
 
-@patch('dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE', True)
-@patch('dr_manhattan.exchanges.limitless.AuthManager')
+@patch("dr_manhattan.exchanges.limitless.LIMITLESS_MM_AVAILABLE", True)
+@patch("dr_manhattan.exchanges.limitless.AuthManager")
 def test_fetch_positions(mock_auth_manager):
     """Test fetching positions"""
     mock_auth = Mock()
@@ -268,7 +266,7 @@ def test_fetch_positions(mock_auth_manager):
             "outcome": "Yes",
             "size": 100,
             "averagePrice": 0.60,
-            "currentPrice": 0.65
+            "currentPrice": 0.65,
         }
     ]
     mock_response.raise_for_status = Mock()
@@ -277,7 +275,7 @@ def test_fetch_positions(mock_auth_manager):
     mock_auth.login.return_value = True
     mock_auth_manager.return_value = mock_auth
 
-    exchange = Limitless({'private_key': 'test_key'})
+    exchange = Limitless({"private_key": "test_key"})
     positions = exchange.fetch_positions()
 
     assert len(positions) == 1

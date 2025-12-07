@@ -1,15 +1,15 @@
-from .exchange import Exchange
 from .errors import (
+    AuthenticationError,
     DrManhattanError,
     ExchangeError,
-    NetworkError,
-    RateLimitError,
-    AuthenticationError,
     InsufficientFunds,
     InvalidOrder,
-    MarketNotFound
+    MarketNotFound,
+    NetworkError,
+    RateLimitError,
 )
-from .order_tracker import OrderTracker, OrderEvent, create_fill_logger
+from .exchange import Exchange
+from .order_tracker import OrderEvent, OrderTracker, create_fill_logger
 
 __all__ = [
     "Exchange",

@@ -1,14 +1,15 @@
-from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, Coroutine
-import time
 import random
-import asyncio
+import time
+from abc import ABC, abstractmethod
 from functools import wraps
+from typing import Any, Dict, Optional
+
+from ..base.errors import NetworkError, RateLimitError
+from ..models.crypto_hourly import CryptoHourlyMarket
 from ..models.market import Market
+from ..models.nav import NAV, PositionBreakdown
 from ..models.order import Order, OrderSide
 from ..models.position import Position
-from ..models.nav import NAV, PositionBreakdown
-from ..base.errors import NetworkError, RateLimitError
 
 
 class Exchange(ABC):
@@ -25,27 +26,31 @@ class Exchange(ABC):
             config: Dictionary containing API keys, options, etc.
         """
         self.config = config or {}
-        self.api_key = self.config.get('api_key')
-        self.api_secret = self.config.get('api_secret')
-        self.timeout = self.config.get('timeout', 30)
-        self.verbose = self.config.get('verbose', False)
+        self.api_key = self.config.get("api_key")
+        self.api_secret = self.config.get("api_secret")
+        self.timeout = self.config.get("timeout", 30)
+        self.verbose = self.config.get("verbose", False)
 
         # Rate limiting
-        self.rate_limit = self.config.get('rate_limit', 10)  # requests per second
+        self.rate_limit = self.config.get("rate_limit", 10)  # requests per second
         self.last_request_time = 0
         self.request_times = []  # For sliding window rate limiting
 
         # Retry configuration
-        self.max_retries = self.config.get('max_retries', 3)
-        self.retry_delay = self.config.get('retry_delay', 1.0)  # Base delay in seconds
-        self.retry_backoff = self.config.get('retry_backoff', 2.0)  # Multiplier for exponential backoff
+        self.max_retries = self.config.get("max_retries", 3)
+        self.retry_delay = self.config.get("retry_delay", 1.0)  # Base delay in seconds
+        self.retry_backoff = self.config.get(
+            "retry_backoff", 2.0
+        )  # Multiplier for exponential backoff
 
         # Cached account state (managed internally)
         self._balance_cache = {}
         self._positions_cache = []
         self._balance_last_updated = 0
         self._positions_last_updated = 0
-        self._cache_ttl = self.config.get('cache_ttl', 2.0)  # Cache TTL in seconds (default 2s for Polygon block time)
+        self._cache_ttl = self.config.get(
+            "cache_ttl", 2.0
+        )  # Cache TTL in seconds (default 2s for Polygon block time)
 
         # Mid-price cache: maps token_id/market_id -> yes_price
         # Updated by exchange implementations when orderbook data arrives
@@ -97,7 +102,7 @@ class Exchange(ABC):
         side: OrderSide,
         price: float,
         size: float,
-        params: Optional[Dict[str, Any]] = None
+        params: Optional[Dict[str, Any]] = None,
     ) -> Order:
         """
         Create a new order.
@@ -145,9 +150,7 @@ class Exchange(ABC):
 
     @abstractmethod
     def fetch_open_orders(
-        self,
-        market_id: Optional[str] = None,
-        params: Optional[Dict[str, Any]] = None
+        self, market_id: Optional[str] = None, params: Optional[Dict[str, Any]] = None
     ) -> list[Order]:
         """
         Fetch all open orders.
@@ -163,9 +166,7 @@ class Exchange(ABC):
 
     @abstractmethod
     def fetch_positions(
-        self,
-        market_id: Optional[str] = None,
-        params: Optional[Dict[str, Any]] = None
+        self, market_id: Optional[str] = None, params: Optional[Dict[str, Any]] = None
     ) -> list[Position]:
         """
         Fetch current positions.
@@ -197,7 +198,7 @@ class Exchange(ABC):
             >>> valid_price = exchange.round_to_tick_size(0.1234, tick_size)
         """
         # Check metadata first (exchange-specific)
-        tick_size = market.metadata.get('tick_size') or market.metadata.get('minimum_tick_size')
+        tick_size = market.metadata.get("tick_size") or market.metadata.get("minimum_tick_size")
         if tick_size:
             return float(tick_size)
 
@@ -375,7 +376,7 @@ class Exchange(ABC):
         balance: Dict[str, float],
     ) -> NAV:
         """Internal NAV calculation with explicit parameters."""
-        cash = balance.get('USDC', 0.0) + balance.get('USD', 0.0)
+        cash = balance.get("USDC", 0.0) + balance.get("USD", 0.0)
 
         positions_breakdown = []
         positions_value = 0.0
@@ -394,13 +395,15 @@ class Exchange(ABC):
             value = pos.size * mid_price
             positions_value += value
 
-            positions_breakdown.append(PositionBreakdown(
-                market_id=pos.market_id,
-                outcome=pos.outcome,
-                size=pos.size,
-                mid_price=mid_price,
-                value=value,
-            ))
+            positions_breakdown.append(
+                PositionBreakdown(
+                    market_id=pos.market_id,
+                    outcome=pos.outcome,
+                    size=pos.size,
+                    mid_price=mid_price,
+                    value=value,
+                )
+            )
 
         return NAV(
             nav=cash + positions_value,
@@ -441,8 +444,8 @@ class Exchange(ABC):
         if not orderbook:
             return None
 
-        bids = orderbook.get('bids', [])
-        asks = orderbook.get('asks', [])
+        bids = orderbook.get("bids", [])
+        asks = orderbook.get("asks", [])
 
         if not bids or not asks:
             return None
@@ -451,7 +454,7 @@ class Exchange(ABC):
         if isinstance(bids[0], (list, tuple)):
             best_bid = bids[0][0]
         elif isinstance(bids[0], dict):
-            best_bid = bids[0].get('price', 0)
+            best_bid = bids[0].get("price", 0)
         else:
             best_bid = float(bids[0]) if bids[0] else 0
 
@@ -459,7 +462,7 @@ class Exchange(ABC):
         if isinstance(asks[0], (list, tuple)):
             best_ask = asks[0][0]
         elif isinstance(asks[0], dict):
-            best_ask = asks[0].get('price', 0)
+            best_ask = asks[0].get("price", 0)
         else:
             best_ask = float(asks[0]) if asks[0] else 0
 
@@ -501,12 +504,12 @@ class Exchange(ABC):
         yes_mid = None
 
         # Try token IDs first (Polymarket style)
-        token_ids = market.metadata.get('clobTokenIds', [])
-        tokens = market.metadata.get('tokens', {})
+        token_ids = market.metadata.get("clobTokenIds", [])
+        tokens = market.metadata.get("tokens", {})
 
         yes_token_id = None
         if tokens:
-            yes_token_id = tokens.get('yes') or tokens.get('Yes')
+            yes_token_id = tokens.get("yes") or tokens.get("Yes")
         elif token_ids:
             yes_token_id = token_ids[0]
 
@@ -521,8 +524,8 @@ class Exchange(ABC):
         # Build mid-prices dict
         if yes_mid is not None:
             if market.is_binary:
-                mid_prices['Yes'] = yes_mid
-                mid_prices['No'] = 1.0 - yes_mid
+                mid_prices["Yes"] = yes_mid
+                mid_prices["No"] = 1.0 - yes_mid
             else:
                 # For non-binary, just use as first outcome price
                 if market.outcomes:
@@ -538,10 +541,7 @@ class Exchange(ABC):
         return mid_prices
 
     def find_tradeable_market(
-        self,
-        binary: bool = True,
-        limit: int = 100,
-        min_liquidity: float = 0.0
+        self, binary: bool = True, limit: int = 100, min_liquidity: float = 0.0
     ) -> Optional[Market]:
         """
         Find a suitable market for trading.
@@ -557,7 +557,7 @@ class Exchange(ABC):
         """
         import random
 
-        markets = self.fetch_markets({'limit': limit})
+        markets = self.fetch_markets({"limit": limit})
 
         suitable_markets = []
         for market in markets:
@@ -574,8 +574,8 @@ class Exchange(ABC):
                 continue
 
             # Check has token IDs (exchange-specific, but generally in metadata)
-            if 'clobTokenIds' in market.metadata:
-                token_ids = market.metadata.get('clobTokenIds', [])
+            if "clobTokenIds" in market.metadata:
+                token_ids = market.metadata.get("clobTokenIds", [])
                 if not token_ids or len(token_ids) < 1:
                     continue
 
@@ -594,8 +594,8 @@ class Exchange(ABC):
         limit: int = 100,
         is_active: bool = True,
         is_expired: bool = False,
-        params: Optional[Dict[str, Any]] = None
-    ) -> Optional[tuple['Market', 'CryptoHourlyMarket']]:
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Optional[tuple["Market", "CryptoHourlyMarket"]]:
         """
         Find a crypto hourly price market.
 
@@ -618,9 +618,7 @@ class Exchange(ABC):
         """
         # Default implementation - can be overridden by specific exchanges
         return self._parse_crypto_hourly_from_markets(
-            token_symbol=token_symbol,
-            min_liquidity=min_liquidity,
-            limit=limit
+            token_symbol=token_symbol, min_liquidity=min_liquidity, limit=limit
         )
 
     def _parse_crypto_hourly_from_markets(
@@ -628,26 +626,27 @@ class Exchange(ABC):
         token_symbol: Optional[str] = None,
         direction: Optional[str] = None,
         min_liquidity: float = 0.0,
-        limit: int = 100
-    ) -> Optional[tuple['Market', 'CryptoHourlyMarket']]:
+        limit: int = 100,
+    ) -> Optional[tuple["Market", "CryptoHourlyMarket"]]:
         """
         Generic parser for crypto hourly markets using pattern matching.
         Used as fallback when exchange doesn't have specific tag/category support.
         """
         import re
         from datetime import datetime, timedelta
+
         from ..models import CryptoHourlyMarket
 
-        markets = self.fetch_markets({'limit': limit})
+        markets = self.fetch_markets({"limit": limit})
 
         # Pattern to match crypto price predictions
         pattern = re.compile(
-            r'(?:(?P<token1>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA)\s+.*?'
-            r'(?P<direction>above|below|over|under|reach)\s+'
-            r'[\$]?(?P<price1>[\d,]+(?:\.\d+)?))|'
-            r'(?:[\$]?(?P<price2>[\d,]+(?:\.\d+)?)\s+.*?'
-            r'(?P<token2>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA))',
-            re.IGNORECASE
+            r"(?:(?P<token1>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA)\s+.*?"
+            r"(?P<direction>above|below|over|under|reach)\s+"
+            r"[\$]?(?P<price1>[\d,]+(?:\.\d+)?))|"
+            r"(?:[\$]?(?P<price2>[\d,]+(?:\.\d+)?)\s+.*?"
+            r"(?P<token2>BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA))",
+            re.IGNORECASE,
         )
 
         for market in markets:
@@ -660,8 +659,8 @@ class Exchange(ABC):
                 continue
 
             # Check has token IDs
-            if 'clobTokenIds' in market.metadata:
-                token_ids = market.metadata.get('clobTokenIds', [])
+            if "clobTokenIds" in market.metadata:
+                token_ids = market.metadata.get("clobTokenIds", [])
                 if not token_ids or len(token_ids) < 2:
                     continue
 
@@ -671,27 +670,27 @@ class Exchange(ABC):
                 continue
 
             # Extract matched groups (pattern has two alternatives)
-            parsed_token = (match.group('token1') or match.group('token2') or '').upper()
-            parsed_price_str = match.group('price1') or match.group('price2') or '0'
-            parsed_direction_raw = (match.group('direction') or 'reach').lower()
+            parsed_token = (match.group("token1") or match.group("token2") or "").upper()
+            parsed_price_str = match.group("price1") or match.group("price2") or "0"
+            parsed_direction_raw = (match.group("direction") or "reach").lower()
 
             # Normalize token names
-            if parsed_token in ['BITCOIN']:
-                parsed_token = 'BTC'
-            elif parsed_token in ['ETHEREUM']:
-                parsed_token = 'ETH'
-            elif parsed_token in ['SOLANA']:
-                parsed_token = 'SOL'
+            if parsed_token in ["BITCOIN"]:
+                parsed_token = "BTC"
+            elif parsed_token in ["ETHEREUM"]:
+                parsed_token = "ETH"
+            elif parsed_token in ["SOLANA"]:
+                parsed_token = "SOL"
 
             # Normalize direction: over/above/reach -> up, under/below -> down
-            if parsed_direction_raw in ['above', 'over', 'reach']:
-                parsed_direction = 'up'
-            elif parsed_direction_raw in ['below', 'under']:
-                parsed_direction = 'down'
+            if parsed_direction_raw in ["above", "over", "reach"]:
+                parsed_direction = "up"
+            elif parsed_direction_raw in ["below", "under"]:
+                parsed_direction = "down"
             else:
                 parsed_direction = parsed_direction_raw
 
-            parsed_price = float(parsed_price_str.replace(',', ''))
+            parsed_price = float(parsed_price_str.replace(",", ""))
 
             # Apply filters
             if token_symbol and parsed_token != token_symbol.upper():
@@ -708,7 +707,7 @@ class Exchange(ABC):
                 token_symbol=parsed_token,
                 strike_price=parsed_price,
                 expiry_time=expiry,
-                direction=parsed_direction  # type: ignore
+                direction=parsed_direction,  # type: ignore
             )
 
             return (market, crypto_market)
@@ -723,29 +722,29 @@ class Exchange(ABC):
             Dictionary containing exchange information
         """
         return {
-            'id': self.id,
-            'name': self.name,
-            'has': {
-                'fetch_markets': True,
-                'fetch_market': True,
-                'create_order': True,
-                'cancel_order': True,
-                'fetch_order': True,
-                'fetch_open_orders': True,
-                'fetch_positions': True,
-                'fetch_balance': True,
-                'rate_limit': True,
-                'retry_logic': True,
-            }
+            "id": self.id,
+            "name": self.name,
+            "has": {
+                "fetch_markets": True,
+                "fetch_market": True,
+                "create_order": True,
+                "cancel_order": True,
+                "fetch_order": True,
+                "fetch_open_orders": True,
+                "fetch_positions": True,
+                "fetch_balance": True,
+                "rate_limit": True,
+                "retry_logic": True,
+            },
         }
 
     def _check_rate_limit(self):
         """Check and enforce rate limiting"""
         current_time = time.time()
-        
+
         # Clean old requests (older than 1 second)
         self.request_times = [t for t in self.request_times if current_time - t < 1.0]
-        
+
         # Check if we've exceeded the rate limit
         if len(self.request_times) >= self.rate_limit:
             sleep_time = 1.0 - (current_time - self.request_times[0])
@@ -753,16 +752,17 @@ class Exchange(ABC):
                 if self.verbose:
                     print(f"Rate limit reached, sleeping for {sleep_time:.2f}s")
                 time.sleep(sleep_time)
-        
+
         # Record this request
         self.request_times.append(current_time)
 
     def _retry_on_failure(self, func):
         """Decorator for retry logic with exponential backoff"""
+
         @wraps(func)
         def wrapper(*args, **kwargs):
             last_exception = None
-            
+
             for attempt in range(self.max_retries + 1):
                 try:
                     self._check_rate_limit()
@@ -770,7 +770,9 @@ class Exchange(ABC):
                 except (NetworkError, RateLimitError) as e:
                     last_exception = e
                     if attempt < self.max_retries:
-                        delay = self.retry_delay * (self.retry_backoff ** attempt) + random.uniform(0, 1)
+                        delay = self.retry_delay * (self.retry_backoff**attempt) + random.uniform(
+                            0, 1
+                        )
                         if self.verbose:
                             print(f"Attempt {attempt + 1} failed, retrying in {delay:.2f}s: {e}")
                         time.sleep(delay)
@@ -779,8 +781,9 @@ class Exchange(ABC):
                 except Exception as e:
                     # Don't retry on non-network errors
                     raise e
-            
+
             raise last_exception
+
         return wrapper
 
     def calculate_spread(self, market: Market) -> Optional[float]:
@@ -795,12 +798,12 @@ class Exchange(ABC):
         """Calculate expected value for a given outcome and price"""
         if not market.is_binary:
             return 0.0
-        
+
         # For binary markets, EV = probability * payoff - cost
         probability = self.calculate_implied_probability(price)
         payoff = 1.0 if outcome == market.outcomes[0] else 0.0
         cost = price
-        
+
         return probability * payoff - cost
 
     def get_optimal_order_size(self, market: Market, max_position_size: float) -> float:
@@ -812,14 +815,14 @@ class Exchange(ABC):
     def stream_market_data(self, market_ids: list[str], callback):
         """
         Stream real-time market data for specified markets.
-        
+
         Args:
             market_ids: List of market IDs to stream
             callback: Function to call with market updates
         """
         import threading
         import time
-        
+
         def _stream_worker():
             """Worker thread for streaming market data"""
             while True:
@@ -832,7 +835,7 @@ class Exchange(ABC):
                     if self.verbose:
                         print(f"Streaming error: {e}")
                     time.sleep(5)  # Wait longer on error
-        
+
         stream_thread = threading.Thread(target=_stream_worker, daemon=True)
         stream_thread.start()
         return stream_thread

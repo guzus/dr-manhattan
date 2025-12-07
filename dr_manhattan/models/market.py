@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 
 @dataclass
 class Market:
     """Represents a prediction market"""
+
     id: str
     question: str
     outcomes: list[str]
@@ -24,8 +25,8 @@ class Market:
     def is_open(self) -> bool:
         """Check if market is still open for trading"""
         # Check metadata for explicit closed status (e.g., Polymarket)
-        if 'closed' in self.metadata:
-            return not self.metadata['closed']
+        if "closed" in self.metadata:
+            return not self.metadata["closed"]
 
         # Fallback to close_time check
         if not self.close_time:

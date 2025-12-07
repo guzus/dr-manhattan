@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass
 class Position:
     """Represents a position in a prediction market"""
+
     market_id: str
     outcome: str
     size: float

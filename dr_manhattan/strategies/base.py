@@ -1,11 +1,11 @@
 """Base strategy classes for building trading bots"""
 
-from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
 import time
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
 
-from ..models import Market, Order
 from ..base.exchange import Exchange
+from ..models import Market
 from ..utils import setup_logger
 
 logger = setup_logger(__name__)
@@ -18,10 +18,7 @@ class BaseStrategy(ABC):
     """
 
     def __init__(
-        self,
-        exchange: Exchange,
-        max_exposure: float = 1000.0,
-        check_interval: float = 2.0
+        self, exchange: Exchange, max_exposure: float = 1000.0, check_interval: float = 2.0
     ):
         """
         Initialize strategy
@@ -57,11 +54,7 @@ class BaseStrategy(ABC):
         """Called once when strategy stops. Override to add custom cleanup."""
         pass
 
-    def run(
-        self,
-        market: Optional[Market] = None,
-        duration_minutes: Optional[int] = None
-    ):
+    def run(self, market: Optional[Market] = None, duration_minutes: Optional[int] = None):
         """
         Run the strategy
 
@@ -155,14 +148,14 @@ class MarketMakingStrategy(BaseStrategy):
         balance = self.exchange.get_balance()
 
         # Try to fetch positions with market context first (for Polymarket)
-        if market and hasattr(self.exchange, 'fetch_positions_for_market'):
+        if market and hasattr(self.exchange, "fetch_positions_for_market"):
             positions = self.exchange.fetch_positions_for_market(market)
         else:
             positions = self.exchange.get_positions(
                 market_id=self.target_market.id if self.target_market else None
             )
 
-        logger.info(f"\n📊 Account State:")
+        logger.info("\n📊 Account State:")
         logger.info(f"  USDC Balance: ${balance.get('USDC', 0.0):,.2f}")
 
         if positions:
@@ -170,18 +163,12 @@ class MarketMakingStrategy(BaseStrategy):
             for pos in positions:
                 logger.info(f"    {pos.outcome}: {pos.size} shares @ avg ${pos.average_price:.4f}")
         else:
-            logger.info(f"  Positions: None")
+            logger.info("  Positions: None")
 
-        return {
-            'balance': balance,
-            'positions': positions
-        }
+        return {"balance": balance, "positions": positions}
 
     def calculate_order_size(
-        self,
-        market: Market,
-        price: float,
-        max_exposure: Optional[float] = None
+        self, market: Market, price: float, max_exposure: Optional[float] = None
     ) -> float:
         """
         Calculate appropriate order size based on liquidity and exposure limits

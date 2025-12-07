@@ -1,6 +1,5 @@
 """Integration tests for dr-manhattan"""
 
-import pytest
 import dr_manhattan
 from dr_manhattan.base.exchange import Exchange
 
@@ -10,18 +9,18 @@ class TestExchangeRegistry:
 
     def test_exchanges_dict_exists(self):
         """Test that exchanges dict exists"""
-        assert hasattr(dr_manhattan, 'exchanges')
+        assert hasattr(dr_manhattan, "exchanges")
         assert isinstance(dr_manhattan.exchanges, dict)
 
     def test_polymarket_registered(self):
         """Test Polymarket is registered"""
-        assert 'polymarket' in dr_manhattan.exchanges
-        assert dr_manhattan.exchanges['polymarket'] == dr_manhattan.Polymarket
+        assert "polymarket" in dr_manhattan.exchanges
+        assert dr_manhattan.exchanges["polymarket"] == dr_manhattan.Polymarket
 
     def test_limitless_registered(self):
         """Test Limitless is registered"""
-        assert 'limitless' in dr_manhattan.exchanges
-        assert dr_manhattan.exchanges['limitless'] == dr_manhattan.Limitless
+        assert "limitless" in dr_manhattan.exchanges
+        assert dr_manhattan.exchanges["limitless"] == dr_manhattan.Limitless
 
     def test_exchange_instantiation(self):
         """Test creating exchanges from registry"""
@@ -37,14 +36,14 @@ class TestUnifiedAPI:
     def test_all_exchanges_have_required_methods(self):
         """Test all exchanges implement required methods"""
         required_methods = [
-            'fetch_markets',
-            'fetch_market',
-            'create_order',
-            'cancel_order',
-            'fetch_order',
-            'fetch_open_orders',
-            'fetch_positions',
-            'fetch_balance'
+            "fetch_markets",
+            "fetch_market",
+            "create_order",
+            "cancel_order",
+            "fetch_order",
+            "fetch_open_orders",
+            "fetch_positions",
+            "fetch_balance",
         ]
 
         for exchange_class in dr_manhattan.exchanges.values():
@@ -57,8 +56,8 @@ class TestUnifiedAPI:
         """Test all exchanges have required properties"""
         for exchange_class in dr_manhattan.exchanges.values():
             exchange = exchange_class()
-            assert hasattr(exchange, 'id')
-            assert hasattr(exchange, 'name')
+            assert hasattr(exchange, "id")
+            assert hasattr(exchange, "name")
             assert isinstance(exchange.id, str)
             assert isinstance(exchange.name, str)
 
@@ -68,10 +67,10 @@ class TestUnifiedAPI:
             exchange = exchange_class()
             desc = exchange.describe()
 
-            assert 'id' in desc
-            assert 'name' in desc
-            assert 'has' in desc
-            assert isinstance(desc['has'], dict)
+            assert "id" in desc
+            assert "name" in desc
+            assert "has" in desc
+            assert isinstance(desc["has"], dict)
 
 
 class TestModelsExport:
@@ -79,19 +78,20 @@ class TestModelsExport:
 
     def test_market_model_exported(self):
         """Test Market model is exported"""
-        assert hasattr(dr_manhattan, 'Market')
+        assert hasattr(dr_manhattan, "Market")
         from dr_manhattan.models.market import Market
+
         assert dr_manhattan.Market == Market
 
     def test_order_model_exported(self):
         """Test Order model is exported"""
-        assert hasattr(dr_manhattan, 'Order')
-        assert hasattr(dr_manhattan, 'OrderSide')
-        assert hasattr(dr_manhattan, 'OrderStatus')
+        assert hasattr(dr_manhattan, "Order")
+        assert hasattr(dr_manhattan, "OrderSide")
+        assert hasattr(dr_manhattan, "OrderStatus")
 
     def test_position_model_exported(self):
         """Test Position model is exported"""
-        assert hasattr(dr_manhattan, 'Position')
+        assert hasattr(dr_manhattan, "Position")
 
 
 class TestErrorsExport:
@@ -99,18 +99,18 @@ class TestErrorsExport:
 
     def test_base_error_exported(self):
         """Test DrManhattanError is exported"""
-        assert hasattr(dr_manhattan, 'DrManhattanError')
+        assert hasattr(dr_manhattan, "DrManhattanError")
 
     def test_all_errors_exported(self):
         """Test all error types are exported"""
         errors = [
-            'ExchangeError',
-            'NetworkError',
-            'RateLimitError',
-            'AuthenticationError',
-            'InsufficientFunds',
-            'InvalidOrder',
-            'MarketNotFound'
+            "ExchangeError",
+            "NetworkError",
+            "RateLimitError",
+            "AuthenticationError",
+            "InsufficientFunds",
+            "InvalidOrder",
+            "MarketNotFound",
         ]
 
         for error_name in errors:
@@ -122,13 +122,13 @@ class TestPackageVersion:
 
     def test_version_exists(self):
         """Test __version__ exists"""
-        assert hasattr(dr_manhattan, '__version__')
+        assert hasattr(dr_manhattan, "__version__")
         assert isinstance(dr_manhattan.__version__, str)
 
     def test_version_format(self):
         """Test version follows semantic versioning"""
         version = dr_manhattan.__version__
-        parts = version.split('.')
+        parts = version.split(".")
         assert len(parts) == 3
         assert all(part.isdigit() for part in parts)
 
@@ -152,7 +152,7 @@ class TestExchangeInstantiation:
 
     def test_exchange_with_config(self):
         """Test creating exchange with config"""
-        config = {'timeout': 60, 'verbose': True}
+        config = {"timeout": 60, "verbose": True}
 
         poly = dr_manhattan.Polymarket(config)
         assert poly.timeout == 60
@@ -168,7 +168,7 @@ class TestExchangeFactory:
 
     def test_create_exchange_from_registry(self):
         """Test creating exchange using registry"""
-        exchange = dr_manhattan.exchanges['polymarket']()
+        exchange = dr_manhattan.exchanges["polymarket"]()
         assert isinstance(exchange, dr_manhattan.Polymarket)
         assert exchange.id == "polymarket"
 

@@ -1,10 +1,8 @@
 """Tests for base Exchange class"""
 
-import pytest
 from dr_manhattan.base.exchange import Exchange
 from dr_manhattan.models.market import Market
 from dr_manhattan.models.order import Order, OrderSide
-from dr_manhattan.models.position import Position
 
 
 class MockExchange(Exchange):
@@ -30,7 +28,7 @@ class MockExchange(Exchange):
             volume=0,
             liquidity=0,
             prices={"Yes": 0.5, "No": 0.5},
-            metadata={}
+            metadata={},
         )
 
     def create_order(self, market_id, outcome, side, price, size, params=None):
@@ -44,7 +42,7 @@ class MockExchange(Exchange):
             filled=0,
             status=None,
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
 
     def cancel_order(self, order_id, market_id=None):
@@ -58,7 +56,7 @@ class MockExchange(Exchange):
             filled=0,
             status=None,
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
 
     def fetch_order(self, order_id, market_id=None):
@@ -72,7 +70,7 @@ class MockExchange(Exchange):
             filled=0,
             status=None,
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
 
     def fetch_open_orders(self, market_id=None, params=None):
@@ -87,16 +85,11 @@ class MockExchange(Exchange):
 
 def test_exchange_initialization():
     """Test exchange initialization with config"""
-    config = {
-        'api_key': 'test_key',
-        'api_secret': 'test_secret',
-        'timeout': 60,
-        'verbose': True
-    }
+    config = {"api_key": "test_key", "api_secret": "test_secret", "timeout": 60, "verbose": True}
     exchange = MockExchange(config)
 
-    assert exchange.api_key == 'test_key'
-    assert exchange.api_secret == 'test_secret'
+    assert exchange.api_key == "test_key"
+    assert exchange.api_secret == "test_secret"
     assert exchange.timeout == 60
     assert exchange.verbose is True
 
@@ -124,12 +117,12 @@ def test_exchange_describe():
     exchange = MockExchange()
     desc = exchange.describe()
 
-    assert desc['id'] == "mock"
-    assert desc['name'] == "Mock Exchange"
-    assert 'has' in desc
-    assert desc['has']['fetch_markets'] is True
-    assert desc['has']['create_order'] is True
-    assert desc['has']['fetch_balance'] is True
+    assert desc["id"] == "mock"
+    assert desc["name"] == "Mock Exchange"
+    assert "has" in desc
+    assert desc["has"]["fetch_markets"] is True
+    assert desc["has"]["create_order"] is True
+    assert desc["has"]["fetch_balance"] is True
 
 
 def test_fetch_market():
@@ -146,11 +139,7 @@ def test_create_order():
     """Test creating an order"""
     exchange = MockExchange()
     order = exchange.create_order(
-        market_id="test_market",
-        outcome="Yes",
-        side=OrderSide.BUY,
-        price=0.65,
-        size=100
+        market_id="test_market", outcome="Yes", side=OrderSide.BUY, price=0.65, size=100
     )
 
     assert order.id == "test_order"

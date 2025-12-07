@@ -1,15 +1,16 @@
 """Tests for error handling"""
 
 import pytest
+
 from dr_manhattan.base.errors import (
+    AuthenticationError,
     DrManhattanError,
     ExchangeError,
-    NetworkError,
-    RateLimitError,
-    AuthenticationError,
     InsufficientFunds,
     InvalidOrder,
-    MarketNotFound
+    MarketNotFound,
+    NetworkError,
+    RateLimitError,
 )
 
 
@@ -135,7 +136,7 @@ class TestErrorMessages:
         network_err = NetworkError("Network issue")
         auth_err = AuthenticationError("Auth issue")
 
-        assert type(network_err) != type(auth_err)
+        assert type(network_err) is not type(auth_err)
         assert isinstance(network_err, DrManhattanError)
         assert isinstance(auth_err, DrManhattanError)
 
@@ -145,6 +146,7 @@ class TestErrorContext:
 
     def test_api_request_error(self):
         """Test handling API request errors"""
+
         def make_request():
             raise NetworkError("Connection timeout after 30s")
 
@@ -155,6 +157,7 @@ class TestErrorContext:
 
     def test_authentication_failure(self):
         """Test authentication failure"""
+
         def authenticate(api_key):
             if not api_key:
                 raise AuthenticationError("API key required")
@@ -172,11 +175,10 @@ class TestErrorContext:
 
     def test_insufficient_balance_error(self):
         """Test insufficient balance error"""
+
         def place_order(balance, order_cost):
             if balance < order_cost:
-                raise InsufficientFunds(
-                    f"Insufficient balance: {balance} < {order_cost}"
-                )
+                raise InsufficientFunds(f"Insufficient balance: {balance} < {order_cost}")
             return True
 
         with pytest.raises(InsufficientFunds) as exc_info:
@@ -187,6 +189,7 @@ class TestErrorContext:
 
     def test_invalid_order_parameters(self):
         """Test invalid order parameters"""
+
         def validate_order(price, size):
             if price <= 0 or price > 1:
                 raise InvalidOrder("Price must be between 0 and 1")
@@ -204,6 +207,7 @@ class TestErrorContext:
 
     def test_market_not_found_with_id(self):
         """Test market not found with market ID"""
+
         def get_market(market_id, available_markets):
             if market_id not in available_markets:
                 raise MarketNotFound(f"Market {market_id} not found")

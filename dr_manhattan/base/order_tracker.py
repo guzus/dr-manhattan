@@ -6,10 +6,10 @@ Uses WebSocket trade events for real-time fill detection.
 """
 
 import threading
-from typing import Dict, List, Callable
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Callable, Dict, List
 
 from ..models.order import Order, OrderStatus
 from ..utils import setup_logger
@@ -19,6 +19,7 @@ logger = setup_logger(__name__)
 
 class OrderEvent(Enum):
     """Order lifecycle events"""
+
     CREATED = "created"
     PARTIAL_FILL = "partial_fill"
     FILLED = "filled"
@@ -30,6 +31,7 @@ class OrderEvent(Enum):
 @dataclass
 class TrackedOrder:
     """Tracks the state of an order"""
+
     order: Order
     total_filled: float = 0.0
     created_time: datetime = field(default_factory=datetime.now)
@@ -137,7 +139,11 @@ class OrderTracker:
                 price=trade.price,
                 size=tracked.order.size,
                 filled=tracked.total_filled,
-                status=OrderStatus.FILLED if tracked.total_filled >= tracked.order.size else OrderStatus.PARTIALLY_FILLED,
+                status=(
+                    OrderStatus.FILLED
+                    if tracked.total_filled >= tracked.order.size
+                    else OrderStatus.PARTIALLY_FILLED
+                ),
                 created_at=tracked.order.created_at,
                 updated_at=datetime.now(),
             )
@@ -194,7 +200,9 @@ def create_fill_logger():
     from ..utils.logger import Colors
 
     def log_fill(event: OrderEvent, order: Order, fill_size: float):
-        side_str = order.side.value.upper() if hasattr(order.side, 'value') else str(order.side).upper()
+        side_str = (
+            order.side.value.upper() if hasattr(order.side, "value") else str(order.side).upper()
+        )
 
         if event == OrderEvent.FILLED:
             logger.info(

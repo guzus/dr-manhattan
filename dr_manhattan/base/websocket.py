@@ -1,10 +1,10 @@
-from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, Callable
 import asyncio
 import json
-import time
-from enum import Enum
 import logging
+import time
+from abc import ABC, abstractmethod
+from enum import Enum
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -25,22 +25,24 @@ class OrderBookWebSocket(ABC):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
-        self.verbose = self.config.get('verbose', False)
+        self.verbose = self.config.get("verbose", False)
 
         # WebSocket connection
         self.ws = None
         self.state = WebSocketState.DISCONNECTED
 
         # Reconnection settings
-        self.auto_reconnect = self.config.get('auto_reconnect', True)
-        self.max_reconnect_attempts = self.config.get('max_reconnect_attempts', 999)  # Essentially infinite
-        self.reconnect_delay = self.config.get('reconnect_delay', 3.0)
+        self.auto_reconnect = self.config.get("auto_reconnect", True)
+        self.max_reconnect_attempts = self.config.get(
+            "max_reconnect_attempts", 999
+        )  # Essentially infinite
+        self.reconnect_delay = self.config.get("reconnect_delay", 3.0)
         self.reconnect_attempts = 0
 
         # Connection timeout settings
-        self.ping_interval = self.config.get('ping_interval', 20.0)  # Send ping every 20s
-        self.ping_timeout = self.config.get('ping_timeout', 10.0)   # Wait 10s for pong
-        self.close_timeout = self.config.get('close_timeout', 10.0)
+        self.ping_interval = self.config.get("ping_interval", 20.0)  # Send ping every 20s
+        self.ping_timeout = self.config.get("ping_timeout", 10.0)  # Wait 10s for pong
+        self.close_timeout = self.config.get("close_timeout", 10.0)
 
         # Subscriptions
         self.subscriptions: Dict[str, Callable] = {}
@@ -127,7 +129,7 @@ class OrderBookWebSocket(ABC):
                 ping_timeout=self.ping_timeout,
                 close_timeout=self.close_timeout,
                 max_size=10 * 1024 * 1024,  # 10MB max message size
-                compression=None  # Disable compression for lower latency
+                compression=None,  # Disable compression for lower latency
             )
             self.state = WebSocketState.CONNECTED
             self.reconnect_attempts = 0
@@ -180,7 +182,7 @@ class OrderBookWebSocket(ABC):
             self.last_message_time = time.time()
 
             # Skip non-JSON messages (like PONG heartbeats)
-            if message in ('PONG', 'PING', ''):
+            if message in ("PONG", "PING", ""):
                 return
 
             if self.verbose:
@@ -197,9 +199,9 @@ class OrderBookWebSocket(ABC):
             else:
                 await self._process_message_item(data)
 
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             # Only log JSON errors if verbose and not a known non-JSON message
-            if self.verbose and message not in ('PONG', 'PING'):
+            if self.verbose and message not in ("PONG", "PING"):
                 logger.debug(f"Failed to parse message as JSON: {message[:100]}")
         except Exception as e:
             if self.verbose:
@@ -213,7 +215,7 @@ class OrderBookWebSocket(ABC):
             if not orderbook:
                 return
 
-            market_id = orderbook.get('market_id')
+            market_id = orderbook.get("market_id")
             if market_id in self.subscriptions:
                 callback = self.subscriptions[market_id]
 
@@ -302,14 +304,14 @@ class OrderBookWebSocket(ABC):
             if self.ws:
                 try:
                     await self.ws.close()
-                except:
+                except Exception:
                     pass
                 self.ws = None
 
             await self.connect()
 
             if self.verbose:
-                logger.debug(f"✓ Reconnected successfully")
+                logger.debug("✓ Reconnected successfully")
 
         except Exception as e:
             if self.verbose:
