@@ -333,10 +333,6 @@ class SpreadStrategy:
             our_bid = self.exchange.round_to_tick_size(our_bid, self.tick_size)
             our_ask = self.exchange.round_to_tick_size(our_ask, self.tick_size)
 
-            # Ensure valid range
-            our_bid = max(0.01, min(0.99, our_bid))
-            our_ask = max(0.01, min(0.99, our_ask))
-
             # Sanity check: if bid >= ask, the spread is too tight
             if our_bid >= our_ask:
                 logger.warning(f"  {outcome}: Spread too tight (bid={our_bid:.4f} >= ask={our_ask:.4f}), skipping")
@@ -530,6 +526,16 @@ def main():
         'cache_ttl': 2.0,
         'verbose': True
     })
+
+    # Display trader profile
+    logger.info(f"\n{Colors.bold('Trader Profile')}")
+    logger.info(f"Address: {Colors.cyan(exchange._address or 'Unknown')}")
+    try:
+        balance = exchange.fetch_balance()
+        usdc = balance.get('USDC', 0.0)
+        logger.info(f"Balance: {Colors.green(f'${usdc:,.2f}')} USDC")
+    except Exception as e:
+        logger.warning(f"Failed to fetch balance: {e}")
 
     # Create and run market maker
     mm = SpreadStrategy(
