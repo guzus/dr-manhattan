@@ -178,51 +178,126 @@ class Opinion(Exchange):
 
         raise ExchangeError(f"Invalid list response format for {operation}")
 
-    def _parse_market(self, data: Any) -> Market:
+    def _parse_market(self, data: Any, fetch_prices: bool = True) -> Market:
         """Parse market data from Opinion API response."""
-        market_id = str(getattr(data, "topic_id", getattr(data, "id", "")))
-        question = getattr(data, "title", "") or getattr(data, "question", "")
+        # API uses market_id, not topic_id
+        market_id = str(
+            getattr(data, "market_id", "")
+            or getattr(data, "topic_id", "")
+            or getattr(data, "id", "")
+        )
+        # API uses market_title, not title/question
+        question = (
+            getattr(data, "market_title", "")
+            or getattr(data, "title", "")
+            or getattr(data, "question", "")
+        )
 
         outcomes = []
         prices = {}
         token_ids = []
+        child_markets_data = []
 
-        tokens = getattr(data, "tokens", []) or []
-        for token in tokens:
-            outcome_name = getattr(token, "outcome", "") or getattr(token, "name", "")
-            token_id = str(getattr(token, "token_id", ""))
-            price = getattr(token, "price", None)
+        # API provides yes_token_id/no_token_id directly, not tokens array
+        yes_token_id = str(getattr(data, "yes_token_id", "") or "")
+        no_token_id = str(getattr(data, "no_token_id", "") or "")
+        yes_label = getattr(data, "yes_label", "") or "Yes"
+        no_label = getattr(data, "no_label", "") or "No"
 
-            if outcome_name:
-                outcomes.append(outcome_name)
-            if token_id:
-                token_ids.append(token_id)
-            if outcome_name and price is not None:
-                try:
-                    prices[outcome_name] = float(price)
-                except (ValueError, TypeError):
-                    pass
+        # Check for child_markets (multi-outcome/categorical markets)
+        child_markets = getattr(data, "child_markets", None) or []
+
+        if yes_token_id and no_token_id:
+            # Binary market with direct token IDs
+            outcomes = [yes_label, no_label]
+            token_ids = [yes_token_id, no_token_id]
+        elif child_markets:
+            # Multi-outcome market: extract from child_markets
+            for child in child_markets:
+                child_title = getattr(child, "market_title", "") or ""
+                child_yes_token = str(getattr(child, "yes_token_id", "") or "")
+                child_market_id = str(getattr(child, "market_id", "") or "")
+                child_volume = getattr(child, "volume", "0") or "0"
+
+                if child_title and child_yes_token:
+                    outcomes.append(child_title)
+                    token_ids.append(child_yes_token)
+                    # Store child market info for reference
+                    child_markets_data.append({
+                        "market_id": child_market_id,
+                        "title": child_title,
+                        "yes_token_id": child_yes_token,
+                        "no_token_id": str(getattr(child, "no_token_id", "") or ""),
+                        "volume": child_volume,
+                    })
+        else:
+            # Try legacy tokens array format
+            tokens = getattr(data, "tokens", []) or []
+            for token in tokens:
+                outcome_name = getattr(token, "outcome", "") or getattr(token, "name", "")
+                token_id = str(getattr(token, "token_id", ""))
+                price = getattr(token, "price", None)
+
+                if outcome_name:
+                    outcomes.append(outcome_name)
+                if token_id:
+                    token_ids.append(token_id)
+                if outcome_name and price is not None:
+                    try:
+                        prices[outcome_name] = float(price)
+                    except (ValueError, TypeError):
+                        pass
 
         if not outcomes:
             outcomes = ["Yes", "No"]
 
+        # Fetch prices from orderbook if we have token IDs and client
+        if fetch_prices and token_ids and self._client:
+            for i, token_id in enumerate(token_ids):
+                if i < len(outcomes):
+                    try:
+                        orderbook = self.get_orderbook(token_id)
+                        bids = orderbook.get("bids", [])
+                        asks = orderbook.get("asks", [])
+                        best_bid = float(bids[0]["price"]) if bids else 0.0
+                        best_ask = float(asks[0]["price"]) if asks else 0.0
+                        # Use mid-price if both bid and ask exist, otherwise use whichever exists
+                        if best_bid > 0 and best_ask > 0:
+                            prices[outcomes[i]] = (best_bid + best_ask) / 2
+                        elif best_ask > 0:
+                            prices[outcomes[i]] = best_ask
+                        elif best_bid > 0:
+                            prices[outcomes[i]] = best_bid
+                    except Exception:
+                        pass
+
         close_time = None
-        cutoff_time = getattr(data, "cutoff_time", None) or getattr(data, "end_time", None)
+        # API uses cutoff_at, not cutoff_time
+        cutoff_time = (
+            getattr(data, "cutoff_at", None)
+            or getattr(data, "cutoff_time", None)
+            or getattr(data, "end_time", None)
+        )
         if cutoff_time:
             try:
-                if isinstance(cutoff_time, (int, float)):
+                if isinstance(cutoff_time, (int, float)) and cutoff_time > 0:
                     close_time = datetime.fromtimestamp(cutoff_time, tz=timezone.utc)
                 elif isinstance(cutoff_time, str):
                     close_time = datetime.fromisoformat(cutoff_time.replace("Z", "+00:00"))
             except (ValueError, TypeError):
                 pass
 
-        volume = float(getattr(data, "volume", 0) or 0)
+        volume_raw = getattr(data, "volume", 0) or 0
+        try:
+            volume = float(volume_raw)
+        except (ValueError, TypeError):
+            volume = 0.0
         liquidity = float(getattr(data, "liquidity", 0) or 0)
 
         # Build metadata with clobTokenIds for compatibility with base class
         metadata = {
             "topic_id": market_id,
+            "market_id": market_id,
             "condition_id": getattr(data, "condition_id", ""),
             "status": getattr(data, "status", ""),
             "chain_id": getattr(data, "chain_id", self.chain_id),
@@ -232,7 +307,9 @@ class Opinion(Exchange):
             "tokens": {
                 outcomes[i]: token_ids[i] for i in range(min(len(outcomes), len(token_ids)))
             },
-            "description": getattr(data, "description", ""),
+            "child_markets": child_markets_data if child_markets_data else None,
+            "is_multi_outcome": bool(child_markets_data),
+            "description": getattr(data, "description", "") or getattr(data, "rules", ""),
             "category": getattr(data, "category", ""),
             "image_url": getattr(data, "image_url", ""),
             "minimum_tick_size": 0.01,
@@ -292,7 +369,8 @@ class Opinion(Exchange):
             )
 
             markets_data = self._parse_list_response(response, "fetch markets")
-            markets = [self._parse_market(m) for m in markets_data]
+            # Don't fetch prices from orderbook for bulk market listing (performance)
+            markets = [self._parse_market(m, fetch_prices=False) for m in markets_data]
 
             # Apply limit if provided
             if query_params.get("limit"):
@@ -307,18 +385,31 @@ class Opinion(Exchange):
         Fetch a specific market by ID.
 
         Args:
-            market_id: Market/Topic ID
+            market_id: Market/Topic ID (works for both binary and categorical/multi markets)
         """
         self._ensure_client()
 
         @self._retry_on_failure
         def _fetch():
+            # First try get_market (for binary markets)
             try:
                 response = self._client.get_market(int(market_id))
-                market_data = self._parse_market_response(response, f"fetch market {market_id}")
-                return self._parse_market(market_data)
-            except ExchangeError:
-                raise MarketNotFound(f"Market {market_id} not found")
+                if hasattr(response, "errno") and response.errno == 0:
+                    market_data = self._parse_market_response(response, f"fetch market {market_id}")
+                    return self._parse_market(market_data)
+            except Exception:
+                pass
+
+            # If get_market fails, try get_categorical_market (for multi-outcome markets)
+            try:
+                response = self._client.get_categorical_market(int(market_id))
+                if hasattr(response, "errno") and response.errno == 0:
+                    market_data = self._parse_market_response(response, f"fetch categorical market {market_id}")
+                    return self._parse_market(market_data)
+            except Exception:
+                pass
+
+            raise MarketNotFound(f"Market {market_id} not found")
 
         return _fetch()
 

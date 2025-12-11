@@ -7,7 +7,7 @@ Usage:
     uv run python examples/opinion/spread_strategy.py MARKET_ID
 
     # Via environment variable
-    MARKET_ID="123" uv run python examples/opinion/spread_strategy.py
+    OPINION_MARKET_ID="123" uv run python examples/opinion/spread_strategy.py
 """
 
 import os
@@ -19,6 +19,10 @@ from dotenv import load_dotenv
 
 import dr_manhattan
 from dr_manhattan.models import OrderSide
+from dr_manhattan.utils import setup_logger
+from dr_manhattan.utils.logger import Colors
+
+logger = setup_logger(__name__)
 
 
 class SpreadStrategy:
@@ -65,36 +69,46 @@ class SpreadStrategy:
 
     def fetch_market(self) -> bool:
         """Fetch market data"""
-        print(f"Fetching market: {self.market_id}")
+        logger.info(f"Fetching market: {self.market_id}")
 
         try:
             self.market = self.exchange.fetch_market(self.market_id)
         except Exception as e:
-            print(f"Failed to fetch market: {e}")
+            logger.error(f"Failed to fetch market: {e}")
             return False
 
         if not self.market:
-            print(f"Market not found: {self.market_id}")
+            logger.error(f"Market not found: {self.market_id}")
             return False
 
         self.token_ids = self.market.metadata.get("clobTokenIds", [])
         self.outcomes = self.market.outcomes
 
         if not self.token_ids:
-            print("No token IDs found in market")
+            logger.error("No token IDs found in market")
             return False
 
         self.tick_size = self.market.metadata.get("tick_size", 0.01)
 
-        print(f"\nMarket: {self.market.question}")
-        print(f"Outcomes: {self.outcomes}")
-        print(f"Tick size: {self.tick_size}")
-        print(f"Volume: ${self.market.volume:,.0f}")
-        print(f"Liquidity: ${self.market.liquidity:,.0f}")
+        # Display fetch confirmation
+        question_short = self.market.question[:60] + "..." if len(self.market.question) > 60 else self.market.question
+        logger.info(f"Fetched market: {question_short}")
+        logger.info(f"  Market ID: {self.market_id}")
+        logger.info(f"  Outcomes: {len(self.outcomes)}")
+        logger.info(f"  Token IDs: {len(self.token_ids)}")
+        logger.info(f"  Tick size: {self.tick_size}")
+
+        # Display market info
+        logger.info(f"\n{Colors.bold('Market:')} {Colors.cyan(self.market.question)}")
+        logger.info(f"Outcomes: {Colors.magenta(str(self.outcomes))} | Tick: {Colors.yellow(str(self.tick_size))} | Vol: {Colors.cyan(f'${self.market.volume:,.0f}')}")
 
         for i, (outcome, token_id) in enumerate(zip(self.outcomes, self.token_ids)):
             price = self.market.prices.get(outcome, 0)
-            print(f"  [{i}] {outcome}: {price:.4f} (token: {token_id})")
+            # Truncate long outcome names
+            outcome_display = outcome[:30] + "..." if len(outcome) > 30 else outcome
+            logger.info(f"  [{i}] {Colors.magenta(outcome_display)}: {Colors.yellow(f'{price:.4f}')}")
+
+        logger.info(f"URL: {Colors.gray(f'https://app.opinion.trade/detail?topicId={self.market_id}')}")
 
         return True
 
@@ -103,7 +117,7 @@ class SpreadStrategy:
         try:
             return self.exchange.get_orderbook(token_id)
         except Exception as e:
-            print(f"Failed to fetch orderbook: {e}")
+            logger.warning(f"Failed to fetch orderbook: {e}")
             return {"bids": [], "asks": []}
 
     def get_best_bid_ask(self, token_id: str) -> tuple:
@@ -127,7 +141,7 @@ class SpreadStrategy:
             for pos in positions_list:
                 positions[pos.outcome] = pos.size
         except Exception as e:
-            print(f"Failed to fetch positions: {e}")
+            logger.warning(f"Failed to fetch positions: {e}")
 
         return positions
 
@@ -136,7 +150,7 @@ class SpreadStrategy:
         try:
             return self.exchange.fetch_open_orders(market_id=self.market_id)
         except Exception as e:
-            print(f"Failed to fetch open orders: {e}")
+            logger.warning(f"Failed to fetch open orders: {e}")
             return []
 
     def cancel_all_orders(self):
@@ -146,12 +160,12 @@ class SpreadStrategy:
         if not orders:
             return
 
-        print(f"Cancelling {len(orders)} orders...")
+        logger.info(f"Cancelling {Colors.cyan(str(len(orders)))} orders...")
         for order in orders:
             try:
                 self.exchange.cancel_order(order.id, market_id=self.market_id)
             except Exception as e:
-                print(f"  Failed to cancel {order.id}: {e}")
+                logger.warning(f"  Failed to cancel {order.id}: {e}")
 
     def round_price(self, price: float) -> float:
         """Round price to tick size"""
@@ -168,19 +182,55 @@ class SpreadStrategy:
         min_pos = min(positions.values()) if positions else 0
         delta = max_pos - min_pos
 
-        # Position display
-        pos_str = ", ".join([f"{o}: {positions.get(o, 0):.0f}" for o in self.outcomes])
-        print(f"\n[{time.strftime('%H:%M:%S')}] Positions: {pos_str} | Delta: {delta:.1f} | Orders: {len(open_orders)}")
+        # Find which outcome has higher position for delta display
+        delta_side = ""
+        if delta > 0 and positions:
+            max_outcome = max(positions, key=positions.get)
+            # For multi-outcome, show first few chars
+            delta_abbrev = max_outcome[:8] if len(self.outcomes) > 2 else max_outcome[0]
+            delta_side = f" {Colors.magenta(delta_abbrev)}"
 
+        # Create compact position string
+        pos_compact = ""
+        if positions:
+            parts = []
+            for outcome, size in positions.items():
+                # Abbreviate outcome names
+                abbrev = outcome[:8] if len(self.outcomes) > 2 else outcome[0]
+                parts.append(f"{Colors.blue(f'{size:.0f}')} {Colors.magenta(abbrev)}")
+            pos_compact = " ".join(parts)
+        else:
+            pos_compact = Colors.gray("None")
+
+        # Calculate NAV
+        try:
+            nav_data = self.exchange.calculate_nav(self.market)
+            nav = nav_data.nav
+            cash = nav_data.cash
+        except Exception:
+            nav = 0.0
+            cash = 0.0
+
+        logger.info(f"\n[{time.strftime('%H:%M:%S')}] {Colors.bold('NAV:')} {Colors.green(f'${nav:,.2f}')} | Cash: {Colors.cyan(f'${cash:,.2f}')} | Pos: {pos_compact} | Delta: {Colors.yellow(f'{delta:.1f}')}{delta_side} | Orders: {Colors.cyan(str(len(open_orders)))}")
+
+        # Display open orders if any
+        if open_orders:
+            for order in open_orders:
+                side_colored = Colors.green(order.side.value.upper()) if order.side == OrderSide.BUY else Colors.red(order.side.value.upper())
+                outcome_display = order.outcome[:15] if len(order.outcome) > 15 else order.outcome
+                logger.info(f"  {Colors.gray('Open:')} {Colors.magenta(outcome_display)} {side_colored} {order.size:.0f} @ {Colors.yellow(f'{order.price:.4f}')}")
+
+        # Check delta risk
         if delta > self.max_delta:
-            print(f"  Warning: Delta ({delta:.1f}) > max ({self.max_delta})")
+            logger.warning(f"Delta ({delta:.2f}) > max ({self.max_delta:.2f}) - reducing exposure")
 
         for i, (outcome, token_id) in enumerate(zip(self.outcomes, self.token_ids)):
             # Get orderbook
             best_bid, best_ask = self.get_best_bid_ask(token_id)
 
             if best_bid is None or best_ask is None:
-                print(f"  {outcome}: No orderbook data, skipping...")
+                outcome_display = outcome[:20] if len(outcome) > 20 else outcome
+                logger.warning(f"  {outcome_display}: No orderbook data, skipping...")
                 continue
 
             # Our prices (join BBO)
@@ -192,7 +242,7 @@ class SpreadStrategy:
             our_ask = max(0.01, min(0.99, our_ask))
 
             if our_bid >= our_ask:
-                print(f"  {outcome}: Spread too tight (bid={our_bid:.4f} >= ask={our_ask:.4f})")
+                logger.warning(f"  {outcome}: Spread too tight (bid={our_bid:.4f} >= ask={our_ask:.4f}), skipping")
                 continue
 
             position_size = positions.get(outcome, 0)
@@ -204,7 +254,7 @@ class SpreadStrategy:
 
             # Delta management
             if delta > self.max_delta and position_size == max_pos:
-                print(f"  {outcome}: Skipping (delta management)")
+                logger.info(f"    Skip: max position (delta mgmt)")
                 continue
 
             # Place BUY
@@ -218,7 +268,7 @@ class SpreadStrategy:
                 for order in buy_orders:
                     try:
                         self.exchange.cancel_order(order.id)
-                        print(f"  {outcome}: Cancel BUY @ {order.price:.4f}")
+                        logger.info(f"    {Colors.gray('✕ Cancel')} {Colors.green('BUY')} @ {Colors.yellow(f'{order.price:.4f}')}")
                     except:
                         pass
 
@@ -235,9 +285,10 @@ class SpreadStrategy:
                         size=self.order_size,
                         params={"token_id": token_id},
                     )
-                    print(f"  {outcome}: BUY {self.order_size:.0f} @ {our_bid:.4f}")
+                    outcome_display = outcome[:15] if len(outcome) > 15 else outcome
+                    logger.info(f"    {Colors.gray('→')} {Colors.green('BUY')} {self.order_size:.0f} {Colors.magenta(outcome_display)} @ {Colors.yellow(f'{our_bid:.4f}')}")
                 except Exception as e:
-                    print(f"  {outcome}: BUY failed: {e}")
+                    logger.error(f"    BUY failed: {e}")
 
             # Place SELL
             should_sell = True
@@ -250,7 +301,7 @@ class SpreadStrategy:
                 for order in sell_orders:
                     try:
                         self.exchange.cancel_order(order.id)
-                        print(f"  {outcome}: Cancel SELL @ {order.price:.4f}")
+                        logger.info(f"    {Colors.gray('✕ Cancel')} {Colors.red('SELL')} @ {Colors.yellow(f'{order.price:.4f}')}")
                     except:
                         pass
 
@@ -267,16 +318,17 @@ class SpreadStrategy:
                         size=self.order_size,
                         params={"token_id": token_id},
                     )
-                    print(f"  {outcome}: SELL {self.order_size:.0f} @ {our_ask:.4f}")
+                    outcome_display = outcome[:15] if len(outcome) > 15 else outcome
+                    logger.info(f"    {Colors.gray('→')} {Colors.red('SELL')} {self.order_size:.0f} {Colors.magenta(outcome_display)} @ {Colors.yellow(f'{our_ask:.4f}')}")
                 except Exception as e:
-                    print(f"  {outcome}: SELL failed: {e}")
+                    logger.error(f"    SELL failed: {e}")
 
     def run(self, duration_minutes: Optional[int] = None):
         """Run the market making bot"""
-        print(f"\nSpread Strategy | MaxPos: {self.max_position} | Size: {self.order_size} | MaxDelta: {self.max_delta} | Interval: {self.check_interval}s")
+        logger.info(f"\n{Colors.bold('Market Maker:')} {Colors.cyan('BBO Strategy')} | MaxPos: {Colors.blue(f'{self.max_position:.0f}')} | Size: {Colors.yellow(f'{self.order_size:.0f}')} | MaxDelta: {Colors.yellow(f'{self.max_delta:.0f}')} | Interval: {Colors.gray(f'{self.check_interval}s')}")
 
         if not self.fetch_market():
-            print("Failed to fetch market. Exiting.")
+            logger.error("Failed to fetch market. Exiting.")
             return
 
         self.is_running = True
@@ -292,12 +344,69 @@ class SpreadStrategy:
                 time.sleep(self.check_interval)
 
         except KeyboardInterrupt:
-            print("\nStopping...")
+            logger.info("\nStopping...")
 
         finally:
             self.is_running = False
             self.cancel_all_orders()
-            print("Market maker stopped")
+            logger.info("Market maker stopped")
+
+
+def find_market_by_slug(exchange: dr_manhattan.Opinion, slug: str) -> Optional[str]:
+    """
+    Find market ID by searching with slug/keyword.
+
+    Args:
+        exchange: Opinion exchange instance
+        slug: Search keyword or slug (e.g., "bnb-all-time-high-by-december-31")
+
+    Returns:
+        Market ID if found, None otherwise
+    """
+    logger.info(f"Searching for market: {slug}")
+
+    # Convert slug to search keywords (replace hyphens with spaces)
+    keywords = slug.replace("-", " ").lower()
+
+    # Search through multiple pages to find the market
+    all_markets = []
+    for page in range(1, 6):  # Search up to 5 pages
+        try:
+            markets = exchange.fetch_markets({"page": page, "limit": 20})
+            if not markets:
+                break
+            all_markets.extend(markets)
+        except Exception:
+            break
+
+    # Filter markets by keywords
+    matching = []
+    for m in all_markets:
+        question_lower = m.question.lower()
+        # Check if all significant keywords match
+        keyword_parts = [k for k in keywords.split() if len(k) > 2]
+        if all(k in question_lower for k in keyword_parts):
+            matching.append(m)
+
+    if not matching:
+        logger.error(f"No markets found for: {slug}")
+        logger.info(f"Searched {len(all_markets)} markets")
+        return None
+
+    # If only one result, use it
+    if len(matching) == 1:
+        logger.info(f"Found market: {matching[0].question}")
+        return matching[0].id
+
+    # Multiple results - show them and pick the first
+    logger.info(f"Found {len(matching)} markets:")
+    for i, m in enumerate(matching[:5]):
+        question_short = m.question[:50] + "..." if len(m.question) > 50 else m.question
+        logger.info(f"  [{i}] ID={m.id}: {question_short}")
+
+    # Use the first one
+    logger.info(f"Using first match: {matching[0].question}")
+    return matching[0].id
 
 
 def main():
@@ -308,24 +417,35 @@ def main():
     multi_sig_addr = os.getenv("OPINION_MULTI_SIG_ADDR")
 
     if not api_key or not private_key or not multi_sig_addr:
-        print("Missing environment variables!")
-        print("Set in .env file:")
-        print("  OPINION_API_KEY=...")
-        print("  OPINION_PRIVATE_KEY=...")
-        print("  OPINION_MULTI_SIG_ADDR=...")
+        logger.error("Missing environment variables!")
+        logger.error("Set in .env file:")
+        logger.error("  OPINION_API_KEY=...")
+        logger.error("  OPINION_PRIVATE_KEY=...")
+        logger.error("  OPINION_MULTI_SIG_ADDR=...")
         return 1
 
-    # Get market ID
-    market_id = os.getenv("MARKET_ID", "")
+    # Get market ID or slug (support both OPINION_MARKET_ID and MARKET_SLUG)
+    market_id = os.getenv("OPINION_MARKET_ID", "")
+    market_slug = os.getenv("MARKET_SLUG", "") or os.getenv("OPINION_MARKET_SLUG", "")
 
     if len(sys.argv) > 1:
-        market_id = sys.argv[1]
+        arg = sys.argv[1]
+        # If numeric, treat as market ID; otherwise treat as slug
+        if arg.isdigit():
+            market_id = arg
+        else:
+            market_slug = arg
 
-    if not market_id:
-        print("No market ID provided!")
-        print("\nUsage:")
-        print("  uv run python examples/opinion/spread_strategy.py MARKET_ID")
-        print("  MARKET_ID=123 uv run python examples/opinion/spread_strategy.py")
+    if not market_id and not market_slug:
+        logger.error("No market ID or slug provided!")
+        logger.error("\nUsage:")
+        logger.error("  uv run python examples/opinion/spread_strategy.py MARKET_ID")
+        logger.error("  uv run python examples/opinion/spread_strategy.py SEARCH_KEYWORD")
+        logger.error("  OPINION_MARKET_ID=123 uv run python examples/opinion/spread_strategy.py")
+        logger.error("  MARKET_SLUG=bnb-all-time-high uv run python examples/opinion/spread_strategy.py")
+        logger.error("\nExamples:")
+        logger.error("  OPINION_MARKET_ID=813 uv run python examples/opinion/spread_strategy.py")
+        logger.error("  MARKET_SLUG=bitcoin uv run python examples/opinion/spread_strategy.py")
         return 1
 
     # Create exchange
@@ -337,6 +457,12 @@ def main():
             "verbose": True,
         }
     )
+
+    # If slug provided, search for market ID
+    if market_slug and not market_id:
+        market_id = find_market_by_slug(exchange, market_slug)
+        if not market_id:
+            return 1
 
     # Create and run
     mm = SpreadStrategy(

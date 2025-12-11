@@ -5,13 +5,13 @@ High-performance market making using exchange interfaces and WebSocket orderbook
 
 Usage:
     # Using market slug
-    uv run python examples/polymarket/spread_strategy.py fed-decision-in-december
+    uv run python examples/market_making_websocket.py fed-decision-in-december
 
     # Using full URL
-    uv run python examples/polymarket/spread_strategy.py https://polymarket.com/event/fed-decision-in-december
+    uv run python examples/market_making_websocket.py https://polymarket.com/event/fed-decision-in-december
 
     # Via environment variable
-    MARKET_SLUG="lol-t1-kt-2025-11-09" uv run python examples/polymarket/spread_strategy.py
+    MARKET_SLUG="lol-t1-kt-2025-11-09" uv run python examples/market_making_websocket.py
 """
 
 import os
