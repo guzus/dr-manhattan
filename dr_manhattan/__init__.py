@@ -15,6 +15,7 @@ from .base.errors import (
 from .base.exchange import Exchange
 from .base.order_tracker import OrderEvent, OrderTracker, create_fill_logger
 from .exchanges.limitless import Limitless
+from .exchanges.opinion import Opinion
 from .exchanges.polymarket import Polymarket
 from .models.market import Market
 from .models.order import Order, OrderSide, OrderStatus
@@ -42,10 +43,12 @@ __all__ = [
     "Position",
     "Polymarket",
     "Limitless",
+    "Opinion",
 ]
 
 
 exchanges = {
     "polymarket": Polymarket,
     "limitless": Limitless,
+    "opinion": Opinion,
 }

@@ -4,8 +4,9 @@ CCXT-style unified API for prediction markets. Simple, scalable, and easy to ext
 
 
 <p align="center">
-  <img src="assets/polymarket.png" alt="Logo 1" width="50"/>
-  <img src="assets/kalshi.jpeg" alt="Logo 2" width="50"/>
+  <img src="assets/polymarket.png" alt="Polymarket" width="50"/>
+  <img src="assets/kalshi.jpeg" alt="Kalshi" width="50"/>
+  <img src="assets/opinion.png" alt="Opinion" width="50"/>
 </p>
 
 ## Architecture
@@ -21,6 +22,7 @@ dr_manhattan/
 │   └── errors.py   # Exception hierarchy
 ├── exchanges/      # Exchange implementations
 │   ├── polymarket.py
+│   ├── opinion.py
 │   └── limitless.py
 ├── models/         # Data models
 │   ├── market.py
@@ -60,6 +62,7 @@ import dr_manhattan
 
 # Initialize exchange without authentication
 polymarket = dr_manhattan.Polymarket({'timeout': 30})
+opinion = dr_manhattan.Opinion({'timeout': 30})
 limitless = dr_manhattan.Limitless({'timeout': 30})
 
 # Fetch markets
@@ -82,6 +85,13 @@ polymarket = dr_manhattan.Polymarket({
     'yes_token_id': 'yes_token',
     'no_token_id': 'no_token',
     'dry_run': False
+})
+
+# Opinion (BNB Chain)
+opinion = dr_manhattan.Opinion({
+    'api_key': 'your_api_key',
+    'private_key': 'your_private_key',
+    'multi_sig_addr': 'your_multi_sig_addr'
 })
 
 # Limitless with limitless-mm integration
@@ -146,6 +156,7 @@ from .exchanges.newexchange import NewExchange
 
 exchanges = {
     "polymarket": Polymarket,
+    "opinion": Opinion,
     "limitless": Limitless,
     "newexchange": NewExchange,
 }
@@ -190,14 +201,18 @@ All errors inherit from `DrManhattanError`:
 
 Check out the [examples/](examples/) directory for working examples:
 
-- **spread_strategy.py** - Arbitrage trading strategy for binary markets
-- **simple_test.py** - Basic market data fetching
-- **test_strategy.py** - Strategy testing framework
+- **spread_strategy.py** - Market making strategy for Polymarket
+- **opinion/spread_strategy.py** - Market making strategy for Opinion
 
-Run an example:
+Run examples:
 
 ```bash
-uv run python examples/spread_strategy.py
+# Polymarket
+MARKET_SLUG=fed-decision-in-december uv run python examples/spread_strategy.py
+
+# Opinion
+OPINION_MARKET_ID=813 uv run python examples/opinion/spread_strategy.py
+OPINION_MARKET_SLUG=bnb-all-time-high uv run python examples/opinion/spread_strategy.py
 ```
 
 See [examples/README.md](examples/README.md) for detailed documentation.
