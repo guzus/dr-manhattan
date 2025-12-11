@@ -211,3 +211,145 @@ Development:
 - pytest
 - black
 - ruff
+
+---
+
+# LLM Agent Trading Bot
+
+This repository also includes an LLM Agent Trading Bot for Polymarket.
+
+## Key Features
+
+- **6 Specialized LLM Agents**: Research, Probability, Sentiment, Risk, Execution, Arbiter
+- **Demo Trading Mode**: Paper trading without real funds
+- **Real-time Dashboard**: Portfolio, positions, and trade history monitoring
+- **Risk Management**: Kelly Criterion, loss limits, drawdown management
+- **15-minute Auto-execution**: Cost-efficient execution cycle
+
+## Agent Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      ARBITER AGENT                          │
+│              (Final decision, Agent coordination)           │
+└─────────────────────────────────────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼
+┌───────────────┐     ┌───────────────┐     ┌───────────────┐
+│ RESEARCH      │     │ PROBABILITY   │     │ SENTIMENT     │
+│ AGENT         │     │ AGENT         │     │ AGENT         │
+└───────────────┘     └───────────────┘     └───────────────┘
+        │                     │                     │
+        └─────────────────────┼─────────────────────┘
+                              ▼
+                    ┌───────────────┐
+                    │ RISK AGENT    │
+                    └───────────────┘
+                              │
+                              ▼
+                    ┌───────────────┐
+                    │ EXECUTION     │
+                    │ AGENT         │
+                    └───────────────┘
+```
+
+## Quick Start
+
+### 1. Environment Setup
+
+```bash
+# Clone repository
+cd /home/lee/decipher/agent_trading
+
+# Create .env file
+cp config/.env.example .env
+
+# Edit .env file (set OpenAI API key)
+# OPENAI_API_KEY=your_api_key_here
+```
+
+### 2. Install Dependencies
+
+```bash
+# Python dependencies
+pip install -r requirements.txt
+
+# Frontend dependencies
+cd dashboard/frontend
+npm install
+```
+
+### 3. Run
+
+#### Single Trading Cycle
+```bash
+python main.py
+```
+
+#### With Dashboard
+```bash
+# Terminal 1: PostgreSQL (Docker)
+docker-compose -f docker/docker-compose.yml up -d postgres
+
+# Terminal 2: Backend API
+python -m uvicorn dashboard.backend.main:app --reload --port 8000
+
+# Terminal 3: Frontend
+cd dashboard/frontend
+npm run dev
+```
+
+Access: http://localhost:3001
+
+## Betting Strategy
+
+### Kelly Criterion (Fractional)
+```
+f* = (p × b - q) / b
+
+Applied: Quarter Kelly (f*/4)
+- Reduced volatility
+- Minimized bankruptcy probability
+```
+
+### Edge-Based Sizing
+```
+edge = estimated_probability - market_price
+if edge > 5%:
+    position_size = base_size × (edge / 10%)
+```
+
+## Risk Management
+
+| Limit | Value |
+|-------|-------|
+| Max Single Position | 10% of equity |
+| Max Concurrent Positions | 10 |
+| Daily Loss Limit | -5% |
+| Weekly Loss Limit | -10% |
+| Max Drawdown | -20% |
+
+## Cost Estimates (Monthly)
+
+| Item | Estimated Cost |
+|------|----------------|
+| GPT-4o-mini (15min interval) | ~$10-15 |
+| Infrastructure (local) | $0 |
+| **Total** | **~$10-15/month** |
+
+## Notes
+
+- **Demo Mode**: Default mode runs simulation without real trades
+- **Live Trading**: Set `TRADING_MODE=live` in `.env` and connect wallet
+- **Investment Risk**: Prediction market trading carries loss risk
+
+## License
+
+MIT License
+
+## References
+
+- [Polymarket API Docs](https://docs.polymarket.com)
+- [py-clob-client](https://github.com/Polymarket/py-clob-client)
+- [Alpha Arena (nof0)](https://github.com/wquguru/nof0)

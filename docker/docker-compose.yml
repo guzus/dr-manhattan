@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: trading_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: agent_trading
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: trading_backend
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/agent_trading
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TRADING_MODE=demo
+      - DEMO_INITIAL_BALANCE=1000.0
+      - EXECUTION_INTERVAL_MINUTES=15
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../:/app
+    command: uvicorn dashboard.backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend Dashboard
+  frontend:
+    build:
+      context: ../dashboard/frontend
+      dockerfile: ../../docker/Dockerfile.frontend
+    container_name: trading_frontend
+    ports:
+      - "3001:3001"
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+
+volumes:
+  postgres_data:

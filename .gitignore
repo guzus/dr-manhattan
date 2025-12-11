@@ -1,3 +1,8 @@
+# Environment
+.env
+.env.local
+*.env
+
 # Python
 __pycache__/
 *.py[cod]
@@ -19,16 +24,14 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Virtual environments
-.venv/
 venv/
+.venv/
 ENV/
 env/
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
@@ -39,16 +42,29 @@ env/
 htmlcov/
 .tox/
 
-# Environment variables
-.env
-.env.local
+# Database
+*.db
+*.sqlite
+data/*.db
+
+# Logs
+logs/
+*.log
+
+# Node.js (dashboard)
+node_modules/
+.next/
+.turbo/
+npm-debug.log*
+
+# Data
+data/*.json
+data/*.csv
 
 # OS
 .DS_Store
 Thumbs.db
 
 # Project specific
-*.log
 .cache/
-
 .references/

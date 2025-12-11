@@ -1,0 +1,39 @@
+# Core
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Polymarket
+py-clob-client>=0.1.0
+web3>=6.0.0
+
+# LLM
+openai>=1.0.0
+
+# Database
+sqlalchemy>=2.0.0
+asyncpg>=0.29.0
+aiosqlite>=0.19.0
+alembic>=1.13.0
+
+# API Server
+fastapi>=0.109.0
+uvicorn>=0.27.0
+httpx>=0.26.0
+
+# Scheduling
+apscheduler>=3.10.0
+
+# Data Processing
+pandas>=2.1.0
+numpy>=1.26.0
+
+# Utilities
+aiohttp>=3.9.0
+structlog>=24.1.0
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+black>=24.1.0
+ruff>=0.1.0

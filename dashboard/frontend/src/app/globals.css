@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #0a0b0d;
+  --bg-secondary: #111214;
+  --bg-card: #16181c;
+  --bg-hover: #1e2025;
+  --border-color: #2a2d35;
+  --text-primary: #ffffff;
+  --text-secondary: #8b8d93;
+  --accent-green: #00c853;
+  --accent-red: #ff4757;
+  --accent-blue: #3b82f6;
+  --accent-purple: #8b5cf6;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3d45;
+}
+
+/* Card styles */
+.card {
+  @apply bg-[#16181c] border border-[#2a2d35] rounded-xl;
+}
+
+.card-hover {
+  @apply hover:bg-[#1e2025] hover:border-[#3a3d45] transition-all duration-200;
+}
+
+/* Tab styles */
+.tab-active {
+  @apply text-white border-b-2 border-white;
+}
+
+.tab-inactive {
+  @apply text-[#8b8d93] hover:text-white transition-colors;
+}
+
+/* Status badge */
+.badge-green {
+  @apply bg-[#00c853]/20 text-[#00c853] px-2 py-0.5 rounded text-xs font-medium;
+}
+
+.badge-red {
+  @apply bg-[#ff4757]/20 text-[#ff4757] px-2 py-0.5 rounded text-xs font-medium;
+}
+
+.badge-blue {
+  @apply bg-[#3b82f6]/20 text-[#3b82f6] px-2 py-0.5 rounded text-xs font-medium;
+}
+
+/* Glow effects */
+.glow-green {
+  box-shadow: 0 0 20px rgba(0, 200, 83, 0.15);
+}
+
+.glow-red {
+  box-shadow: 0 0 20px rgba(255, 71, 87, 0.15);
+}
+
+/* Number animations */
+@keyframes flash-green {
+  0%, 100% { color: inherit; }
+  50% { color: #00c853; }
+}
+
+@keyframes flash-red {
+  0%, 100% { color: inherit; }
+  50% { color: #ff4757; }
+}
+
+.flash-positive {
+  animation: flash-green 0.5s ease-in-out;
+}
+
+.flash-negative {
+  animation: flash-red 0.5s ease-in-out;
+}
