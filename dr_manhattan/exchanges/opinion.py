@@ -50,6 +50,16 @@ class PublicTrade:
     transaction_hash: str = ""
 
 
+@dataclass
+class NAV:
+    """Net Asset Value calculation result"""
+
+    nav: float
+    cash: float
+    positions_value: float
+    positions: List[Dict[str, Any]]
+
+
 class Opinion(Exchange):
     """Opinion exchange implementation for BNB Chain prediction markets"""
 
@@ -890,6 +900,44 @@ class Opinion(Exchange):
 
         except Exception as e:
             raise ExchangeError(f"Failed to fetch balance: {e}")
+
+    def calculate_nav(self, market: Market) -> NAV:
+        """
+        Calculate Net Asset Value for a specific market.
+
+        NAV = Cash + Sum(position_size * current_price) for all positions
+
+        Args:
+            market: Market object to calculate NAV for
+
+        Returns:
+            NAV object with nav, cash, positions_value, and positions breakdown
+        """
+        balances = self.fetch_balance()
+        cash = balances.get("USDC", 0.0)
+
+        positions = self.fetch_positions_for_market(market)
+        positions_value = 0.0
+        positions_breakdown = []
+
+        for pos in positions:
+            value = pos.size * pos.current_price
+            positions_value += value
+            positions_breakdown.append({
+                "outcome": pos.outcome,
+                "size": pos.size,
+                "current_price": pos.current_price,
+                "value": value,
+            })
+
+        nav = cash + positions_value
+
+        return NAV(
+            nav=nav,
+            cash=cash,
+            positions_value=positions_value,
+            positions=positions_breakdown,
+        )
 
     # TODO: Implement WebSocket when Opinion API provides it
     # - get_websocket() for real-time orderbook updates
