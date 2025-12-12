@@ -25,7 +25,9 @@ from dotenv import load_dotenv
 from config.settings import get_settings
 from src.scheduler import TradingLoop
 from src.core.polymarket.models import OutcomeSide
-from src.core.database.connection import init_db
+from src.core.database.connection import init_db, get_db_session
+from src.core.database.models import Decision as DecisionModel
+from sqlalchemy import select, desc
 from .websocket_manager import (
     manager as ws_manager,
     broadcast_portfolio_update,
@@ -160,10 +162,17 @@ class AgentStatsResponse(BaseModel):
 class DecisionResponse(BaseModel):
     market_id: str
     slug: Optional[str] = None
+    market_question: Optional[str] = None
     decision: str
+    action: Optional[str] = None
+    side: Optional[str] = None
     confidence: str
     position_size_usd: float
     reasoning: str
+    research_summary: Optional[str] = None
+    probability_assessment: Optional[str] = None
+    sentiment_analysis: Optional[str] = None
+    risk_assessment: Optional[str] = None
     total_tokens: int
     total_cost: float
     timestamp: str
@@ -394,10 +403,25 @@ async def get_positions():
 
     positions = await trading_loop.polymarket_client.get_positions()
 
+    # 중복 제거된 market_id 목록
+    unique_market_ids = list(set(p.market_id for p in positions))
+
+    # 병렬로 모든 market 정보 가져오기
+    markets_data = await asyncio.gather(
+        *[trading_loop.polymarket_client.get_market(mid) for mid in unique_market_ids],
+        return_exceptions=True
+    )
+
+    # market_id -> market 매핑 생성
+    market_cache = {}
+    for mid, market in zip(unique_market_ids, markets_data):
+        if market and not isinstance(market, Exception):
+            market_cache[mid] = market
+
     result = []
     for p in positions:
-        # 마켓 정보 조회 (캐시 또는 API)
-        market = await trading_loop.polymarket_client.get_market(p.market_id)
+        # 캐시에서 마켓 정보 조회
+        market = market_cache.get(p.market_id)
         market_question = market.question if market else f"Market {p.market_id[:8]}..."
         event_title = getattr(market, 'event_title', None) if market else None
         slug = getattr(market, 'slug', None) if market else None
@@ -602,23 +626,62 @@ async def get_equity_history():
 
 @app.get("/api/decisions", response_model=List[DecisionResponse])
 async def get_decisions(limit: int = Query(default=50, le=100)):
-    """최근 거래 결정 조회"""
-    # Return most recent decisions first
-    recent = saved_decisions[-limit:][::-1]
-    return [
-        DecisionResponse(
-            market_id=d["market_id"],
-            slug=d.get("slug"),
-            decision=d["decision"],
-            confidence=d["confidence"],
-            position_size_usd=d.get("position_size_usd", 0),
-            reasoning=d.get("reasoning", ""),
-            total_tokens=d.get("total_tokens", 0),
-            total_cost=d.get("total_cost", 0),
-            timestamp=d["timestamp"],
-        )
-        for d in recent
-    ]
+    """최근 거래 결정 조회 (DB에서)"""
+    try:
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(DecisionModel)
+                .order_by(desc(DecisionModel.created_at))
+                .limit(limit)
+            )
+            db_decisions = result.scalars().all()
+
+            return [
+                DecisionResponse(
+                    market_id=d.market_id or "",
+                    slug=None,  # DB에 저장하지 않음
+                    market_question=d.market_question,
+                    decision=d.decision.get("decision", "SKIP") if isinstance(d.decision, dict) else str(d.decision),
+                    action=d.action,
+                    side=d.side,
+                    confidence=d.decision.get("confidence", "low") if isinstance(d.decision, dict) else "low",
+                    position_size_usd=d.position_size_usd or 0,
+                    reasoning=d.arbiter_reasoning or "",
+                    research_summary=d.research_summary,
+                    probability_assessment=d.probability_assessment,
+                    sentiment_analysis=d.sentiment_analysis,
+                    risk_assessment=d.risk_assessment,
+                    total_tokens=d.total_tokens,
+                    total_cost=d.cost,
+                    timestamp=d.created_at.isoformat() if d.created_at else "",
+                )
+                for d in db_decisions
+            ]
+    except Exception as e:
+        logger.error(f"Failed to get decisions from DB: {e}")
+        # Fallback to in-memory if DB fails
+        recent = saved_decisions[-limit:][::-1]
+        return [
+            DecisionResponse(
+                market_id=d["market_id"],
+                slug=d.get("slug"),
+                market_question=None,
+                decision=d["decision"],
+                action=None,
+                side=None,
+                confidence=d["confidence"],
+                position_size_usd=d.get("position_size_usd", 0),
+                reasoning=d.get("reasoning", ""),
+                research_summary=None,
+                probability_assessment=None,
+                sentiment_analysis=None,
+                risk_assessment=None,
+                total_tokens=d.get("total_tokens", 0),
+                total_cost=d.get("total_cost", 0),
+                timestamp=d["timestamp"],
+            )
+            for d in recent
+        ]
 
 
 @app.post("/api/run-cycle", response_model=List[DecisionResponse])

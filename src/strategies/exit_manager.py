@@ -86,9 +86,9 @@ class ExitManager:
         trailing_stop_activation_pct: float = 8.0,  # 트레일링 활성화 (+8%)
         trailing_stop_distance_pct: float = 5.0,    # 트레일링 거리 (5%)
 
-        # Time-based 설정
-        max_holding_hours: float = 72.0,        # 최대 보유 시간 (3일)
-        warning_holding_hours: float = 48.0,    # 경고 보유 시간 (2일)
+        # Time-based 설정 (당일 실현 전략)
+        max_holding_hours: float = 16.0,        # 최대 보유 시간 (16시간 - 당일 내 정리)
+        warning_holding_hours: float = 12.0,    # 경고 보유 시간 (12시간)
 
         # Rebalancing 설정
         max_position_weight_pct: float = 15.0,  # 최대 포지션 비중

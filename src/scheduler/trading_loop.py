@@ -23,8 +23,83 @@ from src.core.polymarket.models import MarketData, Order, Side, OutcomeSide, Pos
 from src.strategies import MarketFilter, FractionalKelly
 from src.strategies.exit_manager import ExitManager, ExitSignal, ExitReason
 from src.risk import RiskManager
+from src.core.database.connection import get_db_session
+from src.core.database.models import Decision as DecisionModel
 
 logger = structlog.get_logger()
+
+
+async def save_decision_to_db(
+    decision: TradingDecision,
+    market: Optional[MarketData] = None,
+) -> None:
+    """TradingDecision을 DB에 저장"""
+    try:
+        async with get_db_session() as session:
+            # Agent 분석 결과 요약 추출
+            research_summary = None
+            probability_assessment = None
+            sentiment_analysis = None
+            risk_assessment = None
+            arbiter_reasoning = None
+
+            if decision.research_result and decision.research_result.success:
+                research_data = decision.research_result.data
+                research_summary = research_data.get("summary", research_data.get("analysis", ""))[:1000]
+
+            if decision.probability_result and decision.probability_result.success:
+                prob_data = decision.probability_result.data
+                probability_assessment = f"YES: {prob_data.get('estimated_probability_yes', 'N/A')}, NO: {prob_data.get('estimated_probability_no', 'N/A')}, Edge: {prob_data.get('edge', 'N/A')}"
+
+            if decision.sentiment_result and decision.sentiment_result.success:
+                sent_data = decision.sentiment_result.data
+                sentiment_analysis = f"Score: {sent_data.get('sentiment_score', 'N/A')}, Market: {sent_data.get('market_sentiment', 'N/A')}"
+
+            if decision.risk_result and decision.risk_result.success:
+                risk_data = decision.risk_result.data
+                risk_assessment = f"Should Trade: {risk_data.get('should_trade', False)}, Size: ${risk_data.get('recommended_position_size_usd', 0):.2f}"
+
+            if decision.arbiter_result and decision.arbiter_result.success:
+                arbiter_reasoning = decision.reasoning[:2000] if decision.reasoning else None
+
+            # Decision DB 모델 생성
+            db_decision = DecisionModel(
+                market_id=decision.market_id,
+                decision_type="trading",
+                decision={
+                    "action": decision.action,
+                    "side": decision.side,
+                    "decision": decision.decision,
+                    "confidence": decision.confidence,
+                    "position_size_usd": decision.position_size_usd,
+                    "should_trade": decision.should_trade,
+                },
+                confidence={"high": 0.8, "medium": 0.5, "low": 0.3}.get(decision.confidence, 0.5),
+                action=decision.action,
+                side=decision.side,
+                position_size_usd=decision.position_size_usd,
+                limit_price=decision.limit_price,
+                market_question=market.question[:500] if market else None,
+                research_summary=research_summary,
+                probability_assessment=probability_assessment,
+                sentiment_analysis=sentiment_analysis,
+                risk_assessment=risk_assessment,
+                arbiter_reasoning=arbiter_reasoning,
+                total_tokens=decision.total_tokens,
+                cost=decision.total_cost,
+                created_at=decision.timestamp,
+            )
+
+            session.add(db_decision)
+            await session.commit()
+
+            logger.debug(
+                "Decision saved to DB",
+                market_id=decision.market_id,
+                decision=decision.decision,
+            )
+    except Exception as e:
+        logger.error(f"Failed to save decision to DB: {e}", exc_info=True)
 
 
 class TradingLoop:
@@ -272,6 +347,9 @@ class TradingLoop:
                         decisions.append(decision)
                         self._last_analyzed_prices[position.token_id] = position.current_price
 
+                        # Decision을 DB에 저장
+                        await save_decision_to_db(decision, market)
+
                         # 포지션 조정이 필요하면 실행
                         if decision.should_trade:
                             await self._execute_decision(market, decision)
@@ -328,6 +406,9 @@ class TradingLoop:
 
                     self._total_decisions += 1
                     decisions.append(decision)
+
+                    # Decision을 DB에 저장
+                    await save_decision_to_db(decision, market)
 
                     # 거래 실행 (결정이 거래를 권장하는 경우)
                     if decision.should_trade:

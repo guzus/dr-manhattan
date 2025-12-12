@@ -7,10 +7,17 @@ import { api } from '@/lib/api';
 interface Decision {
   market_id: string;
   slug?: string;
+  market_question?: string;
   decision: string;
+  action?: string;
+  side?: string;
   confidence: string;
   position_size_usd: number;
   reasoning: string;
+  research_summary?: string;
+  probability_assessment?: string;
+  sentiment_analysis?: string;
+  risk_assessment?: string;
   total_tokens: number;
   total_cost: number;
   timestamp: string;
@@ -119,7 +126,7 @@ function DecisionCard({ decision }: { decision: Decision }) {
   const isHold = !isBuy && !isSell;
 
   // Parse confidence
-  const confidence = decision.confidence.toLowerCase();
+  const confidence = decision.confidence?.toLowerCase() || 'low';
   const isHighConfidence = confidence === 'high';
   const isMediumConfidence = confidence === 'medium';
 
@@ -128,6 +135,9 @@ function DecisionCard({ decision }: { decision: Decision }) {
   const polymarketLink = decision.slug
     ? `https://polymarket.com/market/${decision.slug}`
     : `https://polymarket.com/markets?_s=${decision.market_id}`;
+
+  // Display title: market_question or market_id
+  const displayTitle = decision.market_question || `${decision.market_id.slice(0, 30)}...`;
 
   return (
     <div
@@ -148,6 +158,15 @@ function DecisionCard({ decision }: { decision: Decision }) {
             }`}>
               {decision.decision}
             </span>
+            {decision.side && (
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                decision.side === 'YES'
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-red-100 text-red-700'
+              }`}>
+                {decision.side}
+              </span>
+            )}
             <span className={`px-2 py-0.5 rounded text-xs font-medium ${
               isHighConfidence
                 ? 'bg-purple-100 text-purple-700'
@@ -155,7 +174,7 @@ function DecisionCard({ decision }: { decision: Decision }) {
                 ? 'bg-blue-100 text-blue-700'
                 : 'bg-gray-100 text-gray-500'
             }`}>
-              {decision.confidence}
+              {confidence}
             </span>
             {decision.position_size_usd > 0 && (
               <span className="text-xs text-gray-500 font-mono">
@@ -164,9 +183,9 @@ function DecisionCard({ decision }: { decision: Decision }) {
             )}
           </div>
 
-          {/* Market ID */}
-          <p className="text-xs text-gray-600 truncate">
-            {decision.market_id.slice(0, 30)}...
+          {/* Market Question / ID */}
+          <p className="text-xs text-gray-600 line-clamp-1" title={displayTitle}>
+            {displayTitle}
           </p>
         </div>
 
@@ -182,18 +201,65 @@ function DecisionCard({ decision }: { decision: Decision }) {
         </a>
       </div>
 
-      {/* Reasoning (Expanded) */}
-      {expanded && decision.reasoning && (
-        <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600 leading-relaxed">
-          {decision.reasoning}
-        </div>
-      )}
-
-      {/* Cost Info */}
+      {/* Agent Analysis (Expanded) */}
       {expanded && (
-        <div className="mt-2 flex items-center gap-3 text-[10px] text-gray-400">
-          <span>{decision.total_tokens.toLocaleString()} tokens</span>
-          <span>${decision.total_cost.toFixed(4)}</span>
+        <div className="mt-2 space-y-2">
+          {/* Research Summary */}
+          {decision.research_summary && (
+            <div className="p-2 bg-blue-50 rounded">
+              <div className="text-[10px] font-bold text-blue-700 mb-1">Research</div>
+              <div className="text-xs text-gray-600 leading-relaxed">
+                {decision.research_summary}
+              </div>
+            </div>
+          )}
+
+          {/* Probability Assessment */}
+          {decision.probability_assessment && (
+            <div className="p-2 bg-green-50 rounded">
+              <div className="text-[10px] font-bold text-green-700 mb-1">Probability</div>
+              <div className="text-xs text-gray-600 font-mono">
+                {decision.probability_assessment}
+              </div>
+            </div>
+          )}
+
+          {/* Sentiment Analysis */}
+          {decision.sentiment_analysis && (
+            <div className="p-2 bg-yellow-50 rounded">
+              <div className="text-[10px] font-bold text-yellow-700 mb-1">Sentiment</div>
+              <div className="text-xs text-gray-600 font-mono">
+                {decision.sentiment_analysis}
+              </div>
+            </div>
+          )}
+
+          {/* Risk Assessment */}
+          {decision.risk_assessment && (
+            <div className="p-2 bg-red-50 rounded">
+              <div className="text-[10px] font-bold text-red-700 mb-1">Risk</div>
+              <div className="text-xs text-gray-600 font-mono">
+                {decision.risk_assessment}
+              </div>
+            </div>
+          )}
+
+          {/* Arbiter Reasoning */}
+          {decision.reasoning && (
+            <div className="p-2 bg-purple-50 rounded">
+              <div className="text-[10px] font-bold text-purple-700 mb-1">Final Decision</div>
+              <div className="text-xs text-gray-600 leading-relaxed">
+                {decision.reasoning}
+              </div>
+            </div>
+          )}
+
+          {/* Cost Info */}
+          <div className="flex items-center gap-3 text-[10px] text-gray-400 pt-1">
+            <span>{decision.total_tokens.toLocaleString()} tokens</span>
+            <span>${decision.total_cost.toFixed(4)}</span>
+            <span>{new Date(decision.timestamp).toLocaleString()}</span>
+          </div>
         </div>
       )}
     </div>

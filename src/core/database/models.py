@@ -271,7 +271,7 @@ class Decision(Base):
     __tablename__ = "decisions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    agent_id: Mapped[Optional[int]] = mapped_column(ForeignKey("agents.id"), nullable=True)
     market_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("markets.id"), nullable=True
     )
@@ -281,10 +281,24 @@ class Decision(Base):
     decision: Mapped[dict] = mapped_column(JSON, nullable=False)
     confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    # LLM Details
-    prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    response: Mapped[str] = mapped_column(Text, nullable=False)
-    model: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Trading Decision Details
+    action: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # BUY/SELL/HOLD
+    side: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # YES/NO
+    position_size_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    limit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    market_question: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Agent Analysis Summary
+    research_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    probability_assessment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sentiment_analysis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    risk_assessment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    arbiter_reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # LLM Details (optional for rule-based decisions)
+    prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # Token Usage
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
@@ -296,7 +310,7 @@ class Decision(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relationships
-    agent: Mapped["Agent"] = relationship(back_populates="decisions")
+    agent: Mapped[Optional["Agent"]] = relationship(back_populates="decisions")
     market: Mapped[Optional["Market"]] = relationship(back_populates="decisions")
 
     __table_args__ = (Index("ix_decisions_created_at", "created_at"),)
