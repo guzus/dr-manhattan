@@ -1,7 +1,7 @@
 'use client';
 
 import { usePositions } from '@/hooks/useApi';
-import { TrendingUp, TrendingDown, ExternalLink, Briefcase } from 'lucide-react';
+import { TrendingUp, TrendingDown, Briefcase } from 'lucide-react';
 
 export default function PositionsTable() {
   const { data: positions, error } = usePositions();
@@ -45,47 +45,51 @@ export default function PositionsTable() {
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-gray-50 z-10">
               <tr className="text-left text-gray-500 uppercase tracking-wide">
-                <th className="px-4 py-2 font-medium">Market</th>
-                <th className="px-4 py-2 font-medium">Event</th>
-                <th className="px-4 py-2 font-medium">Position</th>
-                <th className="px-4 py-2 font-medium text-right">Entry</th>
-                <th className="px-4 py-2 font-medium text-right">Current</th>
-                <th className="px-4 py-2 font-medium text-right">Size</th>
-                <th className="px-4 py-2 font-medium text-right">P&L</th>
-                <th className="px-4 py-2 font-medium"></th>
+                <th className="px-3 py-2 font-medium">Event / Selection</th>
+                <th className="px-3 py-2 font-medium">Position</th>
+                <th className="px-3 py-2 font-medium text-right">Entry Price</th>
+                <th className="px-3 py-2 font-medium text-right">Shares</th>
+                <th className="px-3 py-2 font-medium text-right">Entry Value</th>
+                <th className="px-3 py-2 font-medium text-right">Current Price</th>
+                <th className="px-3 py-2 font-medium text-right">Current Value</th>
+                <th className="px-3 py-2 font-medium text-right">P&L</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {positions.map((position) => {
-                const currentValue = position.size * position.current_price;
                 const pnl = position.unrealized_pnl;
                 const pnlPct = position.unrealized_pnl_pct;
                 const isPositive = pnl >= 0;
 
-                // Generate Polymarket link from market_id
-                const polymarketLink = `https://polymarket.com/event/${position.market_id}`;
+                // Generate Polymarket link using slug (uses /market/ which auto-redirects to correct page)
+                const polymarketLink = position.slug
+                  ? `https://polymarket.com/market/${position.slug}`
+                  : `https://polymarket.com/markets?search=${encodeURIComponent(position.market_question?.slice(0, 30) || '')}`;
 
                 return (
                   <tr
                     key={`${position.market_id}-${position.outcome_side}`}
                     className="hover:bg-gray-50 transition-colors"
                   >
-                    {/* Market (Question) */}
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-black line-clamp-2 max-w-[250px]">
-                        {position.market_question || position.market_id.slice(0, 20) + '...'}
-                      </span>
-                    </td>
-
-                    {/* Event Title */}
-                    <td className="px-4 py-3">
-                      <span className="text-gray-500 text-xs line-clamp-1 max-w-[150px]">
-                        {position.event_title || '-'}
-                      </span>
+                    {/* Event + Selection (2줄 구조) */}
+                    <td className="px-3 py-3 max-w-[280px]">
+                      {/* Event Title (상위) */}
+                      <div className="text-xs text-gray-500 mb-0.5 truncate">
+                        {position.event_title || 'Unknown Event'}
+                      </div>
+                      {/* Market Question (선택한 항목) */}
+                      <a
+                        href={polymarketLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-blue-600 hover:text-blue-800 hover:underline line-clamp-1 block"
+                      >
+                        → {position.market_question || position.market_id.slice(0, 20) + '...'}
+                      </a>
                     </td>
 
                     {/* Position (YES/NO) */}
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3">
                       <span className={`px-2 py-1 rounded text-xs font-bold ${
                         position.outcome_side === 'YES'
                           ? 'bg-green-100 text-green-700'
@@ -96,45 +100,47 @@ export default function PositionsTable() {
                     </td>
 
                     {/* Entry Price */}
-                    <td className="px-4 py-3 text-right font-mono text-gray-600">
-                      ${position.average_price.toFixed(2)}
+                    <td className="px-3 py-3 text-right font-mono text-gray-600">
+                      ${position.average_price.toFixed(3)}
+                    </td>
+
+                    {/* Shares */}
+                    <td className="px-3 py-3 text-right font-mono text-black">
+                      {position.size.toFixed(2)}
+                    </td>
+
+                    {/* Entry Value */}
+                    <td className="px-3 py-3 text-right font-mono text-gray-600">
+                      ${position.entry_value.toFixed(2)}
                     </td>
 
                     {/* Current Price */}
-                    <td className="px-4 py-3 text-right font-mono text-black">
-                      ${position.current_price.toFixed(2)}
+                    <td className="px-3 py-3 text-right font-mono text-black">
+                      ${position.current_price.toFixed(3)}
                     </td>
 
-                    {/* Size (Value) */}
-                    <td className="px-4 py-3 text-right font-mono text-black font-medium">
-                      ${currentValue.toFixed(2)}
+                    {/* Current Value */}
+                    <td className="px-3 py-3 text-right font-mono text-black font-medium">
+                      ${position.current_value.toFixed(2)}
                     </td>
 
                     {/* P&L */}
-                    <td className="px-4 py-3 text-right">
-                      <div className={`flex items-center justify-end gap-1 font-mono font-medium ${
+                    <td className="px-3 py-3 text-right">
+                      <div className={`flex flex-col items-end font-mono ${
                         isPositive ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        {isPositive ? (
-                          <TrendingUp className="w-3 h-3" />
-                        ) : (
-                          <TrendingDown className="w-3 h-3" />
-                        )}
-                        <span>{isPositive ? '+' : ''}{pnlPct.toFixed(1)}%</span>
+                        <div className="flex items-center gap-1 font-medium">
+                          {isPositive ? (
+                            <TrendingUp className="w-3 h-3" />
+                          ) : (
+                            <TrendingDown className="w-3 h-3" />
+                          )}
+                          <span>{isPositive ? '+' : ''}{pnlPct.toFixed(2)}%</span>
+                        </div>
+                        <span className="text-[10px]">
+                          {isPositive ? '+' : ''}${pnl.toFixed(2)}
+                        </span>
                       </div>
-                    </td>
-
-                    {/* Link */}
-                    <td className="px-4 py-3">
-                      <a
-                        href={polymarketLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1.5 hover:bg-gray-100 rounded transition-colors inline-flex"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ExternalLink className="w-3.5 h-3.5 text-gray-400 hover:text-blue-600" />
-                      </a>
                     </td>
                   </tr>
                 );

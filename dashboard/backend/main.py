@@ -46,6 +46,34 @@ trading_loop: Optional[TradingLoop] = None
 background_task: Optional[asyncio.Task] = None
 equity_update_task: Optional[asyncio.Task] = None
 
+# In-memory decisions storage (also saved to file for persistence)
+import json
+from pathlib import Path as FilePath
+
+DECISIONS_FILE = FilePath(__file__).parent.parent.parent / "data" / "decisions.json"
+
+def load_decisions() -> List[dict]:
+    """Load decisions from file"""
+    try:
+        if DECISIONS_FILE.exists():
+            with open(DECISIONS_FILE, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load decisions: {e}")
+    return []
+
+def save_decisions(decisions: List[dict]):
+    """Save decisions to file"""
+    try:
+        DECISIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(DECISIONS_FILE, "w") as f:
+            json.dump(decisions[-100:], f)  # Keep last 100 decisions
+    except Exception as e:
+        logger.error(f"Failed to save decisions: {e}")
+
+# Load existing decisions on startup
+saved_decisions: List[dict] = load_decisions()
+
 
 # Pydantic Models
 class StatusResponse(BaseModel):
@@ -74,10 +102,13 @@ class PositionResponse(BaseModel):
     market_id: str
     market_question: str
     event_title: Optional[str]
+    slug: Optional[str]
     outcome_side: str
-    size: float
-    average_price: float
+    size: float  # shares
+    average_price: float  # entry price
     current_price: float
+    entry_value: float  # size * average_price
+    current_value: float  # size * current_price
     unrealized_pnl: float
     unrealized_pnl_pct: float
 
@@ -85,10 +116,14 @@ class PositionResponse(BaseModel):
 class TradeResponse(BaseModel):
     trade_id: str
     market_id: str
+    market_question: Optional[str] = None
+    event_title: Optional[str] = None
+    slug: Optional[str] = None
     side: str
     outcome_side: str
     size: float
     price: float
+    total: float
     fee: float
     timestamp: str
 
@@ -124,6 +159,7 @@ class AgentStatsResponse(BaseModel):
 
 class DecisionResponse(BaseModel):
     market_id: str
+    slug: Optional[str] = None
     decision: str
     confidence: str
     position_size_usd: float
@@ -364,16 +400,24 @@ async def get_positions():
         market = await trading_loop.polymarket_client.get_market(p.market_id)
         market_question = market.question if market else f"Market {p.market_id[:8]}..."
         event_title = getattr(market, 'event_title', None) if market else None
+        slug = getattr(market, 'slug', None) if market else None
+
+        # Calculate values
+        entry_value = p.size * p.average_price
+        current_value = p.size * p.current_price
 
         result.append(
             PositionResponse(
                 market_id=p.market_id,
                 market_question=market_question,
                 event_title=event_title,
+                slug=slug,
                 outcome_side=p.outcome_side.value,
                 size=p.size,
                 average_price=p.average_price,
                 current_price=p.current_price,
+                entry_value=entry_value,
+                current_value=current_value,
                 unrealized_pnl=p.unrealized_pnl,
                 unrealized_pnl_pct=p.unrealized_pnl_pct,
             )
@@ -394,19 +438,47 @@ async def get_trades(limit: int = 50):
     else:
         trades = trading_loop.polymarket_client.get_trade_history(limit=limit)
 
-    return [
-        TradeResponse(
-            trade_id=t.trade_id,
-            market_id=t.market_id,
-            side=t.side.value,
-            outcome_side=t.outcome_side.value,
-            size=t.size,
-            price=t.price,
-            fee=t.fee,
-            timestamp=t.timestamp.isoformat(),
+    # 중복 제거된 market_id 목록
+    unique_market_ids = list(set(t.market_id for t in trades))
+
+    # 병렬로 모든 market 정보 가져오기
+    import asyncio
+    markets_data = await asyncio.gather(
+        *[trading_loop.polymarket_client.get_market(mid) for mid in unique_market_ids],
+        return_exceptions=True
+    )
+
+    # market_id -> market 매핑 생성
+    market_cache = {}
+    for mid, market in zip(unique_market_ids, markets_data):
+        if market and not isinstance(market, Exception):
+            market_cache[mid] = market
+
+    result = []
+    for t in trades:
+        market = market_cache.get(t.market_id)
+        market_question = market.question if market else None
+        event_title = getattr(market, 'event_title', None) if market else None
+        slug = getattr(market, 'slug', None) if market else None
+
+        result.append(
+            TradeResponse(
+                trade_id=t.trade_id,
+                market_id=t.market_id,
+                market_question=market_question,
+                event_title=event_title,
+                slug=slug,
+                side=t.side.value,
+                outcome_side=t.outcome_side.value,
+                size=t.size,
+                price=t.price,
+                total=t.size * t.price,
+                fee=t.fee,
+                timestamp=t.timestamp.isoformat(),
+            )
         )
-        for t in trades
-    ]
+
+    return result
 
 
 @app.get("/api/markets", response_model=List[MarketResponse])
@@ -528,6 +600,27 @@ async def get_equity_history():
     return []
 
 
+@app.get("/api/decisions", response_model=List[DecisionResponse])
+async def get_decisions(limit: int = Query(default=50, le=100)):
+    """최근 거래 결정 조회"""
+    # Return most recent decisions first
+    recent = saved_decisions[-limit:][::-1]
+    return [
+        DecisionResponse(
+            market_id=d["market_id"],
+            slug=d.get("slug"),
+            decision=d["decision"],
+            confidence=d["confidence"],
+            position_size_usd=d.get("position_size_usd", 0),
+            reasoning=d.get("reasoning", ""),
+            total_tokens=d.get("total_tokens", 0),
+            total_cost=d.get("total_cost", 0),
+            timestamp=d["timestamp"],
+        )
+        for d in recent
+    ]
+
+
 @app.post("/api/run-cycle", response_model=List[DecisionResponse])
 async def run_trading_cycle():
     """수동으로 트레이딩 사이클 실행"""
@@ -553,19 +646,40 @@ async def run_trading_cycle():
 
     await broadcast_status_update(trading_loop.get_status())
 
-    # Broadcast decisions
+    # Get market slugs for decisions
+    market_slugs = {}
     for d in decisions:
-        await broadcast_decision({
+        try:
+            market = await trading_loop.polymarket_client.get_market(d.market_id)
+            if market and market.slug:
+                market_slugs[d.market_id] = market.slug
+        except Exception:
+            pass
+
+    # Broadcast decisions and save to persistent storage
+    global saved_decisions
+    for d in decisions:
+        decision_data = {
             "market_id": d.market_id,
+            "slug": market_slugs.get(d.market_id),
             "decision": d.decision,
             "confidence": d.confidence,
-            "reasoning": d.reasoning[:200] if d.reasoning else "",
+            "position_size_usd": d.position_size_usd,
+            "reasoning": d.reasoning[:500] if d.reasoning else "",
+            "total_tokens": d.total_tokens,
+            "total_cost": d.total_cost,
             "timestamp": d.timestamp.isoformat(),
-        })
+        }
+        saved_decisions.append(decision_data)
+        await broadcast_decision(decision_data)
+
+    # Save to file
+    save_decisions(saved_decisions)
 
     return [
         DecisionResponse(
             market_id=d.market_id,
+            slug=market_slugs.get(d.market_id),
             decision=d.decision,
             confidence=d.confidence,
             position_size_usd=d.position_size_usd,

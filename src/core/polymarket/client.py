@@ -122,6 +122,8 @@ class PolymarketClient(BasePolymarketClient):
         self.chain_id = chain_id
         self._client: Optional[httpx.AsyncClient] = None
         self._clob_client = None  # py-clob-client instance
+        # Cache for market -> event mapping
+        self._market_event_cache: Dict[str, Dict[str, str]] = {}
 
     async def _ensure_client(self):
         if self._client is None:
@@ -200,6 +202,18 @@ class PolymarketClient(BasePolymarketClient):
                         market_data["category"] = normalized_cat
                         market_data["event_id"] = str(event.get("id", ""))
                         market_data["event_title"] = event.get("title")
+                        market_data["event_slug"] = event.get("slug")
+
+                        # 캐시에 market -> event 매핑 저장
+                        market_id = str(market_data.get("id", ""))
+                        if market_id:
+                            self._market_event_cache[market_id] = {
+                                "event_id": str(event.get("id", "")),
+                                "event_title": event.get("title"),
+                                "event_slug": event.get("slug"),
+                                "category": normalized_cat,
+                            }
+
                         market = self._parse_market_data(market_data)
                         if market:
                             markets.append(market)
@@ -246,6 +260,64 @@ class PolymarketClient(BasePolymarketClient):
             )
             response.raise_for_status()
             data = response.json()
+
+            # 1. 캐시에서 event 정보 확인 (가장 빠름)
+            cached_info = self._market_event_cache.get(str(market_id))
+            if cached_info:
+                data["event_id"] = cached_info.get("event_id")
+                data["event_title"] = cached_info.get("event_title")
+                data["event_slug"] = cached_info.get("event_slug")
+                if not data.get("category"):
+                    data["category"] = cached_info.get("category")
+                return self._parse_market_data(data)
+
+            # 2. API 응답의 'events' 필드 확인
+            events = data.get("events", [])
+            if events and len(events) > 0:
+                event = events[0]
+                data["event_id"] = str(event.get("id", ""))
+                data["event_title"] = event.get("title")
+                data["event_slug"] = event.get("slug")
+                # 캐시에 저장
+                self._market_event_cache[str(market_id)] = {
+                    "event_id": data["event_id"],
+                    "event_title": data["event_title"],
+                    "event_slug": data["event_slug"],
+                    "category": normalize_category(event.get("category")),
+                }
+                return self._parse_market_data(data)
+
+            # 3. 캐시에 없고 API 응답에도 없으면, events API에서 검색
+            # condition_id 또는 market_id로 검색
+            condition_id = data.get("conditionId")
+            try:
+                # events API에서 이 market을 포함하는 event 검색
+                event_response = await self._client.get(
+                    f"{self.GAMMA_API}/events",
+                    params={"active": "true", "closed": "false", "limit": 200}
+                )
+                if event_response.status_code == 200:
+                    found_events = event_response.json()
+                    for event in found_events:
+                        event_markets = event.get("markets", [])
+                        for em in event_markets:
+                            em_id = str(em.get("id", ""))
+                            em_condition = em.get("conditionId", "")
+                            if em_id == str(market_id) or (condition_id and em_condition == condition_id):
+                                data["event_id"] = str(event.get("id", ""))
+                                data["event_title"] = event.get("title")
+                                data["event_slug"] = event.get("slug")
+                                # 캐시에 저장
+                                self._market_event_cache[str(market_id)] = {
+                                    "event_id": data["event_id"],
+                                    "event_title": data["event_title"],
+                                    "event_slug": data["event_slug"],
+                                    "category": normalize_category(event.get("category")),
+                                }
+                                return self._parse_market_data(data)
+            except Exception as search_error:
+                logger.warning(f"Event search failed for market {market_id}: {search_error}")
+
             return self._parse_market_data(data)
         except Exception as e:
             logger.error(f"Failed to get market {market_id}: {e}")
@@ -521,6 +593,7 @@ class PolymarketClient(BasePolymarketClient):
         # Event relationship - extract event_id and event_title if available
         event_id = data.get("event_id") or data.get("eventId")
         event_title = data.get("event_title") or data.get("eventTitle")
+        slug = data.get("slug") or data.get("event_slug")
 
         return MarketData(
             id=data.get("id", ""),
@@ -530,6 +603,7 @@ class PolymarketClient(BasePolymarketClient):
             category=category,
             event_id=event_id,
             event_title=event_title,
+            slug=slug,
             yes_token_id=yes_token_id,
             no_token_id=no_token_id,
             yes_price=yes_price,

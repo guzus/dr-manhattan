@@ -221,10 +221,11 @@ This repository also includes an LLM Agent Trading Bot for Polymarket.
 ## Key Features
 
 - **6 Specialized LLM Agents**: Research, Probability, Sentiment, Risk, Execution, Arbiter
-- **Demo Trading Mode**: Paper trading without real funds
+- **Demo Trading Mode**: Paper trading without real funds (SQLite persistent storage)
 - **Real-time Dashboard**: Portfolio, positions, and trade history monitoring
 - **Risk Management**: Kelly Criterion, loss limits, drawdown management
 - **15-minute Auto-execution**: Cost-efficient execution cycle
+- **WebSocket Real-time Updates**: Live trading status in dashboard
 
 ## Agent Architecture
 
@@ -343,6 +344,66 @@ if edge > 5%:
 - **Demo Mode**: Default mode runs simulation without real trades
 - **Live Trading**: Set `TRADING_MODE=live` in `.env` and connect wallet
 - **Investment Risk**: Prediction market trading carries loss risk
+
+## Technical Notes (For Developers)
+
+### Polymarket API Structure - Event vs Market
+
+Polymarket API has two main entities:
+
+1. **Event**: Parent concept (e.g., "Which CEOs will be gone in 2025?")
+   - Contains category info (e.g., "Business")
+   - Can include multiple Markets
+   - Queried via `/events` endpoint
+
+2. **Market**: Individual tradeable item (e.g., "Tim Cook out as Apple CEO in 2025?")
+   - Returned nested within Event
+   - Contains `outcomePrices`, `clobTokenIds` trading info
+   - Queried individually via `/markets/{id}` endpoint
+
+**Important**:
+- `client.py`'s `get_markets()` fetches Events from `/events` endpoint then parses internal markets.
+- Category info exists only at Event level, must be passed to Market.
+- When switching to live trading mode, `open_position` etc. should reference this structure.
+
+### Category Mapping
+
+Original Polymarket categories → Normalized categories:
+
+```python
+CATEGORY_MAPPING = {
+    "sports": ["Sports", "NBA Playoffs", "Olympics", "Chess", "Poker"],
+    "politics": ["US-current-affairs", "Global Politics", "Ukraine & Russia"],
+    "crypto": ["Crypto", "NFTs"],
+    "entertainment": ["Pop-Culture", "Art"],
+    "science": ["Science", "Coronavirus"],
+    "business": ["Business"],
+}
+```
+
+### Timezone Handling
+
+- Backend: All times stored/returned in **UTC**
+- Frontend: Add 'Z' suffix to times received from API for UTC parsing
+  ```typescript
+  const lastRunStr = status.last_run.endsWith('Z') ? status.last_run : status.last_run + 'Z';
+  ```
+
+### Dashboard Features
+
+**Live Tab**:
+- Real-time Equity chart (1D/1W/1M/ALL filters)
+- AI Agent decision logs
+- Open positions table (Event → Market hierarchy)
+
+**History Tab**:
+- P&L Summary cards (Daily, Realized, Unrealized, Total)
+- Daily Summary: Realized P&L by date (FIFO calculation)
+- Recent Trades: Individual trade list
+
+### API Optimization
+
+`/api/trades` endpoint uses parallel processing (`asyncio.gather`) to fetch market info, improving response speed.
 
 ## License
 

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useStatus } from '@/hooks/useApi';
 import { Play, Square, RefreshCw, RotateCcw, Zap } from 'lucide-react';
+import { setLatestDecisions } from './DecisionsPanel';
 
 export default function ControlPanel() {
   const { data: status, mutate } = useStatus();
@@ -23,6 +24,7 @@ export default function ControlPanel() {
         case 'cycle':
           const decisions = await api.runCycle();
           setLastDecisions(decisions);
+          setLatestDecisions(decisions);  // Update the global DecisionsPanel
           break;
         case 'reset':
           await api.resetDemo();

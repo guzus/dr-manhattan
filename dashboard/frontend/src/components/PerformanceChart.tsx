@@ -12,6 +12,31 @@ export default function PerformanceChart() {
   const { data: portfolio } = usePortfolio();
   const { data: equityHistory } = useEquityHistory();
 
+  // Filter equity history by time range
+  const filterByTimeRange = (data: typeof equityHistory) => {
+    if (!data || data.length === 0) return [];
+
+    const now = new Date();
+    let cutoff: Date;
+
+    switch (timeRange) {
+      case '1D':
+        cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        break;
+      case '1W':
+        cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case '1M':
+        cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case 'ALL':
+      default:
+        return data;
+    }
+
+    return data.filter(h => new Date(h.timestamp) >= cutoff);
+  };
+
   // Convert equity history to chart data
   const getChartData = (): AreaData<Time>[] => {
     if (!equityHistory || equityHistory.length === 0) {
@@ -23,8 +48,18 @@ export default function PerformanceChart() {
       }];
     }
 
-    // Convert API data to chart format
-    return equityHistory.map((h) => ({
+    // Filter by time range and convert to chart format
+    const filtered = filterByTimeRange(equityHistory);
+
+    if (filtered.length === 0) {
+      // If no data in range, show current equity
+      return [{
+        time: Math.floor(Date.now() / 1000) as Time,
+        value: portfolio?.total_equity ?? 1000,
+      }];
+    }
+
+    return filtered.map((h) => ({
       time: Math.floor(new Date(h.timestamp).getTime() / 1000) as Time,
       value: h.equity,
     }));
@@ -112,18 +147,20 @@ export default function PerformanceChart() {
     };
   }, []);
 
-  // Update data when equity history changes
+  // Update data when equity history or time range changes
   useEffect(() => {
     if (seriesRef.current && equityHistory) {
       seriesRef.current.setData(getChartData());
       chartRef.current?.timeScale().fitContent();
     }
-  }, [equityHistory]);
+  }, [equityHistory, timeRange]);
 
   const totalEquity = portfolio?.total_equity ?? 1000;
   const dailyPnl = portfolio?.daily_pnl ?? 0;
   const pnlPct = totalEquity > 0 ? (dailyPnl / (totalEquity - dailyPnl)) * 100 : 0;
-  const dataPoints = equityHistory?.length ?? 0;
+  const filteredData = filterByTimeRange(equityHistory);
+  const dataPoints = filteredData?.length ?? 0;
+  const totalDataPoints = equityHistory?.length ?? 0;
 
   return (
     <div className="h-full flex flex-col bg-white">

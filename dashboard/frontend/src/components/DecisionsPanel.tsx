@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { Bot, TrendingUp, TrendingDown, ExternalLink, Clock } from 'lucide-react';
+import { api } from '@/lib/api';
 
 interface Decision {
   market_id: string;
+  slug?: string;
   decision: string;
   confidence: string;
   position_size_usd: number;
@@ -16,27 +18,52 @@ interface Decision {
 
 // 글로벌 결정 저장소 (SWR 대신 간단한 상태 관리)
 let latestDecisions: Decision[] = [];
+let latestDecisionsVersion = 0;
 
 export function setLatestDecisions(decisions: Decision[]) {
   latestDecisions = decisions;
+  latestDecisionsVersion++;
 }
 
 export default function DecisionsPanel() {
-  const [decisions, setDecisions] = useState<Decision[]>(latestDecisions);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [currentVersion, setCurrentVersion] = useState(0);
+  const [loading, setLoading] = useState(true);
 
-  // Poll for new decisions
+  // Load decisions from API on mount
+  useEffect(() => {
+    const loadDecisions = async () => {
+      try {
+        const data = await api.getDecisions(50);
+        if (data && data.length > 0) {
+          setDecisions(data);
+          latestDecisions = data;
+          setLastUpdated(new Date());
+        }
+      } catch (error) {
+        console.error('Failed to load decisions:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadDecisions();
+  }, []);
+
+  // Poll for new decisions from global state
   useEffect(() => {
     const checkDecisions = () => {
-      if (latestDecisions.length > 0 && latestDecisions !== decisions) {
+      if (latestDecisionsVersion > currentVersion && latestDecisions.length > 0) {
         setDecisions([...latestDecisions]);
+        setCurrentVersion(latestDecisionsVersion);
         setLastUpdated(new Date());
       }
     };
 
-    const interval = setInterval(checkDecisions, 2000);
+    const interval = setInterval(checkDecisions, 500);
     return () => clearInterval(interval);
-  }, [decisions]);
+  }, [currentVersion]);
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -59,7 +86,12 @@ export default function DecisionsPanel() {
 
       {/* Decisions List */}
       <div className="flex-1 overflow-y-auto">
-        {decisions.length === 0 ? (
+        {loading ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 px-4">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mb-2"></div>
+            <p className="text-sm">Loading decisions...</p>
+          </div>
+        ) : decisions.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 px-4">
             <Bot className="w-10 h-10 mb-2 opacity-50" />
             <p className="text-sm font-medium">No analysis yet</p>
@@ -91,8 +123,11 @@ function DecisionCard({ decision }: { decision: Decision }) {
   const isHighConfidence = confidence === 'high';
   const isMediumConfidence = confidence === 'medium';
 
-  // Polymarket link
-  const polymarketLink = `https://polymarket.com/event/${decision.market_id}`;
+  // Polymarket link - prefer slug if available, then check if market_id is slug-like
+  // /market/{slug} auto-redirects to the correct page
+  const polymarketLink = decision.slug
+    ? `https://polymarket.com/market/${decision.slug}`
+    : `https://polymarket.com/markets?_s=${decision.market_id}`;
 
   return (
     <div

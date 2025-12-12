@@ -75,6 +75,7 @@ class MarketData:
     # Event relationship (for submarket structure)
     event_id: Optional[str] = None
     event_title: Optional[str] = None
+    slug: Optional[str] = None  # For Polymarket URL
 
     # Token IDs
     yes_token_id: Optional[str] = None

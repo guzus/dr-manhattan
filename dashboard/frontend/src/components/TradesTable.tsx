@@ -51,7 +51,7 @@ export default function TradesTable({ limit = 50 }: TradesTableProps) {
             <thead className="bg-gray-50">
               <tr className="text-left text-gray-500 text-xs uppercase tracking-wide">
                 <th className="px-4 py-3 font-medium">Time</th>
-                <th className="px-4 py-3 font-medium">Market</th>
+                <th className="px-4 py-3 font-medium">Event / Selection</th>
                 <th className="px-4 py-3 font-medium">Action</th>
                 <th className="px-4 py-3 font-medium text-right">Size</th>
                 <th className="px-4 py-3 font-medium text-right">Price</th>
@@ -62,8 +62,12 @@ export default function TradesTable({ limit = 50 }: TradesTableProps) {
             <tbody className="divide-y divide-gray-100">
               {trades.map((trade) => {
                 const isBuy = trade.side === 'BUY';
-                const total = trade.size * trade.price;
-                const polymarketLink = `https://polymarket.com/event/${trade.market_id}`;
+                const total = trade.total || trade.size * trade.price;
+
+                // Generate Polymarket link using slug
+                const polymarketLink = trade.slug
+                  ? `https://polymarket.com/market/${trade.slug}`
+                  : `https://polymarket.com/markets?search=${encodeURIComponent(trade.market_question?.slice(0, 30) || '')}`;
 
                 return (
                   <tr
@@ -80,11 +84,21 @@ export default function TradesTable({ limit = 50 }: TradesTableProps) {
                       </div>
                     </td>
 
-                    {/* Market */}
-                    <td className="px-4 py-3">
-                      <span className="text-sm font-mono text-black">
-                        {trade.market_id.slice(0, 16)}...
-                      </span>
+                    {/* Event + Selection (2줄 구조) */}
+                    <td className="px-4 py-3 max-w-[280px]">
+                      {/* Event Title (상위) */}
+                      <div className="text-xs text-gray-500 mb-0.5 truncate">
+                        {trade.event_title || 'Unknown Event'}
+                      </div>
+                      {/* Market Question (선택한 항목) */}
+                      <a
+                        href={polymarketLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline line-clamp-1 block"
+                      >
+                        → {trade.market_question || `Market ${trade.market_id.slice(0, 8)}...`}
+                      </a>
                     </td>
 
                     {/* Action */}
