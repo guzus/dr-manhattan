@@ -340,6 +340,8 @@ class Opinion(Exchange):
             metadata["closed"] = True
         elif status == TopicStatus.ACTIVATED.value:
             metadata["closed"] = False
+        else:
+            metadata["closed"] = False  # Default to open for unknown status
 
         return Market(
             id=market_id,
