@@ -563,6 +563,11 @@ class Opinion(Exchange):
         if price <= 0 or price >= 1:
             raise InvalidOrder(f"Price must be between 0 and 1, got: {price}")
 
+        # Validate tick size (0.01)
+        tick_size = 0.01
+        if round(price / tick_size) * tick_size != round(price, 2):
+            raise InvalidOrder(f"Price must be aligned to tick size {tick_size}, got: {price}")
+
         opinion_side = BUY if side == OrderSide.BUY else SELL
 
         order_type_str = extra_params.get("order_type", "limit").lower()
