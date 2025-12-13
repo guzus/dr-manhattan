@@ -127,6 +127,13 @@ class Opinion(Exchange):
                 "Opinion client not initialized. API key, private key, and multi_sig_addr required."
             )
 
+    def _parse_market_id(self, market_id: str) -> int:
+        """Safely parse market_id string to int."""
+        try:
+            return int(market_id)
+        except (ValueError, TypeError):
+            raise ExchangeError(f"Invalid market_id: {market_id}")
+
     def _request(self, method: str, endpoint: str, params: Optional[Dict] = None) -> Any:
         """Make HTTP request to Opinion API with retry logic"""
 
@@ -405,7 +412,7 @@ class Opinion(Exchange):
         def _fetch():
             # First try get_market (for binary markets)
             try:
-                response = self._client.get_market(int(market_id))
+                response = self._client.get_market(self._parse_market_id(market_id))
                 if hasattr(response, "errno") and response.errno == 0:
                     market_data = self._parse_market_response(response, f"fetch market {market_id}")
                     return self._parse_market(market_data)
@@ -414,7 +421,7 @@ class Opinion(Exchange):
 
             # If get_market fails, try get_categorical_market (for multi-outcome markets)
             try:
-                response = self._client.get_categorical_market(int(market_id))
+                response = self._client.get_categorical_market(self._parse_market_id(market_id))
                 if hasattr(response, "errno") and response.errno == 0:
                     market_data = self._parse_market_response(
                         response, f"fetch categorical market {market_id}"
@@ -562,7 +569,7 @@ class Opinion(Exchange):
         order_type = LIMIT_ORDER if order_type_str == "limit" else MARKET_ORDER
 
         order_input = PlaceOrderDataInput(
-            marketId=int(market_id),
+            marketId=self._parse_market_id(market_id),
             tokenId=str(token_id),
             price=str(price),
             side=opinion_side,
@@ -689,7 +696,7 @@ class Opinion(Exchange):
 
         try:
             response = self._client.get_my_orders(
-                market_id=int(market_id) if market_id else 0,
+                market_id=self._parse_market_id(market_id) if market_id else 0,
                 status="1",
                 limit=limit,
                 page=page,
@@ -821,7 +828,7 @@ class Opinion(Exchange):
 
         try:
             response = self._client.get_my_positions(
-                market_id=int(market_id) if market_id else 0,
+                market_id=self._parse_market_id(market_id) if market_id else 0,
                 page=page,
                 limit=limit,
             )
@@ -979,7 +986,7 @@ class Opinion(Exchange):
 
         try:
             tx_hash, safe_tx_hash, return_value = self._client.split(
-                market_id=int(market_id),
+                market_id=self._parse_market_id(market_id),
                 amount=amount,
                 check_approval=check_approval,
             )
@@ -1006,7 +1013,7 @@ class Opinion(Exchange):
 
         try:
             tx_hash, safe_tx_hash, return_value = self._client.merge(
-                market_id=int(market_id),
+                market_id=self._parse_market_id(market_id),
                 amount=amount,
                 check_approval=check_approval,
             )
@@ -1032,7 +1039,7 @@ class Opinion(Exchange):
 
         try:
             tx_hash, safe_tx_hash, return_value = self._client.redeem(
-                market_id=int(market_id),
+                market_id=self._parse_market_id(market_id),
                 check_approval=check_approval,
             )
             return {
@@ -1063,7 +1070,7 @@ class Opinion(Exchange):
                 opinion_side = BUY if side == OrderSide.BUY else SELL
 
             result = self._client.cancel_all_orders(
-                market_id=int(market_id) if market_id else None,
+                market_id=self._parse_market_id(market_id) if market_id else None,
                 side=opinion_side,
             )
             return result
