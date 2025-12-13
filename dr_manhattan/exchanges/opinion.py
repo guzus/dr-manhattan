@@ -1375,12 +1375,6 @@ class Opinion(Exchange):
         if limit < 0 or limit > 1000:
             raise ValueError("limit must be between 0 and 1000")
 
-        market_id: Optional[str] = None
-        if isinstance(market, Market):
-            market_id = market.id
-        elif isinstance(market, str):
-            market_id = market
-
         # Note: This requires Opinion API to support public trades endpoint
         # For now, return empty list as placeholder
         # When Opinion adds this endpoint, implement the actual fetch

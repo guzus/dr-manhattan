@@ -1,11 +1,11 @@
 """Tests for Opinion exchange implementation."""
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
-from datetime import datetime, timezone
 
 from dr_manhattan import Opinion, OrderSide, OrderStatus
-from dr_manhattan.base.errors import AuthenticationError, ExchangeError, MarketNotFound
+from dr_manhattan.base.errors import AuthenticationError, MarketNotFound
 
 
 class TestOpinionBasic:
