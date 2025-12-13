@@ -58,14 +58,18 @@ class TestOpinionMarketParsing:
         """Test parsing basic market data."""
         exchange = Opinion({})
 
-        # Create mock market data
-        mock_data = MagicMock()
-        mock_data.topic_id = 123
-        mock_data.title = "Will BTC reach $100k?"
-        mock_data.tokens = []
+        # Create mock market data matching actual API structure
+        mock_data = MagicMock(spec=[])
+        mock_data.market_id = 123
+        mock_data.market_title = "Will BTC reach $100k?"
+        mock_data.yes_token_id = "token_yes"
+        mock_data.no_token_id = "token_no"
+        mock_data.yes_label = "Yes"
+        mock_data.no_label = "No"
+        mock_data.child_markets = None
         mock_data.cutoff_time = 1735689600
-        mock_data.volume = 10000.0
-        mock_data.liquidity = 5000.0
+        mock_data.volume = "10000.0"
+        mock_data.liquidity = "5000.0"
         mock_data.status = 2  # ACTIVATED
         mock_data.condition_id = "0xabc123"
         mock_data.chain_id = 56
@@ -74,7 +78,7 @@ class TestOpinionMarketParsing:
         mock_data.category = "Crypto"
         mock_data.image_url = ""
 
-        market = exchange._parse_market(mock_data)
+        market = exchange._parse_market(mock_data, fetch_prices=False)
 
         assert market.id == "123"
         assert market.question == "Will BTC reach $100k?"
@@ -86,24 +90,18 @@ class TestOpinionMarketParsing:
         """Test parsing market with outcome tokens."""
         exchange = Opinion({})
 
-        # Create mock token data
-        mock_token_yes = MagicMock()
-        mock_token_yes.outcome = "Yes"
-        mock_token_yes.token_id = "token_yes_123"
-        mock_token_yes.price = 0.65
-
-        mock_token_no = MagicMock()
-        mock_token_no.outcome = "No"
-        mock_token_no.token_id = "token_no_456"
-        mock_token_no.price = 0.35
-
-        mock_data = MagicMock()
-        mock_data.topic_id = 456
-        mock_data.title = "Test Market"
-        mock_data.tokens = [mock_token_yes, mock_token_no]
+        # Create mock data matching actual API structure
+        mock_data = MagicMock(spec=[])  # spec=[] prevents auto-creating attributes
+        mock_data.market_id = 456
+        mock_data.market_title = "Test Market"
+        mock_data.yes_token_id = "token_yes_123"
+        mock_data.no_token_id = "token_no_456"
+        mock_data.yes_label = "Yes"
+        mock_data.no_label = "No"
+        mock_data.child_markets = None
         mock_data.cutoff_time = None
-        mock_data.volume = 0
-        mock_data.liquidity = 0
+        mock_data.volume = "0"
+        mock_data.liquidity = "0"
         mock_data.status = 2
         mock_data.condition_id = ""
         mock_data.chain_id = 56
@@ -112,11 +110,10 @@ class TestOpinionMarketParsing:
         mock_data.category = ""
         mock_data.image_url = ""
 
-        market = exchange._parse_market(mock_data)
+        market = exchange._parse_market(mock_data, fetch_prices=False)
 
+        assert market.id == "456"
         assert market.outcomes == ["Yes", "No"]
-        assert market.prices["Yes"] == 0.65
-        assert market.prices["No"] == 0.35
         assert market.metadata["token_ids"] == ["token_yes_123", "token_no_456"]
         assert market.metadata["tokens"]["Yes"] == "token_yes_123"
         assert market.metadata["tokens"]["No"] == "token_no_456"
@@ -213,14 +210,18 @@ class TestOpinionWithMockedClient:
 
     def test_fetch_markets_success(self, exchange_with_mock, mock_client):
         """Test successful fetch_markets."""
-        # Setup mock response
-        mock_market = MagicMock()
-        mock_market.topic_id = 1
-        mock_market.title = "Test Market"
-        mock_market.tokens = []
+        # Setup mock response matching actual API structure
+        mock_market = MagicMock(spec=[])
+        mock_market.market_id = 1
+        mock_market.market_title = "Test Market"
+        mock_market.yes_token_id = "token_yes"
+        mock_market.no_token_id = "token_no"
+        mock_market.yes_label = "Yes"
+        mock_market.no_label = "No"
+        mock_market.child_markets = None
         mock_market.cutoff_time = None
-        mock_market.volume = 1000
-        mock_market.liquidity = 500
+        mock_market.volume = "1000"
+        mock_market.liquidity = "500"
         mock_market.status = 2
         mock_market.condition_id = "0x123"
         mock_market.chain_id = 56

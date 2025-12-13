@@ -233,13 +233,15 @@ class Opinion(Exchange):
                     outcomes.append(child_title)
                     token_ids.append(child_yes_token)
                     # Store child market info for reference
-                    child_markets_data.append({
-                        "market_id": child_market_id,
-                        "title": child_title,
-                        "yes_token_id": child_yes_token,
-                        "no_token_id": str(getattr(child, "no_token_id", "") or ""),
-                        "volume": child_volume,
-                    })
+                    child_markets_data.append(
+                        {
+                            "market_id": child_market_id,
+                            "title": child_title,
+                            "yes_token_id": child_yes_token,
+                            "no_token_id": str(getattr(child, "no_token_id", "") or ""),
+                            "volume": child_volume,
+                        }
+                    )
         else:
             # Try legacy tokens array format
             tokens = getattr(data, "tokens", []) or []
@@ -414,7 +416,9 @@ class Opinion(Exchange):
             try:
                 response = self._client.get_categorical_market(int(market_id))
                 if hasattr(response, "errno") and response.errno == 0:
-                    market_data = self._parse_market_response(response, f"fetch categorical market {market_id}")
+                    market_data = self._parse_market_response(
+                        response, f"fetch categorical market {market_id}"
+                    )
                     return self._parse_market(market_data)
             except Exception:
                 pass
@@ -702,9 +706,7 @@ class Opinion(Exchange):
     def _parse_order(self, data: Any) -> Order:
         """Parse order data from API response."""
         order_id = str(
-            getattr(data, "order_id", "")
-            or getattr(data, "id", "")
-            or getattr(data, "orderID", "")
+            getattr(data, "order_id", "") or getattr(data, "id", "") or getattr(data, "orderID", "")
         )
         market_id = str(getattr(data, "topic_id", "") or getattr(data, "market_id", ""))
 
@@ -852,9 +854,7 @@ class Opinion(Exchange):
         average_price = float(
             getattr(data, "average_price", 0) or getattr(data, "avg_price", 0) or 0
         )
-        current_price = float(
-            getattr(data, "current_price", 0) or getattr(data, "price", 0) or 0
-        )
+        current_price = float(getattr(data, "current_price", 0) or getattr(data, "price", 0) or 0)
 
         return Position(
             market_id=market_id,
@@ -923,12 +923,14 @@ class Opinion(Exchange):
         for pos in positions:
             value = pos.size * pos.current_price
             positions_value += value
-            positions_breakdown.append({
-                "outcome": pos.outcome,
-                "size": pos.size,
-                "current_price": pos.current_price,
-                "value": value,
-            })
+            positions_breakdown.append(
+                {
+                    "outcome": pos.outcome,
+                    "size": pos.size,
+                    "current_price": pos.current_price,
+                    "value": value,
+                }
+            )
 
         nav = cash + positions_value
 
