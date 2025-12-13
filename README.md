@@ -6,7 +6,7 @@ CCXT-style unified API for prediction markets. Simple, scalable, and easy to ext
 <p align="center">
   <img src="assets/polymarket.png" alt="Polymarket" width="50"/>
   <img src="assets/kalshi.jpeg" alt="Kalshi" width="50"/>
-  <img src="assets/opinion.png" alt="Opinion" width="50"/>
+  <img src="assets/opinion.jpg" alt="Opinion" width="50"/>
 </p>
 
 ## Architecture
