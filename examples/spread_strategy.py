@@ -4,14 +4,17 @@ Market Making Example for Polymarket
 High-performance market making using exchange interfaces and WebSocket orderbook updates.
 
 Usage:
-    # Using market slug
-    uv run python examples/market_making_websocket.py fed-decision-in-december
+    # Single market event - trades all tokens (Yes/No)
+    uv run python examples/spread_strategy.py fed-decision-in-december
+
+    # Multi-market event - shows interactive selection menu
+    uv run python examples/spread_strategy.py what-day-will-openai-release-a-new-frontier-model
+
+    # Multi-market event - select market by index (skip menu)
+    uv run python examples/spread_strategy.py what-day-will-openai-release-a-new-frontier-model --market 0
 
     # Using full URL
-    uv run python examples/market_making_websocket.py https://polymarket.com/event/fed-decision-in-december
-
-    # Via environment variable
-    MARKET_SLUG="lol-t1-kt-2025-11-09" uv run python examples/market_making_websocket.py
+    uv run python examples/spread_strategy.py https://polymarket.com/event/fed-decision-in-december
 """
 
 import os
@@ -49,6 +52,8 @@ class SpreadStrategy:
         max_delta: float = 20.0,
         check_interval: float = 5.0,
         track_fills: bool = True,
+        token_filter: Optional[str] = None,
+        market_index: Optional[int] = None,
     ):
         """
         Initialize market maker
@@ -61,6 +66,8 @@ class SpreadStrategy:
             max_delta: Maximum position imbalance
             check_interval: How often to check and adjust orders
             track_fills: Enable order fill tracking and logging
+            token_filter: Optional token index (e.g., "0") or name (e.g., "Monday") to trade only that token
+            market_index: Optional market index for multi-market events (skip interactive selection)
         """
         self.exchange = exchange
         self.market_slug = market_slug
@@ -69,6 +76,8 @@ class SpreadStrategy:
         self.max_delta = max_delta
         self.check_interval = check_interval
         self.track_fills = track_fills
+        self.token_filter = token_filter
+        self.market_index = market_index
 
         # Market data
         self.market = None
@@ -95,8 +104,30 @@ class SpreadStrategy:
         """
         logger.info(f"Fetching market: {self.market_slug}")
 
-        # Use exchange method to fetch by slug/URL
-        self.market = self.exchange.fetch_market_by_slug(self.market_slug)
+        # Fetch all markets from the event
+        all_markets = self.exchange.fetch_markets_by_slug(self.market_slug)
+
+        if not all_markets:
+            logger.error(f"Failed to fetch market: {self.market_slug}")
+            return False
+
+        # If multiple markets in event, select or prompt
+        if len(all_markets) > 1:
+            if self.market_index is not None:
+                # Use provided index
+                if 0 <= self.market_index < len(all_markets):
+                    selected_idx = self.market_index
+                else:
+                    logger.error(f"Market index {self.market_index} out of range (0-{len(all_markets)-1})")
+                    return False
+            else:
+                # Prompt for selection
+                selected_idx = self._prompt_market_selection(all_markets)
+                if selected_idx is None:
+                    return False
+            self.market = all_markets[selected_idx]
+        else:
+            self.market = all_markets[0]
 
         if not self.market:
             logger.error(f"Failed to fetch market: {self.market_slug}")
@@ -138,7 +169,106 @@ class SpreadStrategy:
         if slug:
             logger.info(f"URL: {Colors.gray(f'https://polymarket.com/event/{slug}')}")
 
+        # Apply token filter or prompt for selection
+        if self.token_filter is not None:
+            filtered_idx = self._parse_token_filter(self.token_filter)
+            if filtered_idx is None:
+                return False
+            self._apply_token_filter(filtered_idx)
+        elif len(self.outcomes) > 2:
+            # Multi-outcome market without filter - prompt user to select
+            filtered_idx = self._prompt_token_selection()
+            if filtered_idx is None:
+                return False
+            if filtered_idx >= 0:
+                self._apply_token_filter(filtered_idx)
+            # filtered_idx == -1 means "all tokens"
+
         return True
+
+    def _parse_token_filter(self, token_filter: str) -> Optional[int]:
+        """Parse token filter string and return index, or None if invalid"""
+        # Try to parse as index first
+        try:
+            idx = int(token_filter)
+            if 0 <= idx < len(self.outcomes):
+                return idx
+            else:
+                logger.error(f"Token index {idx} out of range (0-{len(self.outcomes)-1})")
+                return None
+        except ValueError:
+            # Not an index, try matching by name (case-insensitive)
+            filter_lower = token_filter.lower()
+            for i, outcome in enumerate(self.outcomes):
+                if outcome.lower() == filter_lower or outcome.lower().startswith(filter_lower):
+                    return i
+
+            logger.error(f"Token '{token_filter}' not found. Available: {self.outcomes}")
+            return None
+
+    def _apply_token_filter(self, idx: int):
+        """Filter to single token by index"""
+        original_count = len(self.token_ids)
+        self.outcomes = [self.outcomes[idx]]
+        self.token_ids = [self.token_ids[idx]]
+        logger.info(f"\n{Colors.bold('Token Filter:')} Trading only {Colors.magenta(self.outcomes[0])} (filtered from {original_count} tokens)")
+
+    def _prompt_market_selection(self, markets: List) -> Optional[int]:
+        """Prompt user to select a market from multi-market event. Returns index or None for exit."""
+        print(f"\n{Colors.bold('Event has multiple markets. Select one:')}")
+        for i, market in enumerate(markets):
+            question = market.question
+            yes_price = market.prices.get("Yes", 0)
+            print(f"  {Colors.cyan(str(i))} - Yes: {Colors.yellow(f'{yes_price:.2%}')}")
+            print(f"      {Colors.magenta(question)}")
+        print(f"  {Colors.cyan('q')} - Quit")
+
+        while True:
+            try:
+                choice = input(f"\n{Colors.bold('Enter choice:')} ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return None
+
+            if choice == 'q':
+                return None
+
+            try:
+                idx = int(choice)
+                if 0 <= idx < len(markets):
+                    return idx
+                print(f"  Invalid index. Enter 0-{len(markets)-1} or 'q' to quit.")
+            except ValueError:
+                print(f"  Invalid input. Enter 0-{len(markets)-1} or 'q' to quit.")
+
+    def _prompt_token_selection(self) -> Optional[int]:
+        """Prompt user to select a token interactively. Returns index or -1 for all, None for exit."""
+        print(f"\n{Colors.bold('Select token to trade:')}")
+        print(f"  {Colors.cyan('a')} - All tokens")
+        for i, outcome in enumerate(self.outcomes):
+            price = self.market.prices.get(outcome, 0)
+            print(f"  {Colors.cyan(str(i))} - {Colors.magenta(outcome)} @ {Colors.yellow(f'{price:.4f}')}")
+        print(f"  {Colors.cyan('q')} - Quit")
+
+        while True:
+            try:
+                choice = input(f"\n{Colors.bold('Enter choice:')} ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return None
+
+            if choice == 'q':
+                return None
+            if choice == 'a':
+                return -1  # All tokens
+
+            try:
+                idx = int(choice)
+                if 0 <= idx < len(self.outcomes):
+                    return idx
+                print(f"  Invalid index. Enter 0-{len(self.outcomes)-1}, 'a' for all, or 'q' to quit.")
+            except ValueError:
+                print(f"  Invalid input. Enter 0-{len(self.outcomes)-1}, 'a' for all, or 'q' to quit.")
 
     def setup_websocket(self):
         """Setup WebSocket connection using exchange interface"""
@@ -502,21 +632,34 @@ def main():
         logger.error("Set POLYMARKET_PRIVATE_KEY and POLYMARKET_FUNDER in .env")
         return 1
 
-    # Get market slug from command line or environment
+    # Parse command line arguments
     market_slug = os.getenv('MARKET_SLUG', '')
+    market_index = None
 
-    if len(sys.argv) > 1:
-        market_slug = sys.argv[1]
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        if args[i] == '--market' and i + 1 < len(args):
+            try:
+                market_index = int(args[i + 1])
+            except ValueError:
+                logger.error(f"Invalid market index: {args[i + 1]}")
+                return 1
+            i += 2
+        elif not args[i].startswith('--'):
+            market_slug = args[i]
+            i += 1
+        else:
+            i += 1
 
     if not market_slug:
         logger.error("No market slug provided!")
         logger.error("\nUsage:")
-        logger.error("  uv run python examples/market_making_websocket.py MARKET_SLUG")
-        logger.error("  uv run python examples/market_making_websocket.py https://polymarket.com/event/MARKET_SLUG")
-        logger.error("  MARKET_SLUG=fed-decision-in-december uv run python examples/market_making_websocket.py")
+        logger.error("  uv run python examples/spread_strategy.py MARKET_SLUG")
+        logger.error("  uv run python examples/spread_strategy.py MARKET_SLUG --market 0  # select market in multi-market event")
         logger.error("\nExample slugs:")
         logger.error("  fed-decision-in-december")
-        logger.error("  lol-t1-kt-2025-11-09")
+        logger.error("  what-day-will-openai-release-a-new-frontier-model")
         return 1
 
     # Create exchange
@@ -544,7 +687,8 @@ def main():
         max_position=100.0,
         order_size=5.0,
         max_delta=20.0,
-        check_interval=5.0
+        check_interval=5.0,
+        market_index=market_index,
     )
 
     mm.run(duration_minutes=None)

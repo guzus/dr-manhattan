@@ -409,6 +409,69 @@ class Polymarket(Exchange):
                 print(f"Failed to fetch market by slug: {e}")
             return None
 
+    def fetch_markets_by_slug(self, slug_or_url: str) -> List[Market]:
+        """
+        Fetch all markets from an event by slug or URL.
+
+        For events with multiple markets (e.g., "which day will X happen"),
+        this returns all markets in the event.
+
+        Args:
+            slug_or_url: Event slug or full Polymarket URL
+
+        Returns:
+            List of Market objects with token IDs populated
+        """
+        slug = self.parse_market_identifier(slug_or_url)
+
+        if not slug:
+            return []
+
+        try:
+            response = requests.get(f"{self.BASE_URL}/events?slug={slug}", timeout=self.timeout)
+
+            if response.status_code != 200:
+                return []
+
+            event_data = response.json()
+            if not event_data or len(event_data) == 0:
+                return []
+
+            event = event_data[0]
+            markets_data = event.get("markets", [])
+
+            if not markets_data:
+                return []
+
+            markets = []
+            for market_data in markets_data:
+                market = self._parse_market(market_data)
+
+                # Get token IDs from market data
+                clob_token_ids = market_data.get("clobTokenIds", [])
+                if isinstance(clob_token_ids, str):
+                    try:
+                        clob_token_ids = json.loads(clob_token_ids)
+                    except Exception:
+                        clob_token_ids = []
+
+                if clob_token_ids:
+                    market.metadata["clobTokenIds"] = clob_token_ids
+
+                # Set default tick size
+                if "tick_size" not in market.metadata and "minimum_tick_size" not in market.metadata:
+                    market.metadata["minimum_tick_size"] = 0.001
+                    market.metadata["tick_size"] = 0.001
+
+                markets.append(market)
+
+            return markets
+
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to fetch markets by slug: {e}")
+            return []
+
     def get_orderbook(self, token_id: str) -> Dict[str, Any]:
         """
         Fetch orderbook for a specific token via REST API.
