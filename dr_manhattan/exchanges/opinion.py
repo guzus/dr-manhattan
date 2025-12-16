@@ -67,6 +67,8 @@ class Opinion(Exchange):
     DATA_API_URL = "https://proxy.opinion.trade:8443"
     CHAIN_ID = 56  # BNB Chain mainnet
     DEFAULT_RPC_URL = "https://bsc-dataseed.binance.org"
+    CONDITIONAL_TOKEN_ADDR = "0xAD1a38cEc043e70E83a3eC30443dB285ED10D774"
+    MULTISEND_ADDR = "0x998739BFdAAdde7C933B942a68053933098f9EDa"
 
     SUPPORTED_INTERVALS: Sequence[str] = ("1m", "1h", "1d", "1w", "max")
 
