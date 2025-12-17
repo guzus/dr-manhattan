@@ -345,7 +345,10 @@ class Polymarket(Exchange):
                     market.metadata["clobTokenIds"] = clob_token_ids
 
                 # Set default tick size
-                if "tick_size" not in market.metadata and "minimum_tick_size" not in market.metadata:
+                if (
+                    "tick_size" not in market.metadata
+                    and "minimum_tick_size" not in market.metadata
+                ):
                     market.metadata["minimum_tick_size"] = 0.001
                     market.metadata["tick_size"] = 0.001
 

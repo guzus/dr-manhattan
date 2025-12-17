@@ -118,7 +118,9 @@ class SpreadStrategy:
                 if 0 <= self.market_index < len(all_markets):
                     selected_idx = self.market_index
                 else:
-                    logger.error(f"Market index {self.market_index} out of range (0-{len(all_markets)-1})")
+                    logger.error(
+                        f"Market index {self.market_index} out of range (0-{len(all_markets)-1})"
+                    )
                     return False
             else:
                 # Prompt for selection
@@ -134,7 +136,7 @@ class SpreadStrategy:
             return False
 
         # Extract token IDs and outcomes
-        self.token_ids = self.market.metadata.get('clobTokenIds', [])
+        self.token_ids = self.market.metadata.get("clobTokenIds", [])
         self.outcomes = self.market.outcomes
 
         if not self.token_ids:
@@ -150,8 +152,8 @@ class SpreadStrategy:
             if price > 0:
                 # Check if price has more precision than tick_size
                 price_str = f"{price:.4f}"
-                if '.' in price_str:
-                    decimals = len(price_str.split('.')[1].rstrip('0'))
+                if "." in price_str:
+                    decimals = len(price_str.split(".")[1].rstrip("0"))
                     if decimals == 3:  # e.g., 0.021
                         self.tick_size = 0.001
                         logger.info(f"  Detected tick size: 0.001 (from market prices)")
@@ -159,13 +161,15 @@ class SpreadStrategy:
 
         # Display market info
         logger.info(f"\n{Colors.bold('Market:')} {Colors.cyan(self.market.question)}")
-        logger.info(f"Outcomes: {Colors.magenta(str(self.outcomes))} | Tick: {Colors.yellow(str(self.tick_size))} | Vol: {Colors.cyan(f'${self.market.volume:,.0f}')}")
+        logger.info(
+            f"Outcomes: {Colors.magenta(str(self.outcomes))} | Tick: {Colors.yellow(str(self.tick_size))} | Vol: {Colors.cyan(f'${self.market.volume:,.0f}')}"
+        )
 
         for i, (outcome, token_id) in enumerate(zip(self.outcomes, self.token_ids)):
             price = self.market.prices.get(outcome, 0)
             logger.info(f"  [{i}] {Colors.magenta(outcome)}: {Colors.yellow(f'{price:.4f}')}")
 
-        slug = self.market.metadata.get('slug', '')
+        slug = self.market.metadata.get("slug", "")
         if slug:
             logger.info(f"URL: {Colors.gray(f'https://polymarket.com/event/{slug}')}")
 
@@ -211,7 +215,9 @@ class SpreadStrategy:
         original_count = len(self.token_ids)
         self.outcomes = [self.outcomes[idx]]
         self.token_ids = [self.token_ids[idx]]
-        logger.info(f"\n{Colors.bold('Token Filter:')} Trading only {Colors.magenta(self.outcomes[0])} (filtered from {original_count} tokens)")
+        logger.info(
+            f"\n{Colors.bold('Token Filter:')} Trading only {Colors.magenta(self.outcomes[0])} (filtered from {original_count} tokens)"
+        )
 
     def _prompt_market_selection(self, markets: List) -> Optional[int]:
         """Prompt user to select a market from multi-market event. Returns index or None for exit."""
@@ -230,7 +236,7 @@ class SpreadStrategy:
                 print()
                 return None
 
-            if choice == 'q':
+            if choice == "q":
                 return None
 
             try:
@@ -247,7 +253,9 @@ class SpreadStrategy:
         print(f"  {Colors.cyan('a')} - All tokens")
         for i, outcome in enumerate(self.outcomes):
             price = self.market.prices.get(outcome, 0)
-            print(f"  {Colors.cyan(str(i))} - {Colors.magenta(outcome)} @ {Colors.yellow(f'{price:.4f}')}")
+            print(
+                f"  {Colors.cyan(str(i))} - {Colors.magenta(outcome)} @ {Colors.yellow(f'{price:.4f}')}"
+            )
         print(f"  {Colors.cyan('q')} - Quit")
 
         while True:
@@ -257,18 +265,22 @@ class SpreadStrategy:
                 print()
                 return None
 
-            if choice == 'q':
+            if choice == "q":
                 return None
-            if choice == 'a':
+            if choice == "a":
                 return -1  # All tokens
 
             try:
                 idx = int(choice)
                 if 0 <= idx < len(self.outcomes):
                     return idx
-                print(f"  Invalid index. Enter 0-{len(self.outcomes)-1}, 'a' for all, or 'q' to quit.")
+                print(
+                    f"  Invalid index. Enter 0-{len(self.outcomes)-1}, 'a' for all, or 'q' to quit."
+                )
             except ValueError:
-                print(f"  Invalid input. Enter 0-{len(self.outcomes)-1}, 'a' for all, or 'q' to quit.")
+                print(
+                    f"  Invalid input. Enter 0-{len(self.outcomes)-1}, 'a' for all, or 'q' to quit."
+                )
 
     def setup_websocket(self):
         """Setup WebSocket connection using exchange interface"""
@@ -304,7 +316,9 @@ class SpreadStrategy:
         # No token prices are calculated as inverse
         tokens_to_subscribe = [self.token_ids[0]] if len(self.token_ids) == 2 else self.token_ids
 
-        logger.info(f"Starting WebSocket (subscribing to {len(tokens_to_subscribe)}/{len(self.token_ids)} tokens)...")
+        logger.info(
+            f"Starting WebSocket (subscribing to {len(tokens_to_subscribe)}/{len(self.token_ids)} tokens)..."
+        )
 
         # Create event loop if needed
         if self.ws.loop is None:
@@ -365,7 +379,7 @@ class SpreadStrategy:
             List of open orders
         """
         try:
-            condition_id = self.market.metadata.get('conditionId', self.market.id)
+            condition_id = self.market.metadata.get("conditionId", self.market.id)
             return self.exchange.fetch_open_orders(market_id=condition_id)
         except Exception as e:
             logger.warning(f"Failed to fetch open orders: {e}")
@@ -421,15 +435,27 @@ class SpreadStrategy:
         nav = nav_data.nav
         cash = nav_data.cash
 
-        logger.info(f"\n[{time.strftime('%H:%M:%S')}] {Colors.bold('NAV:')} {Colors.green(f'${nav:,.2f}')} | Cash: {Colors.cyan(f'${cash:,.2f}')} | Pos: {pos_compact} | Delta: {Colors.yellow(f'{delta:.1f}')}{delta_side} | Orders: {Colors.cyan(str(len(open_orders)))}")
+        logger.info(
+            f"\n[{time.strftime('%H:%M:%S')}] {Colors.bold('NAV:')} {Colors.green(f'${nav:,.2f}')} | Cash: {Colors.cyan(f'${cash:,.2f}')} | Pos: {pos_compact} | Delta: {Colors.yellow(f'{delta:.1f}')}{delta_side} | Orders: {Colors.cyan(str(len(open_orders)))}"
+        )
 
         # Display open orders if any
         if open_orders:
             for order in open_orders:
-                side_colored = Colors.green(order.side.value.upper()) if order.side == OrderSide.BUY else Colors.red(order.side.value.upper())
+                side_colored = (
+                    Colors.green(order.side.value.upper())
+                    if order.side == OrderSide.BUY
+                    else Colors.red(order.side.value.upper())
+                )
                 # Use original_size if available (some might show remaining size as 0)
-                size_display = order.original_size if hasattr(order, 'original_size') and order.original_size else order.size
-                logger.info(f"  {Colors.gray('Open:')} {Colors.magenta(order.outcome)} {side_colored} {size_display:.0f} @ {Colors.yellow(f'{order.price:.4f}')}")
+                size_display = (
+                    order.original_size
+                    if hasattr(order, "original_size") and order.original_size
+                    else order.size
+                )
+                logger.info(
+                    f"  {Colors.gray('Open:')} {Colors.magenta(order.outcome)} {side_colored} {size_display:.0f} @ {Colors.yellow(f'{order.price:.4f}')}"
+                )
 
         # Check delta risk
         if delta > self.max_delta:
@@ -465,7 +491,9 @@ class SpreadStrategy:
 
             # Sanity check: if bid >= ask, the spread is too tight
             if our_bid >= our_ask:
-                logger.warning(f"  {outcome}: Spread too tight (bid={our_bid:.4f} >= ask={our_ask:.4f}), skipping")
+                logger.warning(
+                    f"  {outcome}: Spread too tight (bid={our_bid:.4f} >= ask={our_ask:.4f}), skipping"
+                )
                 continue
 
             position_size = positions.get(outcome, 0)
@@ -492,7 +520,9 @@ class SpreadStrategy:
                     for order in buy_orders:
                         try:
                             self.exchange.cancel_order(order.id)
-                            logger.info(f"    {Colors.gray('✕ Cancel')} {Colors.green('BUY')} @ {Colors.yellow(f'{order.price:.4f}')}")
+                            logger.info(
+                                f"    {Colors.gray('✕ Cancel')} {Colors.green('BUY')} @ {Colors.yellow(f'{order.price:.4f}')}"
+                            )
                         except:
                             pass
 
@@ -507,12 +537,14 @@ class SpreadStrategy:
                         side=OrderSide.BUY,
                         price=our_bid,
                         size=self.order_size,
-                        params={'token_id': token_id}
+                        params={"token_id": token_id},
                     )
                     # Track the order for fill detection
                     if self.order_tracker:
                         self.order_tracker.track_order(order)
-                    logger.info(f"    {Colors.gray('→')} {Colors.green('BUY')} {self.order_size:.0f} {Colors.magenta(outcome)} @ {Colors.yellow(f'{our_bid:.4f}')}")
+                    logger.info(
+                        f"    {Colors.gray('→')} {Colors.green('BUY')} {self.order_size:.0f} {Colors.magenta(outcome)} @ {Colors.yellow(f'{our_bid:.4f}')}"
+                    )
                 except Exception as e:
                     logger.error(f"    BUY failed: {e}")
 
@@ -528,7 +560,9 @@ class SpreadStrategy:
                     for order in sell_orders:
                         try:
                             self.exchange.cancel_order(order.id)
-                            logger.info(f"    {Colors.gray('✕ Cancel')} {Colors.red('SELL')} @ {Colors.yellow(f'{order.price:.4f}')}")
+                            logger.info(
+                                f"    {Colors.gray('✕ Cancel')} {Colors.red('SELL')} @ {Colors.yellow(f'{order.price:.4f}')}"
+                            )
                         except:
                             pass
 
@@ -543,18 +577,22 @@ class SpreadStrategy:
                         side=OrderSide.SELL,
                         price=our_ask,
                         size=self.order_size,
-                        params={'token_id': token_id}
+                        params={"token_id": token_id},
                     )
                     # Track the order for fill detection
                     if self.order_tracker:
                         self.order_tracker.track_order(order)
-                    logger.info(f"    {Colors.gray('→')} {Colors.red('SELL')} {self.order_size:.0f} {Colors.magenta(outcome)} @ {Colors.yellow(f'{our_ask:.4f}')}")
+                    logger.info(
+                        f"    {Colors.gray('→')} {Colors.red('SELL')} {self.order_size:.0f} {Colors.magenta(outcome)} @ {Colors.yellow(f'{our_ask:.4f}')}"
+                    )
                 except Exception as e:
                     logger.error(f"    SELL failed: {e}")
 
     def run(self, duration_minutes: Optional[int] = None):
         """Run the market making bot"""
-        logger.info(f"\n{Colors.bold('Market Maker:')} {Colors.cyan('BBO Strategy')} | MaxPos: {Colors.blue(f'{self.max_position:.0f}')} | Size: {Colors.yellow(f'{self.order_size:.0f}')} | MaxDelta: {Colors.yellow(f'{self.max_delta:.0f}')} | Interval: {Colors.gray(f'{self.check_interval}s')}")
+        logger.info(
+            f"\n{Colors.bold('Market Maker:')} {Colors.cyan('BBO Strategy')} | MaxPos: {Colors.blue(f'{self.max_position:.0f}')} | Size: {Colors.yellow(f'{self.order_size:.0f}')} | MaxDelta: {Colors.yellow(f'{self.max_delta:.0f}')} | Interval: {Colors.gray(f'{self.check_interval}s')}"
+        )
 
         # Fetch market using exchange interface
         if not self.fetch_market():
@@ -580,8 +618,8 @@ class SpreadStrategy:
             if self.tick_size == 0.01:
                 orderbook = self.orderbook_manager.get(self.token_ids[0])
                 if orderbook:
-                    bids = orderbook.get('bids', [])
-                    asks = orderbook.get('asks', [])
+                    bids = orderbook.get("bids", [])
+                    asks = orderbook.get("asks", [])
                     for price, size in bids + asks:
                         # Check if price uses finer granularity
                         if price % 0.01 != 0:
@@ -624,8 +662,8 @@ class SpreadStrategy:
 def main():
     load_dotenv()
 
-    private_key = os.getenv('POLYMARKET_PRIVATE_KEY')
-    funder = os.getenv('POLYMARKET_FUNDER')
+    private_key = os.getenv("POLYMARKET_PRIVATE_KEY")
+    funder = os.getenv("POLYMARKET_FUNDER")
 
     if not private_key or not funder:
         logger.error("Missing environment variables!")
@@ -633,20 +671,20 @@ def main():
         return 1
 
     # Parse command line arguments
-    market_slug = os.getenv('MARKET_SLUG', '')
+    market_slug = os.getenv("MARKET_SLUG", "")
     market_index = None
 
     args = sys.argv[1:]
     i = 0
     while i < len(args):
-        if args[i] == '--market' and i + 1 < len(args):
+        if args[i] == "--market" and i + 1 < len(args):
             try:
                 market_index = int(args[i + 1])
             except ValueError:
                 logger.error(f"Invalid market index: {args[i + 1]}")
                 return 1
             i += 2
-        elif not args[i].startswith('--'):
+        elif not args[i].startswith("--"):
             market_slug = args[i]
             i += 1
         else:
@@ -656,26 +694,25 @@ def main():
         logger.error("No market slug provided!")
         logger.error("\nUsage:")
         logger.error("  uv run python examples/spread_strategy.py MARKET_SLUG")
-        logger.error("  uv run python examples/spread_strategy.py MARKET_SLUG --market 0  # select market in multi-market event")
+        logger.error(
+            "  uv run python examples/spread_strategy.py MARKET_SLUG --market 0  # select market in multi-market event"
+        )
         logger.error("\nExample slugs:")
         logger.error("  fed-decision-in-december")
         logger.error("  what-day-will-openai-release-a-new-frontier-model")
         return 1
 
     # Create exchange
-    exchange = dr_manhattan.Polymarket({
-        'private_key': private_key,
-        'funder': funder,
-        'cache_ttl': 2.0,
-        'verbose': True
-    })
+    exchange = dr_manhattan.Polymarket(
+        {"private_key": private_key, "funder": funder, "cache_ttl": 2.0, "verbose": True}
+    )
 
     # Display trader profile
     logger.info(f"\n{Colors.bold('Trader Profile')}")
     logger.info(f"Address: {Colors.cyan(exchange._address or 'Unknown')}")
     try:
         balance = exchange.fetch_balance()
-        usdc = balance.get('USDC', 0.0)
+        usdc = balance.get("USDC", 0.0)
         logger.info(f"Balance: {Colors.green(f'${usdc:,.2f}')} USDC")
     except Exception as e:
         logger.warning(f"Failed to fetch balance: {e}")

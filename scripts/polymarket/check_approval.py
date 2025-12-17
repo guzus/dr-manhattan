@@ -32,7 +32,7 @@ print("=" * 80)
 try:
     from py_clob_client.client import ClobClient
     from py_clob_client.clob_types import BalanceAllowanceParams
-    
+
     # Initialize client
     client = ClobClient(
         host="https://clob.polymarket.com",
@@ -41,57 +41,54 @@ try:
         signature_type=2,
         funder=FUNDER,
     )
-    
+
     # Get API credentials
     api_creds = client.create_or_derive_api_creds()
     client.set_api_creds(api_creds)
-    
+
     # Get address
     address = client.get_address()
     print(f"Wallet Address: {address}")
     if FUNDER:
         print(f"Funder Address: {FUNDER}")
     print()
-    
+
     # Check balance and allowance
-    params = BalanceAllowanceParams(
-        asset_type="COLLATERAL",
-        signature_type=2
-    )
-    
+    params = BalanceAllowanceParams(asset_type="COLLATERAL", signature_type=2)
+
     balance_info = client.get_balance_allowance(params)
-    
+
     # Parse balance (USDC has 6 decimals)
     balance_raw = int(balance_info.get("balance", 0))
     balance_usdc = balance_raw / 1e6
-    
+
     allowance_raw = int(balance_info.get("allowance", 0))
     allowance_usdc = allowance_raw / 1e6
-    
+
     print(f"USDC Balance: ${balance_usdc:.2f}")
     print(f"Exchange Allowance: ${allowance_usdc:.2f}")
     print()
-    
+
     print("=" * 80)
     print("Diagnosis")
     print("=" * 80)
-    
+
     # Diagnose issues
     issues = []
-    
+
     if balance_usdc < 5:
         issues.append("Low USDC balance")
         print(f"⚠️  USDC Balance: ${balance_usdc:.2f} (need at least $5-10)")
     else:
         print(f"✅ USDC Balance: ${balance_usdc:.2f}")
-    
+
     if allowance_usdc < balance_usdc:
         issues.append("Allowance not set")
         print(f"⚠️  Exchange Allowance: ${allowance_usdc:.2f}")
         print("   Exchange cannot spend your USDC")
     else:
         print(f"✅ Exchange Allowance: ${allowance_usdc:.2f}")
-    
+
     if not issues:
         print()
         print("=" * 80)
@@ -103,7 +100,7 @@ try:
         print("⚠️  ACTION REQUIRED")
         print("=" * 80)
         print()
-        
+
         if balance_usdc < 5:
             print("1. Deposit USDC to Polygon network:")
             print(f"   Address: {FUNDER if FUNDER else address}")
@@ -112,7 +109,7 @@ try:
             print("   - Withdraw from CEX to Polygon")
             print("   - Bridge from Ethereum")
             print()
-        
+
         if allowance_usdc < balance_usdc:
             print("2. Approve USDC spending:")
             print("   - Visit https://polymarket.com/")
