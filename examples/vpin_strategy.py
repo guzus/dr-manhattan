@@ -2,17 +2,25 @@
 Market Making Example with VPIN-based Liquidity Withdrawal
 
 Adds VPIN monitoring to the SpreadStrategy.
-If VPIN >= 0.8 → withdraw liquidity (cancel orders & skip quoting)
-Otherwise → normal BBO join market making.
+- If VPIN >= threshold → withdraw liquidity (cancel orders & skip quoting)
+- Otherwise → normal BBO join market making
+- Modes: live (places orders) or test (logs only)
 
-Bucket count = 50.
+Usage:
+    uv run python examples/vpin_strategy.py MARKET_SLUG --mode=live
+    uv run python examples/vpin_strategy.py MARKET_SLUG --mode=test
+
+Bucket count defaults to 50.
 """
 
 import os
 import sys
 import time
 import asyncio
+import threading
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
+import requests
 from dotenv import load_dotenv
 
 import dr_manhattan
@@ -46,6 +54,9 @@ class VPINStrategy:
         bucket_volume: float = 100.0,    # bucket size V
         vpin_threshold: float = 0.8,
         bucket_count: int = 50,
+        flow_log_interval: float = 5.0,  # seconds: how often to print FLOW summary
+        trade_poll_interval: float = 2.0,  # seconds between trade API polls
+        mode: str = "live",  # "live" or "test"
     ):
 
         self.exchange = exchange
@@ -74,11 +85,30 @@ class VPINStrategy:
         self.ws = None
         self.orderbook_manager = None
         self.ws_thread = None
+        self.trade_thread = None
+        self.seen_trades = set()
         self.is_running = False
 
-    # -------------------------
+        # Flow stats (price change proxy)
+        self.flow_buy_count = 0
+        self.flow_sell_count = 0
+        self.flow_buy_vol = 0.0
+        self.flow_sell_vol = 0.0
+        self.flow_zero_size_count = 0
+
+        self.flow_last_log_ts = 0.0
+        self.flow_log_interval = float(flow_log_interval)
+
+        # Trade polling (Data API /trades)
+        self.trade_poll_interval = float(trade_poll_interval)
+        self.trade_thread = None
+        self.trade_thread_running = False
+        self.last_trade_ts = 0
+
+        # Mode
+        self.live_mode = mode.lower() == "live"
+
     # VPIN Logic
-    # -------------------------
 
     def ingest_trade(self, price: float, size: float, is_buy: bool):
         """ Feed each trade into VPIN buckets. """
@@ -108,9 +138,123 @@ class VPINStrategy:
             return 0.0
         return sum(self.buckets) / len(self.buckets)
 
-    # -------------------------
+    # Trade polling (Data API /trades)
+
+    def _maybe_log_flow_stats(self):
+        now = time.time()
+        if self.flow_last_log_ts == 0.0:
+            self.flow_last_log_ts = now
+            return
+        if now - self.flow_last_log_ts < self.flow_log_interval:
+            return
+
+        total_count = self.flow_buy_count + self.flow_sell_count
+        total_vol = self.flow_buy_vol + self.flow_sell_vol
+
+        buy_share = (self.flow_buy_vol / total_vol) if total_vol > 0 else 0.0
+        sell_share = (self.flow_sell_vol / total_vol) if total_vol > 0 else 0.0
+
+        logger.info(
+            f"{Colors.gray('TRADES')} "
+            f"count(B/S)={self.flow_buy_count}/{self.flow_sell_count} "
+            f"| vol(B/S)={self.flow_buy_vol:.2f}/{self.flow_sell_vol:.2f} "
+            f"| share(B/S)={buy_share:.1%}/{sell_share:.1%} "
+            f"| zero_size={self.flow_zero_size_count} "
+            f"| total_events={total_count}"
+        )
+
+        self.flow_last_log_ts = now
+
+    def _handle_trade_row(self, row: Dict):
+        """Ingest a single trade row from Data API /trades."""
+        side = str(row.get("side", "")).upper()
+        size_raw = row.get("size")
+        price_raw = row.get("price")
+        ts_raw = row.get("timestamp")
+
+        try:
+            size = float(size_raw)
+            price = float(price_raw)
+            if size <= 0:
+                self.flow_zero_size_count += 1
+                return
+        except Exception:
+            return
+
+        if side == "BUY":
+            self.flow_buy_count += 1
+            self.flow_buy_vol += size
+        elif side == "SELL":
+            self.flow_sell_count += 1
+            self.flow_sell_vol += size
+        else:
+            return
+
+        self.ingest_trade(price, size, side == "BUY")
+
+        # Log each trade
+        try:
+            ts_dt = (
+                datetime.fromtimestamp(int(ts_raw), tz=timezone.utc)
+                if ts_raw is not None
+                else datetime.now(timezone.utc)
+            )
+        except Exception:
+            ts_dt = datetime.now(timezone.utc)
+
+        logger.info(
+            f"{Colors.gray('TRADE')} {Colors.green(side) if side=='BUY' else Colors.red(side)} "
+            f"{size:.2f} @ {price:.4f} | {ts_dt.isoformat()}"
+        )
+
+    def _poll_trades_loop(self):
+        """Background loop polling Data API /trades for this market."""
+        condition_id = str(self.market.metadata.get("conditionId", self.market.id))
+        url = f"{self.exchange.DATA_API_URL}/trades"
+        self.trade_thread_running = True
+
+        while self.trade_thread_running and self.is_running:
+            try:
+                params = {
+                    "market": condition_id,
+                    "limit": 200,
+                    "offset": 0,
+                    "takerOnly": "true",
+                }
+                resp = requests.get(url, params=params, timeout=5)
+                resp.raise_for_status()
+                data = resp.json()
+                if isinstance(data, list):
+                    new_rows = []
+                    for row in data:
+                        ts = row.get("timestamp")
+                        tx = row.get("transactionHash") or row.get("transaction_hash")
+                        key = (tx, ts, row.get("side"), row.get("price"), row.get("size"))
+                        if key in self.seen_trades:
+                            continue
+                        # Only accept newer trades by timestamp if available
+                        try:
+                            ts_int = int(ts)
+                        except Exception:
+                            ts_int = 0
+                        if ts_int < self.last_trade_ts:
+                            continue
+                        new_rows.append((ts_int, key, row))
+
+                    # Process in chronological order
+                    new_rows.sort(key=lambda x: x[0])
+                    for ts_int, key, row in new_rows:
+                        self.seen_trades.add(key)
+                        self.last_trade_ts = max(self.last_trade_ts, ts_int)
+                        self._handle_trade_row(row)
+
+                    self._maybe_log_flow_stats()
+            except Exception as e:
+                logger.warning(f"Trade poll failed: {e}")
+
+            time.sleep(self.trade_poll_interval)
+
     # Market Fetch / Websocket
-    # -------------------------
 
     def fetch_market(self) -> bool:
         logger.info(f"Fetching market: {self.market_slug}")
@@ -144,17 +288,32 @@ class VPINStrategy:
         self.orderbook_manager = self.ws.get_orderbook_manager()
 
     def start_websocket(self):
-        tokens = [self.token_ids[0]] if len(self.token_ids) == 2 else self.token_ids
+        # Subscribe to both tokens so we always have bids/asks even if one side is empty
+        tokens = self.token_ids
 
         if self.ws.loop is None:
             self.ws.loop = asyncio.new_event_loop()
 
         async def subscribe():
-            await self.ws.connect()
-            await self.ws.watch_orderbook_by_market(self.market.id, tokens)
-            await self.ws._receive_loop()
+            try:
+                await self.ws.connect()
+            except Exception as e:
+                logger.error(f"WS connect failed: {e}")
+                return
 
-        import threading
+            try:
+                await self.ws.watch_orderbook_by_market(
+                    self.market.id,
+                    tokens,
+                )
+            except Exception as e:
+                logger.error(f"WS subscribe failed: {e}")
+                return
+
+            try:
+                await self.ws._receive_loop()
+            except Exception as e:
+                logger.error(f"WS receive loop failed: {e}")
 
         def run_loop():
             asyncio.set_event_loop(self.ws.loop)
@@ -171,9 +330,7 @@ class VPINStrategy:
         if self.ws_thread:
             self.ws_thread.join(timeout=5)
 
-    # -------------------------
     # Helpers
-    # -------------------------
 
     def get_positions(self) -> Dict[str, float]:
         pos = {}
@@ -197,20 +354,21 @@ class VPINStrategy:
         if not orders:
             return
         logger.info(f"Cancelling {len(orders)} orders")
+        if not self.live_mode:
+            logger.info("  (test mode) skip cancel")
+            return
         for o in orders:
             try:
                 self.exchange.cancel_order(o.id, market_id=self.market.id)
             except:
                 pass
 
-    # -------------------------
     # Main Trading Logic
-    # -------------------------
 
     def place_orders(self):
         """
         Overridden version of SpreadStrategy.place_orders()
-        but with VPIN gating.
+        with VPIN gating: if VPIN is high, pull liquidity; otherwise join BBO.
         """
 
         vpin = self.get_vpin()
@@ -218,7 +376,7 @@ class VPINStrategy:
 
         # VPIN high → withdraw liquidity
         if vpin >= self.vpin_threshold:
-            logger.warning(f"VPIN {vpin:.3f} >= {self.vpin_threshold} → withdrawing liquidity")
+            logger.warning(f"VPIN {vpin:.3f} exceeds threshold ({self.vpin_threshold}) - withdrawing liquidity")
             self.cancel_all_orders()
             return
 
@@ -226,98 +384,183 @@ class VPINStrategy:
         positions = self.get_positions()
         open_orders = self.get_open_orders()
 
-        max_pos = max(positions.values()) if positions else 0
-        min_pos = min(positions.values()) if positions else 0
-        delta = max_pos - min_pos
+        max_position_size = max(positions.values()) if positions else 0
+        min_position_size = min(positions.values()) if positions else 0
+        delta = max_position_size - min_position_size
 
-        logger.info(f"Delta: {delta:.2f} | Orders: {len(open_orders)}")
+        delta_side = ""
+        if delta > 0 and positions:
+            max_outcome = max(positions, key=positions.get)
+            delta_abbrev = max_outcome[0] if len(self.outcomes) == 2 else max_outcome
+            delta_side = f" {Colors.magenta(delta_abbrev)}"
+
+        pos_compact = ""
+        if positions:
+            parts = []
+            for outcome, size in positions.items():
+                abbrev = outcome[0] if len(self.outcomes) == 2 else outcome
+                parts.append(f"{Colors.blue(f'{size:.0f}')} {Colors.magenta(abbrev)}")
+            pos_compact = " ".join(parts)
+        else:
+            pos_compact = Colors.gray("None")
+
+        logger.info(
+            f"\n[{time.strftime('%H:%M:%S')}] Pos: {pos_compact} | "
+            f"Delta: {Colors.yellow(f'{delta:.1f}')}{delta_side} | "
+            f"Orders: {Colors.cyan(str(len(open_orders)))}"
+        )
+
+        if open_orders:
+            for order in open_orders:
+                side_colored = (
+                    Colors.green(order.side.value.upper())
+                    if order.side == OrderSide.BUY
+                    else Colors.red(order.side.value.upper())
+                )
+                size_display = (
+                    order.original_size if hasattr(order, "original_size") and order.original_size else order.size
+                )
+                logger.info(
+                    f"  {Colors.gray('Open:')} {Colors.magenta(order.outcome)} {side_colored} "
+                    f"{size_display:.0f} @ {Colors.yellow(f'{order.price:.4f}')}"
+                )
+
+        if delta > self.max_delta:
+            logger.warning(f"Delta ({delta:.2f}) > max ({self.max_delta:.2f}) - reducing exposure")
 
         for i, (outcome, token_id) in enumerate(zip(self.outcomes, self.token_ids)):
-
             if len(self.token_ids) == 2 and i == 1:
-                yes_bid, yes_ask = self.orderbook_manager.get_best_bid_ask(self.token_ids[0])
-                if yes_bid is None:
+                first_bid, first_ask = self.orderbook_manager.get_best_bid_ask(self.token_ids[0])
+                if first_bid is None or first_ask is None:
+                    logger.warning(f"  {outcome}: No orderbook data, skipping...")
                     continue
-
-                best_bid = 1.0 - yes_ask
-                best_ask = 1.0 - yes_bid
-
+                best_bid = 1.0 - first_ask
+                best_ask = 1.0 - first_bid
             else:
                 best_bid, best_ask = self.orderbook_manager.get_best_bid_ask(token_id)
-                if best_bid is None:
+                if best_bid is None or best_ask is None:
+                    logger.warning(f"  {outcome}: No orderbook data, skipping...")
                     continue
 
-            # join BBO
             our_bid = self.exchange.round_to_tick_size(best_bid, self.tick_size)
             our_ask = self.exchange.round_to_tick_size(best_ask, self.tick_size)
 
+            our_bid = max(0.01, min(0.99, our_bid))
+            our_ask = max(0.01, min(0.99, our_ask))
+
             if our_bid >= our_ask:
+                logger.warning(f"  {outcome}: Spread too tight (bid={our_bid:.4f} >= ask={our_ask:.4f}), skipping")
                 continue
 
-            size = positions.get(outcome, 0)
+            position_size = positions.get(outcome, 0)
 
-            # delta management
-            if delta > self.max_delta and size == max_pos:
-                continue
-
-            # check stale orders
             outcome_orders = [o for o in open_orders if o.outcome == outcome]
             buy_orders = [o for o in outcome_orders if o.side == OrderSide.BUY]
             sell_orders = [o for o in outcome_orders if o.side == OrderSide.SELL]
 
-            # BUY
-            place_buy = True
-            for o in buy_orders:
-                if abs(o.price - our_bid) < 0.001:
-                    place_buy = False
-                else:
-                    try:
-                        self.exchange.cancel_order(o.id)
-                    except:
-                        pass
-            if size + self.order_size > self.max_position:
-                place_buy = False
-            if place_buy:
-                try:
-                    self.exchange.create_order(
-                        market_id=self.market.id,
-                        outcome=outcome,
-                        side=OrderSide.BUY,
-                        price=our_bid,
-                        size=self.order_size,
-                        params={'token_id': token_id}
-                    )
-                except Exception as e:
-                    logger.error(e)
+            if delta > self.max_delta and position_size == max_position_size:
+                logger.info(f"    {outcome}: Skip (delta mgmt)")
+                continue
 
-            # SELL
-            place_sell = True
-            for o in sell_orders:
-                if abs(o.price - our_ask) < 0.001:
-                    place_sell = False
-                else:
-                    try:
-                        self.exchange.cancel_order(o.id)
-                    except:
-                        pass
-            if size < self.order_size:
-                place_sell = False
-            if place_sell:
-                try:
-                    self.exchange.create_order(
-                        market_id=self.market.id,
-                        outcome=outcome,
-                        side=OrderSide.SELL,
-                        price=our_ask,
-                        size=self.order_size,
-                        params={'token_id': token_id}
-                    )
-                except Exception as e:
-                    logger.error(e)
+            should_buy = True
+            if buy_orders:
+                for o in buy_orders:
+                    if abs(o.price - our_bid) < 0.001:
+                        should_buy = False
+                        break
+                if should_buy:
+                    for o in buy_orders:
+                        try:
+                            if self.live_mode:
+                                self.exchange.cancel_order(o.id)
+                                logger.info(
+                                    f"    {Colors.gray('✕ Cancel')} {Colors.green('BUY')} "
+                                    f"@ {Colors.yellow(f'{o.price:.4f}')}"
+                                )
+                            else:
+                                logger.info(
+                                    f"    (test) {Colors.gray('✕ Cancel')} {Colors.green('BUY')} "
+                                    f"@ {Colors.yellow(f'{o.price:.4f}')}"
+                                )
+                        except Exception:
+                            pass
 
-    # -------------------------
+            if position_size + self.order_size > self.max_position:
+                should_buy = False
+
+            if should_buy:
+                if self.live_mode:
+                    try:
+                        self.exchange.create_order(
+                            market_id=self.market.id,
+                            outcome=outcome,
+                            side=OrderSide.BUY,
+                            price=our_bid,
+                            size=self.order_size,
+                            params={"token_id": token_id},
+                        )
+                        logger.info(
+                            f"    {Colors.gray('→')} {Colors.green('BUY')} {self.order_size:.0f} "
+                            f"{Colors.magenta(outcome)} @ {Colors.yellow(f'{our_bid:.4f}')}"
+                        )
+                    except Exception as e:
+                        logger.error(f"    BUY failed: {e}")
+                else:
+                    logger.info(
+                        f"    (test) {Colors.green('BUY')} {self.order_size:.0f} "
+                        f"{Colors.magenta(outcome)} @ {Colors.yellow(f'{our_bid:.4f}')}"
+                    )
+
+            should_sell = True
+            if sell_orders:
+                for o in sell_orders:
+                    if abs(o.price - our_ask) < 0.001:
+                        should_sell = False
+                        break
+                if should_sell:
+                    for o in sell_orders:
+                        try:
+                            if self.live_mode:
+                                self.exchange.cancel_order(o.id)
+                                logger.info(
+                                    f"    {Colors.gray('✕ Cancel')} {Colors.red('SELL')} "
+                                    f"@ {Colors.yellow(f'{o.price:.4f}')}"
+                                )
+                            else:
+                                logger.info(
+                                    f"    (test) {Colors.gray('✕ Cancel')} {Colors.red('SELL')} "
+                                    f"@ {Colors.yellow(f'{o.price:.4f}')}"
+                                )
+                        except Exception:
+                            pass
+
+            if position_size < self.order_size:
+                should_sell = False
+
+            if should_sell:
+                if self.live_mode:
+                    try:
+                        self.exchange.create_order(
+                            market_id=self.market.id,
+                            outcome=outcome,
+                            side=OrderSide.SELL,
+                            price=our_ask,
+                            size=self.order_size,
+                            params={"token_id": token_id},
+                        )
+                        logger.info(
+                            f"    {Colors.gray('→')} {Colors.red('SELL')} {self.order_size:.0f} "
+                            f"{Colors.magenta(outcome)} @ {Colors.yellow(f'{our_ask:.4f}')}"
+                        )
+                    except Exception as e:
+                        logger.error(f"    SELL failed: {e}")
+                else:
+                    logger.info(
+                        f"    (test) {Colors.red('SELL')} {self.order_size:.0f} "
+                        f"{Colors.magenta(outcome)} @ {Colors.yellow(f'{our_ask:.4f}')}"
+                    )
+
     # Run
-    # -------------------------
 
     def run(self, duration_minutes: Optional[int] = None):
         logger.info("Starting VPIN Market Maker")
@@ -325,16 +568,18 @@ class VPINStrategy:
         if not self.fetch_market():
             return
 
+        self.is_running = True
+
         self.setup_websocket()
         self.start_websocket()
+        self.trade_thread = threading.Thread(target=self._poll_trades_loop, daemon=True)
+        self.trade_thread.start()
 
         time.sleep(4)
 
         tokens = [self.token_ids[0]] if len(self.token_ids) == 2 else self.token_ids
         if not self.orderbook_manager.has_all_data(tokens):
             logger.warning("Missing orderbook")
-
-        self.is_running = True
 
         start = time.time()
         end = start + (duration_minutes * 60) if duration_minutes else None
@@ -352,14 +597,15 @@ class VPINStrategy:
 
         finally:
             self.is_running = False
+            self.trade_thread_running = False
+            if self.trade_thread:
+                self.trade_thread.join(timeout=5)
             self.cancel_all_orders()
             self.stop_websocket()
             logger.info("Stopped (VPIN strategy)")
 
 
-# -------------------------
 # CLI Entrypoint
-# -------------------------
 
 def main():
     load_dotenv()
@@ -372,8 +618,15 @@ def main():
         return
 
     market_slug = os.getenv("MARKET_SLUG", "")
-    if len(sys.argv) > 1:
-        market_slug = sys.argv[1]
+    mode = os.getenv("MODE", "live")
+    # Args: [market_slug] [--mode=live|test] or --test
+    for arg in sys.argv[1:]:
+        if arg.startswith("--mode="):
+            mode = arg.split("=", 1)[1]
+        elif arg == "--test":
+            mode = "test"
+        elif not market_slug:
+            market_slug = arg
 
     exchange = dr_manhattan.Polymarket({
         "private_key": private_key,
@@ -385,13 +638,15 @@ def main():
     bot = VPINStrategy(
         exchange=exchange,
         market_slug=market_slug,
-        max_position=100,
-        order_size=5,
-        max_delta=20,
+        max_position=5,
+        order_size=1,
+        max_delta=3,
         check_interval=5,
-        bucket_volume=100,
+        bucket_volume=50,
         vpin_threshold=0.8,
         bucket_count=50,
+        flow_log_interval=5.0,  
+        mode=mode,
     )
 
     bot.run()
