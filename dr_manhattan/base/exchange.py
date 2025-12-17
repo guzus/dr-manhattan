@@ -94,6 +94,21 @@ class Exchange(ABC):
         """
         pass
 
+    def fetch_markets_by_slug(self, slug_or_url: str) -> list[Market]:
+        """
+        Fetch all markets from an event by slug or URL.
+
+        For events with multiple markets (e.g., "which day will X happen"),
+        this returns all markets in the event.
+
+        Args:
+            slug_or_url: Event slug or full URL
+
+        Returns:
+            List of Market objects with token IDs populated
+        """
+        raise NotImplementedError(f"{self.name} does not support fetch_markets_by_slug")
+
     @abstractmethod
     def create_order(
         self,
