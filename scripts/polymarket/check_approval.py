@@ -2,7 +2,10 @@
 
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import BalanceAllowanceParams
 
 # Load .env from project root
 # Works when running: uv run scripts/polymarket/check_approval.py
@@ -10,7 +13,7 @@ env_path = Path.cwd() / ".env"
 if env_path.exists():
     load_dotenv(env_path)
 else:
-    print(f"⚠️  No .env file found at: {env_path}")
+    print(f"No .env file found at: {env_path}")
     print("Create .env in project root with:")
     print("  POLYMARKET_PRIVATE_KEY=0x...")
     print("  POLYMARKET_FUNDER=0x...")
@@ -20,7 +23,7 @@ PRIVATE_KEY = os.getenv("POLYMARKET_PRIVATE_KEY")
 FUNDER = os.getenv("POLYMARKET_FUNDER")
 
 if not PRIVATE_KEY:
-    print("❌ POLYMARKET_PRIVATE_KEY not found in .env")
+    print("POLYMARKET_PRIVATE_KEY not found in .env")
     print("Add to .env file:")
     print("  POLYMARKET_PRIVATE_KEY=0x...")
     exit(1)
@@ -30,9 +33,6 @@ print("Polymarket Wallet Check")
 print("=" * 80)
 
 try:
-    from py_clob_client.client import ClobClient
-    from py_clob_client.clob_types import BalanceAllowanceParams
-
     # Initialize client
     client = ClobClient(
         host="https://clob.polymarket.com",

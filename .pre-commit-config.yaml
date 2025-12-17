@@ -7,3 +7,9 @@ repos:
         language: system
         types: [python]
         args: [--line-length=100]
+
+      - id: ruff
+        name: ruff
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]

@@ -17,16 +17,18 @@ Usage:
     uv run python examples/spread_strategy.py https://polymarket.com/event/fed-decision-in-december
 """
 
+import asyncio
 import os
 import sys
+import threading
 import time
-import asyncio
 from typing import Dict, List, Optional
+
 from dotenv import load_dotenv
 
 import dr_manhattan
+from dr_manhattan.base.order_tracker import OrderEvent, OrderTracker, create_fill_logger
 from dr_manhattan.models import OrderSide
-from dr_manhattan.base.order_tracker import OrderTracker, OrderEvent, create_fill_logger
 from dr_manhattan.utils import setup_logger
 from dr_manhattan.utils.logger import Colors
 
@@ -156,7 +158,7 @@ class SpreadStrategy:
                     decimals = len(price_str.split(".")[1].rstrip("0"))
                     if decimals == 3:  # e.g., 0.021
                         self.tick_size = 0.001
-                        logger.info(f"  Detected tick size: 0.001 (from market prices)")
+                        logger.info("  Detected tick size: 0.001 (from market prices)")
                         break
 
         # Display market info
@@ -335,8 +337,6 @@ class SpreadStrategy:
             await self.ws._receive_loop()
 
         # Run in background thread
-        import threading
-
         def run_loop():
             asyncio.set_event_loop(self.ws.loop)
             self.ws.loop.run_until_complete(subscribe_all())
@@ -406,7 +406,6 @@ class SpreadStrategy:
         open_orders = self.get_open_orders()
 
         # Calculate position metrics
-        total_long = sum(positions.values())
         max_position_size = max(positions.values()) if positions else 0
         min_position_size = min(positions.values()) if positions else 0
         delta = max_position_size - min_position_size
@@ -505,7 +504,7 @@ class SpreadStrategy:
 
             # Delta management
             if delta > self.max_delta and position_size == max_position_size:
-                logger.info(f"    Skip: max position (delta mgmt)")
+                logger.info("    Skip: max position (delta mgmt)")
                 continue
 
             # Place BUY order if needed
@@ -523,7 +522,7 @@ class SpreadStrategy:
                             logger.info(
                                 f"    {Colors.gray('✕ Cancel')} {Colors.green('BUY')} @ {Colors.yellow(f'{order.price:.4f}')}"
                             )
-                        except:
+                        except Exception:
                             pass
 
             if position_size + self.order_size > self.max_position:
@@ -563,7 +562,7 @@ class SpreadStrategy:
                             logger.info(
                                 f"    {Colors.gray('✕ Cancel')} {Colors.red('SELL')} @ {Colors.yellow(f'{order.price:.4f}')}"
                             )
-                        except:
+                        except Exception:
                             pass
 
             if position_size < self.order_size:
@@ -624,7 +623,7 @@ class SpreadStrategy:
                         # Check if price uses finer granularity
                         if price % 0.01 != 0:
                             self.tick_size = 0.001
-                            logger.info(f"Detected tick size: 0.001 (from orderbook)")
+                            logger.info("Detected tick size: 0.001 (from orderbook)")
                             break
         else:
             logger.warning("Missing orderbook data")

@@ -1,6 +1,9 @@
 import json
+import logging
+import re
+import traceback
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence
 
 import requests
@@ -16,9 +19,11 @@ from ..base.errors import (
     RateLimitError,
 )
 from ..base.exchange import Exchange
+from ..models import CryptoHourlyMarket
 from ..models.market import Market
 from ..models.order import Order, OrderSide, OrderStatus
 from ..models.position import Position
+from ..utils import setup_logger
 from .polymarket_ws import PolymarketUserWebSocket, PolymarketWebSocket
 
 
@@ -617,8 +622,6 @@ class Polymarket(Exchange):
             ExchangeError: If token IDs cannot be fetched
         """
         try:
-            import requests
-
             # Try simplified-markets endpoint
             # Response structure: {"data": [{"condition_id": ..., "tokens": [{"token_id": ..., "outcome": ...}]}]}
             try:
@@ -866,18 +869,13 @@ class Polymarket(Exchange):
 
             # Debug: Print first order's fields to identify size field
             if orders and self.verbose:
-                import logging
-
-                logger = logging.getLogger(__name__)
-                logger.debug(f"Sample order fields: {list(orders[0].keys())}")
-                logger.debug(f"Sample order data: {orders[0]}")
+                debug_logger = logging.getLogger(__name__)
+                debug_logger.debug(f"Sample order fields: {list(orders[0].keys())}")
+                debug_logger.debug(f"Sample order data: {orders[0]}")
 
             # Parse orders
             return [self._parse_order(order) for order in orders]
         except Exception as e:
-            # Use print instead of logger since Exchange base class may not have logger
-            import traceback
-
             if self.verbose:
                 print(f"Warning: Failed to fetch open orders: {e}")
                 traceback.print_exc()
@@ -1002,11 +1000,6 @@ class Polymarket(Exchange):
         Returns:
             Tuple of (Market, CryptoHourlyMarket) or None
         """
-        from datetime import datetime, timedelta
-
-        from ..models import CryptoHourlyMarket
-        from ..utils import setup_logger
-
         logger = setup_logger(__name__)
 
         # Use tag-based filtering for efficiency
@@ -1064,8 +1057,6 @@ class Polymarket(Exchange):
             logger.info(f"Found {len(all_markets)} markets with tag {tag_id}")
 
         # Now parse and filter the markets
-        import re
-
         # Pattern for "Up or Down" markets (e.g., "Bitcoin Up or Down - November 2, 7AM ET")
         up_down_pattern = re.compile(
             r"(?P<token>Bitcoin|Ethereum|Solana|BTC|ETH|SOL|XRP)\s+Up or Down", re.IGNORECASE
@@ -1094,8 +1085,6 @@ class Polymarket(Exchange):
             if market.close_time:
                 # Handle timezone-aware datetime
                 if market.close_time.tzinfo is not None:
-                    from datetime import timezone
-
                     now = datetime.now(timezone.utc)
                 else:
                     now = datetime.now()

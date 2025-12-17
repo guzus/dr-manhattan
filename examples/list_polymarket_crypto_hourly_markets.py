@@ -3,9 +3,14 @@ List all currently active crypto hourly markets
 """
 
 import os
+import re
 from datetime import datetime, timezone
+
+import requests
 from dotenv import load_dotenv
+
 import dr_manhattan
+from dr_manhattan.models import CryptoHourlyMarket
 
 load_dotenv()
 
@@ -16,11 +21,6 @@ def find_all_active_crypto_hourly_markets(exchange, limit=200):
 
     Returns a list of (Market, CryptoHourlyMarket) tuples.
     """
-    import re
-    from dr_manhattan.models import CryptoHourlyMarket
-
-    # Fetch markets with 1H tag
-    import requests
 
     url = f"{exchange.BASE_URL}/markets"
     params = {

@@ -3,8 +3,9 @@
 from unittest.mock import Mock, patch
 
 import pytest
+from requests.exceptions import HTTPError
 
-from dr_manhattan.base.errors import AuthenticationError, ExchangeError, MarketNotFound
+from dr_manhattan.base.errors import AuthenticationError, MarketNotFound
 from dr_manhattan.exchanges.polymarket import Polymarket
 from dr_manhattan.models.order import OrderSide, OrderStatus
 
@@ -99,8 +100,6 @@ def test_fetch_market(mock_request):
 @patch("requests.request")
 def test_fetch_market_not_found(mock_request):
     """Test fetching non-existent market"""
-    from requests.exceptions import HTTPError
-
     mock_response = Mock()
     mock_response.raise_for_status.side_effect = HTTPError("404 Not Found")
     mock_request.return_value = mock_response
