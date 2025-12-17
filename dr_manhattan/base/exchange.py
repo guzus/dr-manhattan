@@ -1,6 +1,9 @@
 import random
+import re
+import threading
 import time
 from abc import ABC, abstractmethod
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import Any, Dict, Optional
 
@@ -93,6 +96,21 @@ class Exchange(ABC):
             Market object
         """
         pass
+
+    def fetch_markets_by_slug(self, slug_or_url: str) -> list[Market]:
+        """
+        Fetch all markets from an event by slug or URL.
+
+        For events with multiple markets (e.g., "which day will X happen"),
+        this returns all markets in the event.
+
+        Args:
+            slug_or_url: Event slug or full URL
+
+        Returns:
+            List of Market objects with token IDs populated
+        """
+        raise NotImplementedError(f"{self.name} does not support fetch_markets_by_slug")
 
     @abstractmethod
     def create_order(
@@ -555,8 +573,6 @@ class Exchange(ABC):
         Returns:
             Market object or None if no suitable market found
         """
-        import random
-
         markets = self.fetch_markets({"limit": limit})
 
         suitable_markets = []
@@ -632,11 +648,6 @@ class Exchange(ABC):
         Generic parser for crypto hourly markets using pattern matching.
         Used as fallback when exchange doesn't have specific tag/category support.
         """
-        import re
-        from datetime import datetime, timedelta
-
-        from ..models import CryptoHourlyMarket
-
         markets = self.fetch_markets({"limit": limit})
 
         # Pattern to match crypto price predictions
@@ -820,8 +831,6 @@ class Exchange(ABC):
             market_ids: List of market IDs to stream
             callback: Function to call with market updates
         """
-        import threading
-        import time
 
         def _stream_worker():
             """Worker thread for streaming market data"""
@@ -849,8 +858,6 @@ class Exchange(ABC):
             market_id: Market ID to watch
             callback: Function to call with order book updates
         """
-        import threading
-        import time
 
         def _order_book_worker():
             """Worker thread for watching order book"""

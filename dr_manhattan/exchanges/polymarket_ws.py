@@ -8,6 +8,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
+import websockets
+import websockets.exceptions
+
 from ..base.websocket import OrderBookWebSocket
 
 logger = logging.getLogger(__name__)
@@ -399,8 +402,6 @@ class PolymarketWebSocket(OrderBookWebSocket):
 
             if callback and callback_key:
                 # Call callback in a non-blocking way
-                import asyncio
-
                 if asyncio.iscoroutinefunction(callback):
                     await callback(callback_key, orderbook)
                 else:
@@ -466,11 +467,6 @@ class PolymarketUserWebSocket:
 
     async def _connect(self):
         """Connect and authenticate to WebSocket"""
-        try:
-            import websockets
-        except ImportError:
-            raise ImportError("websockets library required")
-
         self.ws = await websockets.connect(
             self.WS_URL,
             ping_interval=20.0,
@@ -487,8 +483,6 @@ class PolymarketUserWebSocket:
 
     async def _receive_loop(self):
         """Main receive loop"""
-        import websockets.exceptions
-
         while self._running:
             try:
                 if not self._connected:

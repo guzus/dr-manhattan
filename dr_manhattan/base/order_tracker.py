@@ -13,6 +13,7 @@ from typing import Callable, Dict, List
 
 from ..models.order import Order, OrderStatus
 from ..utils import setup_logger
+from ..utils.logger import Colors
 
 logger = setup_logger(__name__)
 
@@ -197,7 +198,6 @@ def create_fill_logger():
     Usage:
         tracker.on_fill(create_fill_logger())
     """
-    from ..utils.logger import Colors
 
     def log_fill(event: OrderEvent, order: Order, fill_size: float):
         side_str = (

@@ -3,8 +3,9 @@
 from unittest.mock import Mock, patch
 
 import pytest
+from requests.exceptions import HTTPError
 
-from dr_manhattan.base.errors import ExchangeError, MarketNotFound
+from dr_manhattan.base.errors import AuthenticationError, MarketNotFound
 from dr_manhattan.exchanges.polymarket import Polymarket
 from dr_manhattan.models.order import OrderSide, OrderStatus
 
@@ -37,7 +38,7 @@ def test_polymarket_initialization_with_private_key():
     }
 
     # Should raise error with invalid private key format
-    with pytest.raises(ExchangeError, match="Failed to initialize CLOB client"):
+    with pytest.raises(AuthenticationError, match="Failed to initialize CLOB client"):
         Polymarket(config)
 
 
@@ -99,8 +100,6 @@ def test_fetch_market(mock_request):
 @patch("requests.request")
 def test_fetch_market_not_found(mock_request):
     """Test fetching non-existent market"""
-    from requests.exceptions import HTTPError
-
     mock_response = Mock()
     mock_response.raise_for_status.side_effect = HTTPError("404 Not Found")
     mock_request.return_value = mock_response
@@ -115,7 +114,7 @@ def test_create_order_without_client():
     """Test creating order without authenticated client raises error"""
     exchange = Polymarket()
 
-    with pytest.raises(ExchangeError, match="CLOB client not initialized"):
+    with pytest.raises(AuthenticationError, match="CLOB client not initialized"):
         exchange.create_order(
             market_id="market_123",
             outcome="Yes",
@@ -129,7 +128,7 @@ def test_fetch_balance_without_client():
     """Test fetching balance without authenticated client raises error"""
     exchange = Polymarket()
 
-    with pytest.raises(ExchangeError, match="CLOB client not initialized"):
+    with pytest.raises(AuthenticationError, match="CLOB client not initialized"):
         exchange.fetch_balance()
 
 
@@ -137,7 +136,7 @@ def test_cancel_order_without_client():
     """Test canceling order without authenticated client raises error"""
     exchange = Polymarket()
 
-    with pytest.raises(ExchangeError, match="CLOB client not initialized"):
+    with pytest.raises(AuthenticationError, match="CLOB client not initialized"):
         exchange.cancel_order("order_123")
 
 
@@ -145,7 +144,7 @@ def test_fetch_open_orders_without_client():
     """Test fetching open orders without authenticated client raises error"""
     exchange = Polymarket()
 
-    with pytest.raises(ExchangeError, match="CLOB client not initialized"):
+    with pytest.raises(AuthenticationError, match="CLOB client not initialized"):
         exchange.fetch_open_orders()
 
 
@@ -153,7 +152,7 @@ def test_fetch_positions_without_client():
     """Test fetching positions without authenticated client raises error"""
     exchange = Polymarket()
 
-    with pytest.raises(ExchangeError, match="CLOB client not initialized"):
+    with pytest.raises(AuthenticationError, match="CLOB client not initialized"):
         exchange.fetch_positions()
 
 

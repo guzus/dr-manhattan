@@ -1,10 +1,14 @@
 import asyncio
 import json
 import logging
+import threading
 import time
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Dict, Optional
+
+import websockets
+import websockets.exceptions
 
 logger = logging.getLogger(__name__)
 
@@ -109,11 +113,6 @@ class OrderBookWebSocket(ABC):
 
     async def connect(self):
         """Establish WebSocket connection with improved settings"""
-        try:
-            import websockets
-        except ImportError:
-            raise ImportError("websockets library required. Install with: uv add websockets")
-
         if self.state == WebSocketState.CONNECTED:
             if self.verbose:
                 logger.debug("WebSocket already connected")
@@ -230,8 +229,6 @@ class OrderBookWebSocket(ABC):
 
     async def _receive_loop(self):
         """Main loop for receiving WebSocket messages with improved error handling"""
-        import websockets.exceptions
-
         while self.state != WebSocketState.CLOSED:
             try:
                 if self.ws is None or self.state != WebSocketState.CONNECTED:
@@ -370,8 +367,6 @@ class OrderBookWebSocket(ABC):
         async def _start():
             await self.connect()
             await self._receive_loop()
-
-        import threading
 
         def _run_loop():
             asyncio.set_event_loop(self.loop)

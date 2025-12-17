@@ -2,6 +2,7 @@
 
 import dr_manhattan
 from dr_manhattan.base.exchange import Exchange
+from dr_manhattan.models.market import Market
 
 
 class TestExchangeRegistry:
@@ -79,8 +80,6 @@ class TestModelsExport:
     def test_market_model_exported(self):
         """Test Market model is exported"""
         assert hasattr(dr_manhattan, "Market")
-        from dr_manhattan.models.market import Market
-
         assert dr_manhattan.Market == Market
 
     def test_order_model_exported(self):

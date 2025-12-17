@@ -2,6 +2,7 @@
 
 import logging
 import sys
+from datetime import datetime
 
 
 class ColoredFormatter(logging.Formatter):
@@ -26,8 +27,6 @@ class ColoredFormatter(logging.Formatter):
         timestamp_color = self.COLORS["TIMESTAMP"]
 
         # Format timestamp
-        from datetime import datetime
-
         timestamp = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
 
         # Format: [TIMESTAMP] [SYMBOL] MESSAGE

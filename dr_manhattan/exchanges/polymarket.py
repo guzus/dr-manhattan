@@ -1,17 +1,29 @@
 import json
+import logging
+import re
+import traceback
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence
 
 import requests
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import AssetType, BalanceAllowanceParams, OrderArgs, OrderType
 
-from ..base.errors import ExchangeError, MarketNotFound, NetworkError, RateLimitError
+from ..base.errors import (
+    AuthenticationError,
+    ExchangeError,
+    InvalidOrder,
+    MarketNotFound,
+    NetworkError,
+    RateLimitError,
+)
 from ..base.exchange import Exchange
+from ..models import CryptoHourlyMarket
 from ..models.market import Market
 from ..models.order import Order, OrderSide, OrderStatus
 from ..models.position import Position
+from ..utils import setup_logger
 from .polymarket_ws import PolymarketUserWebSocket, PolymarketWebSocket
 
 
@@ -165,13 +177,13 @@ class Polymarket(Exchange):
             # Derive and set API credentials for L2 authentication
             api_creds = self._clob_client.create_or_derive_api_creds()
             if not api_creds:
-                raise ExchangeError("Failed to derive API credentials")
+                raise AuthenticationError("Failed to derive API credentials")
 
             self._clob_client.set_api_creds(api_creds)
 
             # Verify L2 mode
             if self._clob_client.mode < 2:
-                raise ExchangeError(
+                raise AuthenticationError(
                     f"Client not in L2 mode (current mode: {self._clob_client.mode})"
                 )
 
@@ -181,8 +193,10 @@ class Polymarket(Exchange):
             except Exception:
                 self._address = None
 
+        except AuthenticationError:
+            raise
         except Exception as e:
-            raise ExchangeError(f"Failed to initialize CLOB client: {e}")
+            raise AuthenticationError(f"Failed to initialize CLOB client: {e}")
 
     def _request(self, method: str, endpoint: str, params: Optional[Dict] = None) -> Any:
         """Make HTTP request to Polymarket API with retry logic"""
@@ -215,9 +229,9 @@ class Polymarket(Exchange):
                 if response.status_code == 404:
                     raise ExchangeError(f"Resource not found: {endpoint}")
                 elif response.status_code == 401:
-                    raise ExchangeError(f"Authentication failed: {e}")
+                    raise AuthenticationError(f"Authentication failed: {e}")
                 elif response.status_code == 403:
-                    raise ExchangeError(f"Access forbidden: {e}")
+                    raise AuthenticationError(f"Access forbidden: {e}")
                 else:
                     raise ExchangeError(f"HTTP error: {e}")
             except requests.RequestException as e:
@@ -295,119 +309,71 @@ class Polymarket(Exchange):
 
         return _fetch()
 
-    def fetch_market_by_slug(self, slug_or_url: str) -> Optional[Market]:
+    def fetch_markets_by_slug(self, slug_or_url: str) -> List[Market]:
         """
-        Fetch market by slug or URL.
+        Fetch all markets from an event by slug or URL.
 
-        This is a convenience method that:
-        1. Parses the slug from URL if needed
-        2. Fetches event data from Gamma API
-        3. Extracts market data and token IDs
-        4. Returns a fully initialized Market object
+        For events with multiple markets (e.g., "which day will X happen"),
+        this returns all markets in the event.
 
         Args:
-            slug_or_url: Market slug or full Polymarket URL
+            slug_or_url: Event slug or full Polymarket URL
 
         Returns:
-            Market object with token IDs populated, or None if not found
-
-        Example:
-            >>> market = exchange.fetch_market_by_slug("fed-decision-in-december")
-            >>> market = exchange.fetch_market_by_slug("https://polymarket.com/event/fed-decision")
+            List of Market objects with token IDs populated
         """
-        # Parse slug from URL if needed
         slug = self.parse_market_identifier(slug_or_url)
 
         if not slug:
-            if self.verbose:
-                print("Empty slug provided")
-            return None
+            raise ValueError("Empty slug provided")
 
         try:
-            # Fetch from Gamma API events endpoint
             response = requests.get(f"{self.BASE_URL}/events?slug={slug}", timeout=self.timeout)
+        except requests.Timeout as e:
+            raise NetworkError(f"Request timeout: {e}")
+        except requests.ConnectionError as e:
+            raise NetworkError(f"Connection error: {e}")
+        except requests.RequestException as e:
+            raise NetworkError(f"Request failed: {e}")
 
-            if response.status_code != 200:
-                if self.verbose:
-                    print(f"Failed to fetch event: HTTP {response.status_code}")
-                return None
+        if response.status_code == 404:
+            raise MarketNotFound(f"Event not found: {slug}")
+        elif response.status_code != 200:
+            raise ExchangeError(f"Failed to fetch event: HTTP {response.status_code}")
 
-            event_data = response.json()
-            if not event_data or len(event_data) == 0:
-                if self.verbose:
-                    print(f"Event not found: {slug}")
-                return None
+        event_data = response.json()
+        if not event_data or len(event_data) == 0:
+            raise MarketNotFound(f"Event not found: {slug}")
 
-            event = event_data[0]
-            markets_data = event.get("markets", [])
+        event = event_data[0]
+        markets_data = event.get("markets", [])
 
-            if not markets_data:
-                if self.verbose:
-                    print(f"No markets found in event: {slug}")
-                return None
+        if not markets_data:
+            raise MarketNotFound(f"No markets found in event: {slug}")
 
-            # Parse first market (most events have one market)
-            market_data = markets_data[0]
+        markets = []
+        for market_data in markets_data:
             market = self._parse_market(market_data)
 
-            # Fetch token IDs from CLOB API
-            try:
-                token_ids = self.fetch_token_ids(market.id)
-                market.metadata["clobTokenIds"] = token_ids
-            except Exception as e:
-                if self.verbose:
-                    print(f"Could not fetch token IDs from CLOB: {e}")
+            # Get token IDs from market data
+            clob_token_ids = market_data.get("clobTokenIds", [])
+            if isinstance(clob_token_ids, str):
+                try:
+                    clob_token_ids = json.loads(clob_token_ids)
+                except json.JSONDecodeError:
+                    clob_token_ids = []
 
-            # Try to get from market data if CLOB fetch failed
-            if "clobTokenIds" not in market.metadata:
-                clob_token_ids = market_data.get("clobTokenIds", [])
+            if clob_token_ids:
+                market.metadata["clobTokenIds"] = clob_token_ids
 
-                # Parse if it's a JSON string
-                if isinstance(clob_token_ids, str):
-                    try:
-                        clob_token_ids = json.loads(clob_token_ids)
-                    except Exception:
-                        if self.verbose:
-                            print("Failed to parse clobTokenIds")
-                        return None
-
-                if clob_token_ids and isinstance(clob_token_ids, list):
-                    market.metadata["clobTokenIds"] = clob_token_ids
-                else:
-                    if self.verbose:
-                        print("No token IDs available")
-                    return None
-
-            # Set default tick size if not already present
-            # Most active Polymarket markets use 0.001 tick size
-            # Note: When markets are fetched via sampling-markets endpoint,
-            # they will have minimum_tick_size already set from the API
+            # Set default tick size
             if "tick_size" not in market.metadata and "minimum_tick_size" not in market.metadata:
                 market.metadata["minimum_tick_size"] = 0.001
                 market.metadata["tick_size"] = 0.001
-                if self.verbose:
-                    print("  Using default tick size: 0.001")
-            elif self.verbose:
-                tick_size = market.metadata.get("tick_size") or market.metadata.get(
-                    "minimum_tick_size"
-                )
-                print(f"  Tick size: {tick_size}")
 
-            if self.verbose:
-                print(f"✓ Fetched market: {market.question[:70]}...")
-                token_ids = market.metadata.get("clobTokenIds", [])
-                tick_size = market.metadata.get("minimum_tick_size", 0.01)
-                print(f"  Market ID: {market.id}")
-                print(f"  Outcomes: {len(market.outcomes)}")
-                print(f"  Token IDs: {len(token_ids)}")
-                print(f"  Tick size: {tick_size}")
+            markets.append(market)
 
-            return market
-
-        except Exception as e:
-            if self.verbose:
-                print(f"Failed to fetch market by slug: {e}")
-            return None
+        return markets
 
     def get_orderbook(self, token_id: str) -> Dict[str, Any]:
         """
@@ -656,8 +622,6 @@ class Polymarket(Exchange):
             ExchangeError: If token IDs cannot be fetched
         """
         try:
-            import requests
-
             # Try simplified-markets endpoint
             # Response structure: {"data": [{"condition_id": ..., "tokens": [{"token_id": ..., "outcome": ...}]}]}
             try:
@@ -795,11 +759,11 @@ class Polymarket(Exchange):
     ) -> Order:
         """Create order on Polymarket CLOB"""
         if not self._clob_client:
-            raise ExchangeError("CLOB client not initialized. Private key required.")
+            raise AuthenticationError("CLOB client not initialized. Private key required.")
 
         token_id = params.get("token_id") if params else None
         if not token_id:
-            raise ExchangeError("token_id required in params")
+            raise InvalidOrder("token_id required in params")
 
         try:
             # Create and sign order
@@ -837,12 +801,12 @@ class Polymarket(Exchange):
             )
 
         except Exception as e:
-            raise ExchangeError(f"Order placement failed: {str(e)}")
+            raise InvalidOrder(f"Order placement failed: {str(e)}")
 
     def cancel_order(self, order_id: str, market_id: Optional[str] = None) -> Order:
         """Cancel order on Polymarket"""
         if not self._clob_client:
-            raise ExchangeError("CLOB client not initialized. Private key required.")
+            raise AuthenticationError("CLOB client not initialized. Private key required.")
 
         try:
             result = self._clob_client.cancel(order_id)
@@ -861,7 +825,7 @@ class Polymarket(Exchange):
                 updated_at=datetime.now(),
             )
         except Exception as e:
-            raise ExchangeError(f"Failed to cancel order {order_id}: {str(e)}")
+            raise InvalidOrder(f"Failed to cancel order {order_id}: {str(e)}")
 
     def fetch_order(self, order_id: str, market_id: Optional[str] = None) -> Order:
         """Fetch order details"""
@@ -879,7 +843,7 @@ class Polymarket(Exchange):
                       If numeric, we filter by exact match. If hex (0x...), we use it directly.
         """
         if not self._clob_client:
-            raise ExchangeError("CLOB client not initialized. Private key required.")
+            raise AuthenticationError("CLOB client not initialized. Private key required.")
 
         try:
             # Use CLOB client's get_orders method
@@ -905,18 +869,13 @@ class Polymarket(Exchange):
 
             # Debug: Print first order's fields to identify size field
             if orders and self.verbose:
-                import logging
-
-                logger = logging.getLogger(__name__)
-                logger.debug(f"Sample order fields: {list(orders[0].keys())}")
-                logger.debug(f"Sample order data: {orders[0]}")
+                debug_logger = logging.getLogger(__name__)
+                debug_logger.debug(f"Sample order fields: {list(orders[0].keys())}")
+                debug_logger.debug(f"Sample order data: {orders[0]}")
 
             # Parse orders
             return [self._parse_order(order) for order in orders]
         except Exception as e:
-            # Use print instead of logger since Exchange base class may not have logger
-            import traceback
-
             if self.verbose:
                 print(f"Warning: Failed to fetch open orders: {e}")
                 traceback.print_exc()
@@ -934,7 +893,7 @@ class Polymarket(Exchange):
         without a market context. Returns empty list if no market_id is provided.
         """
         if not self._clob_client:
-            raise ExchangeError("CLOB client not initialized. Private key required.")
+            raise AuthenticationError("CLOB client not initialized. Private key required.")
 
         # Positions require market context on Polymarket
         # Without market_id, we can't determine which tokens to query
@@ -958,7 +917,7 @@ class Polymarket(Exchange):
             List of Position objects
         """
         if not self._clob_client:
-            raise ExchangeError("CLOB client not initialized. Private key required.")
+            raise AuthenticationError("CLOB client not initialized. Private key required.")
 
         try:
             positions = []
@@ -1041,11 +1000,6 @@ class Polymarket(Exchange):
         Returns:
             Tuple of (Market, CryptoHourlyMarket) or None
         """
-        from datetime import datetime, timedelta
-
-        from ..models import CryptoHourlyMarket
-        from ..utils import setup_logger
-
         logger = setup_logger(__name__)
 
         # Use tag-based filtering for efficiency
@@ -1103,8 +1057,6 @@ class Polymarket(Exchange):
             logger.info(f"Found {len(all_markets)} markets with tag {tag_id}")
 
         # Now parse and filter the markets
-        import re
-
         # Pattern for "Up or Down" markets (e.g., "Bitcoin Up or Down - November 2, 7AM ET")
         up_down_pattern = re.compile(
             r"(?P<token>Bitcoin|Ethereum|Solana|BTC|ETH|SOL|XRP)\s+Up or Down", re.IGNORECASE
@@ -1133,8 +1085,6 @@ class Polymarket(Exchange):
             if market.close_time:
                 # Handle timezone-aware datetime
                 if market.close_time.tzinfo is not None:
-                    from datetime import timezone
-
                     now = datetime.now(timezone.utc)
                 else:
                     now = datetime.now()
@@ -1218,7 +1168,7 @@ class Polymarket(Exchange):
             Dictionary with balance information including USDC
         """
         if not self._clob_client:
-            raise ExchangeError("CLOB client not initialized. Private key required.")
+            raise AuthenticationError("CLOB client not initialized. Private key required.")
 
         try:
             # Fetch USDC (collateral) balance
@@ -1339,7 +1289,7 @@ class Polymarket(Exchange):
             user_ws.start()
         """
         if not self._clob_client:
-            raise ExchangeError(
+            raise AuthenticationError(
                 "CLOB client not initialized. Private key required for user WebSocket."
             )
 
@@ -1347,7 +1297,7 @@ class Polymarket(Exchange):
             # Get API credentials from CLOB client
             creds = self._clob_client.creds
             if not creds:
-                raise ExchangeError("API credentials not available")
+                raise AuthenticationError("API credentials not available")
 
             self._user_ws = PolymarketUserWebSocket(
                 api_key=creds.api_key,

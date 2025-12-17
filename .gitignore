@@ -52,3 +52,11 @@ Thumbs.db
 .cache/
 
 .references/
+
+.claude/
+.claude-flow/
+.hive-mind/
+.swarm/
+memory/
+.mcp.json
+claude-flow
