@@ -15,7 +15,7 @@ Endgame signal:
 
 Safety:
   - Sweep mode uses a position cap (fraction of max_position)
-  - Sweep only triggers in a narrow “endgame price” band (e.g. 0.997–0.999)
+  - Sweep only triggers in a narrow "endgame price" band (e.g. 0.997-0.999)
 
 Modes:
   - live: place/cancel orders
@@ -32,7 +32,6 @@ import time
 import asyncio
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timezone
-
 from dotenv import load_dotenv
 
 import dr_manhattan
@@ -270,6 +269,8 @@ class EndgameSweepMarketMaker:
         Returns seconds to end if found, otherwise None.
         """
         md = getattr(self.market, "metadata", {}) or {}
+        if not isinstance(md, dict):
+            return None
 
         candidate_keys = [
             "endDate", "end_date", "endTime", "end_time",
@@ -593,7 +594,7 @@ class EndgameSweepMarketMaker:
             self.sweep_side_outcome = self.pick_sweep_outcome()
 
             logger.warning(
-                f"\n{Colors.bold('*** MODE SWITCH ***')} {Colors.cyan('NORMAL')} -> {Colors.magenta('SWEEP')} | "
+                f"\n{Colors.bold('*** MODE SWITCH ***')} {Colors.cyan('NORMAL')} → {Colors.magenta('SWEEP')} | "
                 f"Target={Colors.magenta(self.sweep_side_outcome)}"
             )
 
@@ -605,7 +606,7 @@ class EndgameSweepMarketMaker:
     def run(self, duration_minutes: Optional[int] = None):
         """Main strategy loop."""
         logger.info(
-            f"\n{Colors.bold('Hybrid MM:')} {Colors.cyan('BBO')} -> {Colors.magenta('Endgame Sweep')} "
+            f"\n{Colors.bold('Hybrid MM:')} {Colors.cyan('BBO')} → {Colors.magenta('Endgame Sweep')} "
             f"| MaxPos: {Colors.blue(f'{self.max_position:.0f}')} | "
             f"Size: {Colors.yellow(f'{self.order_size:.0f}')} | "
             f"Interval: {Colors.gray(f'{self.check_interval}s')}"

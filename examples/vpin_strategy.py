@@ -2,13 +2,16 @@
 Market Making Example with VPIN-based Liquidity Withdrawal
 
 Adds VPIN monitoring to the SpreadStrategy.
-- If VPIN >= threshold → withdraw liquidity (cancel orders & skip quoting)
-- Otherwise → normal BBO join market making
+- If VPIN >= threshold -> withdraw liquidity (cancel orders & skip quoting)
+- Otherwise -> normal BBO join market making
 - Modes: live (places orders) or test (logs only)
 
 Usage:
     uv run python examples/vpin_strategy.py MARKET_SLUG --mode=live
     uv run python examples/vpin_strategy.py MARKET_SLUG --mode=test
+Environment:
+    export POLYMARKET_PRIVATE_KEY=...
+    export POLYMARKET_FUNDER=...
 
 Bucket count defaults to 50.
 """
@@ -20,6 +23,7 @@ import asyncio
 import threading
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+from collections import deque
 import requests
 from dotenv import load_dotenv
 
@@ -76,6 +80,9 @@ class VPINStrategy:
         self.current_vol = 0.0
         self.current_buy = 0.0
         self.current_sell = 0.0
+        self.seen_trades_max = 5000
+        self.seen_trades = deque(maxlen=self.seen_trades_max)
+        self.seen_trades_set = set()
 
         # Market/Websocket state
         self.market = None
@@ -86,7 +93,6 @@ class VPINStrategy:
         self.orderbook_manager = None
         self.ws_thread = None
         self.trade_thread = None
-        self.seen_trades = set()
         self.is_running = False
 
         # Flow stats (price change proxy)
@@ -108,62 +114,68 @@ class VPINStrategy:
         # Mode
         self.live_mode = mode.lower() == "live"
 
+        # Thread safety for trade ingestion/state
+        self.trade_lock = threading.Lock()
+
     # VPIN Logic
 
     def ingest_trade(self, price: float, size: float, is_buy: bool):
         """ Feed each trade into VPIN buckets. """
-        self.current_vol += size
-        if is_buy:
-            self.current_buy += size
-        else:
-            self.current_sell += size
+        with self.trade_lock:
+            self.current_vol += size
+            if is_buy:
+                self.current_buy += size
+            else:
+                self.current_sell += size
 
-        # bucket full -> close and start new
-        if self.current_vol >= self.bucket_volume:
-            imbalance = abs(self.current_buy - self.current_sell)
-            bucket_vpin = imbalance / max(self.current_vol, 1e-9)
+            # bucket full -> close and start new
+            if self.current_vol >= self.bucket_volume:
+                imbalance = abs(self.current_buy - self.current_sell)
+                bucket_vpin = imbalance / max(self.current_vol, 1e-9)
 
-            self.buckets.append(bucket_vpin)
-            if len(self.buckets) > self.bucket_count:
-                self.buckets.pop(0)
+                self.buckets.append(bucket_vpin)
+                if len(self.buckets) > self.bucket_count:
+                    self.buckets.pop(0)
 
-            # reset
-            self.current_vol = 0
-            self.current_buy = 0
-            self.current_sell = 0
+                # reset
+                self.current_vol = 0
+                self.current_buy = 0
+                self.current_sell = 0
 
     def get_vpin(self) -> float:
         """ Compute VPIN (average of last N bucket imbalances). """
-        if len(self.buckets) < self.bucket_count:
-            return 0.0
-        return sum(self.buckets) / len(self.buckets)
+        with self.trade_lock:
+            if len(self.buckets) < self.bucket_count:
+                return 0.0
+            return sum(self.buckets) / len(self.buckets)
 
     # Trade polling (Data API /trades)
 
     def _maybe_log_flow_stats(self):
         now = time.time()
-        if self.flow_last_log_ts == 0.0:
+        with self.trade_lock:
+            if self.flow_last_log_ts == 0.0:
+                self.flow_last_log_ts = now
+                return
+            if now - self.flow_last_log_ts < self.flow_log_interval:
+                return
+
+            total_count = self.flow_buy_count + self.flow_sell_count
+            total_vol = self.flow_buy_vol + self.flow_sell_vol
+
+            buy_share = (self.flow_buy_vol / total_vol) if total_vol > 0 else 0.0
+            sell_share = (self.flow_sell_vol / total_vol) if total_vol > 0 else 0.0
+
+            logger.info(
+                f"{Colors.gray('TRADES')} "
+                f"count(B/S)={self.flow_buy_count}/{self.flow_sell_count} "
+                f"| vol(B/S)={self.flow_buy_vol:.2f}/{self.flow_sell_vol:.2f} "
+                f"| share(B/S)={buy_share:.1%}/{sell_share:.1%} "
+                f"| zero_size={self.flow_zero_size_count} "
+                f"| total_events={total_count}"
+            )
+
             self.flow_last_log_ts = now
-            return
-        if now - self.flow_last_log_ts < self.flow_log_interval:
-            return
-
-        total_count = self.flow_buy_count + self.flow_sell_count
-        total_vol = self.flow_buy_vol + self.flow_sell_vol
-
-        buy_share = (self.flow_buy_vol / total_vol) if total_vol > 0 else 0.0
-        sell_share = (self.flow_sell_vol / total_vol) if total_vol > 0 else 0.0
-
-        logger.info(
-            f"{Colors.gray('TRADES')} "
-            f"count(B/S)={self.flow_buy_count}/{self.flow_sell_count} "
-            f"| vol(B/S)={self.flow_buy_vol:.2f}/{self.flow_sell_vol:.2f} "
-            f"| share(B/S)={buy_share:.1%}/{sell_share:.1%} "
-            f"| zero_size={self.flow_zero_size_count} "
-            f"| total_events={total_count}"
-        )
-
-        self.flow_last_log_ts = now
 
     def _handle_trade_row(self, row: Dict):
         """Ingest a single trade row from Data API /trades."""
@@ -181,14 +193,15 @@ class VPINStrategy:
         except Exception:
             return
 
-        if side == "BUY":
-            self.flow_buy_count += 1
-            self.flow_buy_vol += size
-        elif side == "SELL":
-            self.flow_sell_count += 1
-            self.flow_sell_vol += size
-        else:
-            return
+        with self.trade_lock:
+            if side == "BUY":
+                self.flow_buy_count += 1
+                self.flow_buy_vol += size
+            elif side == "SELL":
+                self.flow_sell_count += 1
+                self.flow_sell_vol += size
+            else:
+                return
 
         self.ingest_trade(price, size, side == "BUY")
 
@@ -230,22 +243,31 @@ class VPINStrategy:
                         ts = row.get("timestamp")
                         tx = row.get("transactionHash") or row.get("transaction_hash")
                         key = (tx, ts, row.get("side"), row.get("price"), row.get("size"))
-                        if key in self.seen_trades:
-                            continue
+                        with self.trade_lock:
+                            if key in self.seen_trades_set:
+                                continue
                         # Only accept newer trades by timestamp if available
+                        if ts is None:
+                            continue
                         try:
                             ts_int = int(ts)
                         except Exception:
                             ts_int = 0
-                        if ts_int < self.last_trade_ts:
-                            continue
+                        with self.trade_lock:
+                            if ts_int < self.last_trade_ts:
+                                continue
                         new_rows.append((ts_int, key, row))
 
                     # Process in chronological order
                     new_rows.sort(key=lambda x: x[0])
                     for ts_int, key, row in new_rows:
-                        self.seen_trades.add(key)
-                        self.last_trade_ts = max(self.last_trade_ts, ts_int)
+                        with self.trade_lock:
+                            if len(self.seen_trades) == self.seen_trades_max:
+                                old = self.seen_trades.popleft()
+                                self.seen_trades_set.discard(old)
+                            self.seen_trades.append(key)
+                            self.seen_trades_set.add(key)
+                            self.last_trade_ts = max(self.last_trade_ts, ts_int)
                         self._handle_trade_row(row)
 
                     self._maybe_log_flow_stats()
@@ -374,13 +396,13 @@ class VPINStrategy:
         vpin = self.get_vpin()
         logger.info(f"VPIN: {vpin:.4f}")
 
-        # VPIN high → withdraw liquidity
+        # VPIN high -> withdraw liquidity
         if vpin >= self.vpin_threshold:
             logger.warning(f"VPIN {vpin:.3f} exceeds threshold ({self.vpin_threshold}) - withdrawing liquidity")
             self.cancel_all_orders()
             return
 
-        # Otherwise → normal market making (BBO join)
+        # Otherwise -> normal market making (BBO join)
         positions = self.get_positions()
         open_orders = self.get_open_orders()
 

@@ -20,8 +20,8 @@ Usage:
     uv run python examples/binary_arb_alert.py <market_slug_or_url> --mode=test
 
 Env:
-    POLYMARKET_PRIVATE_KEY
-    POLYMARKET_FUNDER
+    export POLYMARKET_PRIVATE_KEY=...
+    export POLYMARKET_FUNDER=...
 """
 
 import os
@@ -32,7 +32,6 @@ import asyncio
 import threading
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Dict, Any
-
 from dotenv import load_dotenv
 
 import dr_manhattan
@@ -106,7 +105,7 @@ def scan_binary_underround_candidates(
     min_edge: float = 0.002,
     max_markets: int = 300,          # very large values may be slow
     top_k: int = 10,
-    sleep_between: float = 0.0,      # if worried about rate limits, use 0.01–0.05
+    sleep_between: float = 0.0,      # if worried about rate limits, use 0.01-0.05
 ) -> List[ScanCandidate]:
     """
     Scans markets using REST endpoints:
@@ -313,7 +312,12 @@ class BinaryArbAlertStrategy:
         if not asks:
             return None, None
         best_ask_price, best_ask_size = asks[0]
-        return float(best_ask_price), float(best_ask_size)
+        try:
+            price = float(best_ask_price)
+            size = float(best_ask_size)
+        except Exception:
+            return None, None
+        return price, size
 
     def detect_binary_underround(self) -> Optional[ArbSignal]:
         yes_token = self.token_ids[0]
@@ -511,7 +515,7 @@ def main() -> int:
 
     args = _parse_args(sys.argv)
 
-    # ✅ NEW: scan mode
+    # NEW: scan mode
     if args["scan"]:
         logger.info("Scanning markets via py_clob_client (REST) to find binary underround candidates...")
         clob = ClobClient("https://clob.polymarket.com")
