@@ -567,9 +567,10 @@ class Opinion(Exchange):
         if price <= 0 or price >= 1:
             raise InvalidOrder(f"Price must be between 0 and 1, got: {price}")
 
-        # Validate tick size (0.01)
-        tick_size = 0.01
-        if round(price / tick_size) * tick_size != round(price, 2):
+        # Validate tick size (0.001)
+        tick_size = 0.001
+        aligned_price = round(round(price / tick_size) * tick_size, 3)
+        if abs(aligned_price - round(price, 3)) > 0.0001:
             raise InvalidOrder(f"Price must be aligned to tick size {tick_size}, got: {price}")
 
         opinion_side = BUY if side == OrderSide.BUY else SELL
@@ -598,11 +599,16 @@ class Opinion(Exchange):
             order_id = ""
             status = OrderStatus.OPEN
 
-            if hasattr(result, "result") and hasattr(result.result, "data"):
-                data = result.result.data
-                order_id = str(getattr(data, "order_id", ""))
-            elif hasattr(result, "errno") and result.errno != 0:
+            if hasattr(result, "errno") and result.errno != 0:
                 raise InvalidOrder(f"Order placement failed: {result}")
+
+            # Parse order_id from response (result.result.order_data.order_id)
+            if hasattr(result, "result"):
+                res = result.result
+                if hasattr(res, "order_data"):
+                    order_id = str(getattr(res.order_data, "order_id", ""))
+                elif hasattr(res, "data"):
+                    order_id = str(getattr(res.data, "order_id", ""))
 
             return Order(
                 id=order_id,
@@ -726,25 +732,34 @@ class Opinion(Exchange):
         )
         market_id = str(getattr(data, "topic_id", "") or getattr(data, "market_id", ""))
 
+        # Opinion API: side=1 is Buy, side=2 is Sell (or use side_enum)
+        side_enum = getattr(data, "side_enum", "")
         side_value = getattr(data, "side", 0)
-        if isinstance(side_value, str):
+        if side_enum:
+            side = OrderSide.BUY if side_enum.lower() == "buy" else OrderSide.SELL
+        elif isinstance(side_value, str):
             side = OrderSide.BUY if side_value.lower() == "buy" else OrderSide.SELL
         else:
-            side = OrderSide.BUY if int(side_value) == 0 else OrderSide.SELL
+            # Opinion API: 1=Buy, 2=Sell
+            side = OrderSide.BUY if int(side_value) == 1 else OrderSide.SELL
 
         status_value = getattr(data, "status", 1)
         status = self._parse_order_status(status_value)
 
         price = float(getattr(data, "price", 0) or 0)
+        # Opinion API uses order_shares for size
         size = float(
-            getattr(data, "maker_amount", 0)
+            getattr(data, "order_shares", 0)
+            or getattr(data, "maker_amount", 0)
             or getattr(data, "size", 0)
             or getattr(data, "original_size", 0)
             or getattr(data, "amount", 0)
             or 0
         )
+        # Opinion API uses filled_shares for filled amount
         filled = float(
-            getattr(data, "matched_amount", 0)
+            getattr(data, "filled_shares", 0)
+            or getattr(data, "matched_amount", 0)
             or getattr(data, "filled", 0)
             or getattr(data, "matched", 0)
             or 0
@@ -866,9 +881,19 @@ class Opinion(Exchange):
         """Parse position data from API response."""
         market_id = str(getattr(data, "topic_id", "") or getattr(data, "market_id", ""))
         outcome = getattr(data, "outcome", "") or getattr(data, "token_name", "")
-        size = float(getattr(data, "size", 0) or getattr(data, "balance", 0) or 0)
+        # Opinion API uses shares_owned for position size
+        size = float(
+            getattr(data, "shares_owned", 0)
+            or getattr(data, "size", 0)
+            or getattr(data, "balance", 0)
+            or 0
+        )
+        # Opinion API uses avg_entry_price for average price
         average_price = float(
-            getattr(data, "average_price", 0) or getattr(data, "avg_price", 0) or 0
+            getattr(data, "avg_entry_price", 0)
+            or getattr(data, "average_price", 0)
+            or getattr(data, "avg_price", 0)
+            or 0
         )
         current_price = float(getattr(data, "current_price", 0) or getattr(data, "price", 0) or 0)
 
@@ -899,7 +924,15 @@ class Opinion(Exchange):
 
             if hasattr(response, "result"):
                 result = response.result
-                if hasattr(result, "list"):
+                # Opinion API returns result.balances array
+                if hasattr(result, "balances"):
+                    for item in result.balances or []:
+                        # Use available_balance field
+                        balance = float(getattr(item, "available_balance", 0) or 0)
+                        # Opinion uses USDT on BSC (quote_token is USDT contract)
+                        balances["USDC"] = balance
+                        break  # Only one balance expected
+                elif hasattr(result, "list"):
                     for item in result.list or []:
                         symbol = getattr(item, "symbol", "") or getattr(item, "currency", "")
                         balance = float(

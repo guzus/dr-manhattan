@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 import dr_manhattan
 from dr_manhattan.models import OrderSide
+from dr_manhattan.base.order_tracker import OrderTracker, OrderEvent, create_fill_logger
 from dr_manhattan.utils import setup_logger
 from dr_manhattan.utils.logger import Colors
 
@@ -41,6 +42,7 @@ class SpreadStrategy:
         order_size: float = 5.0,
         max_delta: float = 20.0,
         check_interval: float = 5.0,
+        track_fills: bool = True,
     ):
         """
         Initialize market maker
@@ -52,6 +54,7 @@ class SpreadStrategy:
             order_size: Size of each order
             max_delta: Maximum position imbalance
             check_interval: How often to check and adjust orders
+            track_fills: Enable order fill tracking and logging
         """
         self.exchange = exchange
         self.market_id = market_id
@@ -59,11 +62,16 @@ class SpreadStrategy:
         self.order_size = order_size
         self.max_delta = max_delta
         self.check_interval = check_interval
+        self.track_fills = track_fills
 
         self.market = None
         self.token_ids = []
         self.outcomes = []
         self.tick_size = 0.01
+        self.child_market_ids = {}  # outcome -> child market_id
+
+        # Order tracking
+        self.order_tracker: Optional[OrderTracker] = None
 
         self.is_running = False
 
@@ -88,7 +96,15 @@ class SpreadStrategy:
             logger.error("No token IDs found in market")
             return False
 
-        self.tick_size = self.market.metadata.get("tick_size", 0.01)
+        # Opinion tick_size = 0.001
+        self.tick_size = 0.001
+
+        # For multi-outcome markets, map outcome -> child market_id
+        child_markets = self.market.metadata.get("child_markets", [])
+        if child_markets:
+            for child in child_markets:
+                self.child_market_ids[child["title"]] = child["market_id"]
+            logger.info(f"Multi-outcome market detected. Child markets: {self.child_market_ids}")
 
         # Display fetch confirmation
         question_short = self.market.question[:60] + "..." if len(self.market.question) > 60 else self.market.question
@@ -137,9 +153,16 @@ class SpreadStrategy:
         positions = {}
 
         try:
-            positions_list = self.exchange.fetch_positions(market_id=self.market_id)
-            for pos in positions_list:
-                positions[pos.outcome] = pos.size
+            # For multi-outcome markets, fetch from all child markets
+            if self.child_market_ids:
+                for outcome, child_id in self.child_market_ids.items():
+                    positions_list = self.exchange.fetch_positions(market_id=child_id)
+                    for pos in positions_list:
+                        positions[outcome] = pos.size
+            else:
+                positions_list = self.exchange.fetch_positions(market_id=self.market_id)
+                for pos in positions_list:
+                    positions[pos.outcome] = pos.size
         except Exception as e:
             logger.warning(f"Failed to fetch positions: {e}")
 
@@ -148,6 +171,15 @@ class SpreadStrategy:
     def get_open_orders(self) -> List:
         """Get all open orders"""
         try:
+            # For multi-outcome markets, fetch from all child markets
+            if self.child_market_ids:
+                all_orders = []
+                for outcome, child_id in self.child_market_ids.items():
+                    orders = self.exchange.fetch_open_orders(market_id=child_id)
+                    for order in orders:
+                        order.outcome = outcome  # Set outcome for reference
+                    all_orders.extend(orders)
+                return all_orders
             return self.exchange.fetch_open_orders(market_id=self.market_id)
         except Exception as e:
             logger.warning(f"Failed to fetch open orders: {e}")
@@ -167,9 +199,71 @@ class SpreadStrategy:
             except Exception as e:
                 logger.warning(f"  Failed to cancel {order.id}: {e}")
 
+    def liquidate_positions(self):
+        """Liquidate all positions by selling at best bid"""
+        positions = self.get_positions()
+
+        if not positions:
+            logger.info("No positions to liquidate")
+            return
+
+        logger.info(f"{Colors.bold('Liquidating positions...')}")
+
+        for outcome, size in positions.items():
+            if size <= 0:
+                continue
+
+            # Find token_id for this outcome
+            token_id = None
+            for i, out in enumerate(self.outcomes):
+                if out == outcome and i < len(self.token_ids):
+                    token_id = self.token_ids[i]
+                    break
+
+            if not token_id:
+                logger.warning(f"  Cannot find token_id for {outcome}")
+                continue
+
+            # Get best bid
+            best_bid, _ = self.get_best_bid_ask(token_id)
+
+            if best_bid is None or best_bid <= 0:
+                logger.warning(f"  {outcome}: No bid available, cannot liquidate")
+                continue
+
+            # Sell at best bid
+            try:
+                # Use child market_id for multi-outcome markets
+                order_market_id = self.child_market_ids.get(outcome, self.market_id)
+                # Floor the size to avoid insufficient balance errors
+                sell_size = float(int(size))  # Floor to integer
+                if sell_size <= 0:
+                    continue
+                order = self.exchange.create_order(
+                    market_id=order_market_id,
+                    outcome=outcome,
+                    side=OrderSide.SELL,
+                    price=self.round_price(best_bid),
+                    size=sell_size,
+                    params={"token_id": token_id},
+                )
+                outcome_display = outcome[:15] if len(outcome) > 15 else outcome
+                logger.info(f"  {Colors.red('SELL')} {sell_size:.2f} {Colors.magenta(outcome_display)} @ {Colors.yellow(f'{best_bid:.4f}')} (liquidate)")
+            except Exception as e:
+                logger.error(f"  Failed to liquidate {outcome}: {e}")
+
     def round_price(self, price: float) -> float:
         """Round price to tick size"""
-        return round(price / self.tick_size) * self.tick_size
+        return round(round(price / self.tick_size) * self.tick_size, 3)
+
+    def setup_order_tracker(self):
+        """Setup order fill tracking via polling (no WebSocket)"""
+        if not self.track_fills:
+            return
+
+        self.order_tracker = OrderTracker(verbose=True)
+        self.order_tracker.on_fill(create_fill_logger())
+        logger.info(f"Order fill tracking {Colors.green('enabled')} (polling)")
 
     def place_orders(self):
         """Main market making logic"""
@@ -225,7 +319,7 @@ class SpreadStrategy:
             logger.warning(f"Delta ({delta:.2f}) > max ({self.max_delta:.2f}) - reducing exposure")
 
         for i, (outcome, token_id) in enumerate(zip(self.outcomes, self.token_ids)):
-            # Get orderbook
+            # Opinion has separate orderbooks for each token, so fetch directly
             best_bid, best_ask = self.get_best_bid_ask(token_id)
 
             if best_bid is None or best_ask is None:
@@ -233,13 +327,13 @@ class SpreadStrategy:
                 logger.warning(f"  {outcome_display}: No orderbook data, skipping...")
                 continue
 
-            # Our prices (join BBO)
+            # Our prices (join BBO - round to tick size)
             our_bid = self.round_price(best_bid)
             our_ask = self.round_price(best_ask)
 
-            # Validate
-            our_bid = max(0.01, min(0.99, our_bid))
-            our_ask = max(0.01, min(0.99, our_ask))
+            # Validate (Opinion allows 0.001 ~ 0.999)
+            our_bid = max(0.001, min(0.999, our_bid))
+            our_ask = max(0.001, min(0.999, our_ask))
 
             if our_bid >= our_ask:
                 logger.warning(f"  {outcome}: Spread too tight (bid={our_bid:.4f} >= ask={our_ask:.4f}), skipping")
@@ -277,16 +371,28 @@ class SpreadStrategy:
 
             if should_buy:
                 try:
+                    # Use child market_id for multi-outcome markets
+                    order_market_id = self.child_market_ids.get(outcome, self.market_id)
+                    # BUY size is in USDT (makerAmountInQuoteToken)
+                    # Minimum order amount is 1.30 USDT
+                    min_order_amount = 1.30
+                    buy_amount = max(self.order_size, min_order_amount)
+                    # Don't exceed available cash
+                    if buy_amount > cash:
+                        continue
                     order = self.exchange.create_order(
-                        market_id=self.market_id,
+                        market_id=order_market_id,
                         outcome=outcome,
                         side=OrderSide.BUY,
                         price=our_bid,
-                        size=self.order_size,
+                        size=buy_amount,
                         params={"token_id": token_id},
                     )
+                    # Track the order for fill detection
+                    if self.order_tracker:
+                        self.order_tracker.track_order(order)
                     outcome_display = outcome[:15] if len(outcome) > 15 else outcome
-                    logger.info(f"    {Colors.gray('→')} {Colors.green('BUY')} {self.order_size:.0f} {Colors.magenta(outcome_display)} @ {Colors.yellow(f'{our_bid:.4f}')}")
+                    logger.info(f"    {Colors.gray('→')} {Colors.green('BUY')} ${buy_amount:.2f} {Colors.magenta(outcome_display)} @ {Colors.yellow(f'{our_bid:.4f}')}")
                 except Exception as e:
                     logger.error(f"    BUY failed: {e}")
 
@@ -310,16 +416,26 @@ class SpreadStrategy:
 
             if should_sell:
                 try:
+                    # Use child market_id for multi-outcome markets
+                    order_market_id = self.child_market_ids.get(outcome, self.market_id)
+                    # Calculate size to meet minimum order amount (1.30 USDT)
+                    min_order_amount = 1.30
+                    sell_size = max(self.order_size, int(min_order_amount / our_ask) + 1)
+                    # Don't sell more than we have
+                    sell_size = min(sell_size, position_size)
                     order = self.exchange.create_order(
-                        market_id=self.market_id,
+                        market_id=order_market_id,
                         outcome=outcome,
                         side=OrderSide.SELL,
                         price=our_ask,
-                        size=self.order_size,
+                        size=sell_size,
                         params={"token_id": token_id},
                     )
+                    # Track the order for fill detection
+                    if self.order_tracker:
+                        self.order_tracker.track_order(order)
                     outcome_display = outcome[:15] if len(outcome) > 15 else outcome
-                    logger.info(f"    {Colors.gray('→')} {Colors.red('SELL')} {self.order_size:.0f} {Colors.magenta(outcome_display)} @ {Colors.yellow(f'{our_ask:.4f}')}")
+                    logger.info(f"    {Colors.gray('→')} {Colors.red('SELL')} {sell_size:.0f} {Colors.magenta(outcome_display)} @ {Colors.yellow(f'{our_ask:.4f}')}")
                 except Exception as e:
                     logger.error(f"    SELL failed: {e}")
 
@@ -330,6 +446,9 @@ class SpreadStrategy:
         if not self.fetch_market():
             logger.error("Failed to fetch market. Exiting.")
             return
+
+        # Setup order fill tracking
+        self.setup_order_tracker()
 
         self.is_running = True
         start_time = time.time()
@@ -349,6 +468,9 @@ class SpreadStrategy:
         finally:
             self.is_running = False
             self.cancel_all_orders()
+            self.liquidate_positions()
+            if self.order_tracker:
+                self.order_tracker.stop()
             logger.info("Market maker stopped")
 
 
