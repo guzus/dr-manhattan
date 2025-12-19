@@ -18,7 +18,7 @@ from .exchanges.limitless import Limitless
 from .exchanges.opinion import Opinion
 from .exchanges.polymarket import Polymarket
 from .models.market import Market
-from .models.order import Order, OrderSide, OrderStatus
+from .models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from .models.position import Position
 
 __version__ = "0.0.1"
@@ -40,6 +40,7 @@ __all__ = [
     "Order",
     "OrderSide",
     "OrderStatus",
+    "OrderTimeInForce",
     "Position",
     "Polymarket",
     "Limitless",

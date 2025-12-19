@@ -21,7 +21,7 @@ from ..base.errors import (
 from ..base.exchange import Exchange
 from ..models import CryptoHourlyMarket
 from ..models.market import Market
-from ..models.order import Order, OrderSide, OrderStatus
+from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from ..models.position import Position
 from ..utils import setup_logger
 from .polymarket_ws import PolymarketUserWebSocket, PolymarketWebSocket
@@ -756,6 +756,7 @@ class Polymarket(Exchange):
         price: float,
         size: float,
         params: Optional[Dict[str, Any]] = None,
+        time_in_force: OrderTimeInForce = OrderTimeInForce.GTC,
     ) -> Order:
         """Create order on Polymarket CLOB"""
         if not self._clob_client:
@@ -764,6 +765,14 @@ class Polymarket(Exchange):
         token_id = params.get("token_id") if params else None
         if not token_id:
             raise InvalidOrder("token_id required in params")
+
+        # Map our OrderTimeInForce to py_clob_client OrderType
+        order_type_map = {
+            OrderTimeInForce.GTC: OrderType.GTC,
+            OrderTimeInForce.FOK: OrderType.FOK,
+            OrderTimeInForce.IOC: OrderType.GTD,  # py_clob_client uses GTD for IOC behavior
+        }
+        clob_order_type = order_type_map.get(time_in_force, OrderType.GTC)
 
         try:
             # Create and sign order
@@ -775,7 +784,7 @@ class Polymarket(Exchange):
             )
 
             signed_order = self._clob_client.create_order(order_args)
-            result = self._clob_client.post_order(signed_order, OrderType.GTC)
+            result = self._clob_client.post_order(signed_order, clob_order_type)
 
             # Parse result
             order_id = result.get("orderID", "") if isinstance(result, dict) else str(result)
@@ -798,6 +807,7 @@ class Polymarket(Exchange):
                 status=status_map.get(status_str, OrderStatus.OPEN),
                 created_at=datetime.now(),
                 updated_at=datetime.now(),
+                time_in_force=time_in_force,
             )
 
         except Exception as e:

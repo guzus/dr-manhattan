@@ -20,7 +20,7 @@ except ImportError:
 from ..base.errors import ExchangeError, MarketNotFound
 from ..base.exchange import Exchange
 from ..models.market import Market
-from ..models.order import Order, OrderSide, OrderStatus
+from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from ..models.position import Position
 
 
@@ -116,6 +116,7 @@ class Limitless(Exchange):
         price: float,
         size: float,
         params: Optional[Dict[str, Any]] = None,
+        time_in_force: OrderTimeInForce = OrderTimeInForce.GTC,
     ) -> Order:
         """Create order on Limitless"""
         payload = {
@@ -124,6 +125,7 @@ class Limitless(Exchange):
             "side": side.value,
             "price": price,
             "amount": size,
+            "timeInForce": time_in_force.value.upper(),
             **(params or {}),
         }
 
@@ -173,6 +175,14 @@ class Limitless(Exchange):
 
     def _parse_order(self, data: Dict[str, Any]) -> Order:
         """Parse order data from API response"""
+        # Parse time_in_force from response, default to GTC
+        tif_str = data.get("timeInForce", "gtc").lower()
+        time_in_force = OrderTimeInForce.GTC
+        if tif_str == "fok":
+            time_in_force = OrderTimeInForce.FOK
+        elif tif_str == "ioc":
+            time_in_force = OrderTimeInForce.IOC
+
         return Order(
             id=data.get("id", ""),
             market_id=data.get("marketId", ""),
@@ -184,6 +194,7 @@ class Limitless(Exchange):
             status=self._parse_order_status(data.get("status")),
             created_at=self._parse_datetime(data.get("createdAt")),
             updated_at=self._parse_datetime(data.get("updatedAt")),
+            time_in_force=time_in_force,
         )
 
     def _parse_position(self, data: Dict[str, Any]) -> Position:

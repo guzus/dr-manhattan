@@ -1,7 +1,7 @@
 from .crypto_hourly import CryptoHourlyMarket
 from .market import Market
 from .nav import NAV, PositionBreakdown
-from .order import Order, OrderSide, OrderStatus
+from .order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from .position import Position
 
 __all__ = [
@@ -9,6 +9,7 @@ __all__ = [
     "Order",
     "OrderSide",
     "OrderStatus",
+    "OrderTimeInForce",
     "Position",
     "CryptoHourlyMarket",
     "NAV",
