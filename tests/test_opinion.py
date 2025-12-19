@@ -129,11 +129,12 @@ class TestOpinionOrderParsing:
         mock_data = MagicMock()
         mock_data.order_id = "order_123"
         mock_data.topic_id = 456
-        mock_data.side = 0  # BUY
+        mock_data.side = 1  # BUY (Opinion API: 1=Buy, 2=Sell)
+        mock_data.side_enum = ""  # Prevent MagicMock auto-creation
         mock_data.status = 1  # OPEN
         mock_data.price = 0.55
-        mock_data.maker_amount = 100.0
-        mock_data.matched_amount = 25.0
+        mock_data.order_shares = 100.0  # Opinion API uses order_shares
+        mock_data.filled_shares = 25.0  # Opinion API uses filled_shares
         mock_data.outcome = "Yes"
         mock_data.created_at = 1735689600
 
@@ -154,11 +155,12 @@ class TestOpinionOrderParsing:
         mock_data = MagicMock()
         mock_data.order_id = "order_456"
         mock_data.topic_id = 789
-        mock_data.side = 1  # SELL
+        mock_data.side = 2  # SELL (Opinion API: 1=Buy, 2=Sell)
+        mock_data.side_enum = ""  # Prevent MagicMock auto-creation
         mock_data.status = 2  # FILLED
         mock_data.price = 0.45
-        mock_data.maker_amount = 50.0
-        mock_data.matched_amount = 50.0
+        mock_data.order_shares = 50.0  # Opinion API uses order_shares
+        mock_data.filled_shares = 50.0  # Opinion API uses filled_shares
         mock_data.outcome = "No"
         mock_data.created_at = None
 
@@ -179,8 +181,8 @@ class TestOpinionPositionParsing:
         mock_data = MagicMock()
         mock_data.topic_id = 123
         mock_data.outcome = "Yes"
-        mock_data.size = 100.0
-        mock_data.average_price = 0.50
+        mock_data.shares_owned = 100.0  # Opinion API uses shares_owned
+        mock_data.avg_entry_price = 0.50  # Opinion API uses avg_entry_price
         mock_data.current_price = 0.65
 
         position = exchange._parse_position(mock_data)
@@ -294,13 +296,12 @@ class TestOpinionWithMockedClient:
     def test_fetch_balance_success(self, exchange_with_mock, mock_client):
         """Test successful balance fetch."""
         mock_item = MagicMock()
-        mock_item.symbol = "USDC"
-        mock_item.balance = 1000.0
+        mock_item.available_balance = 1000.0  # Opinion API uses available_balance
 
         mock_response = MagicMock()
         mock_response.errno = 0
         mock_response.result = MagicMock()
-        mock_response.result.list = [mock_item]
+        mock_response.result.balances = [mock_item]  # Opinion API uses balances array
 
         mock_client.get_my_balances.return_value = mock_response
 
