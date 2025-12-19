@@ -18,6 +18,12 @@ class OrderStatus(Enum):
     REJECTED = "rejected"
 
 
+class OrderTimeInForce(Enum):
+    GTC = "gtc"  # Good-Til-Cancel: remains active until filled or cancelled
+    FOK = "fok"  # Fill-Or-Kill: must be filled immediately and completely or cancelled
+    IOC = "ioc"  # Immediate-Or-Cancel: fill what's available immediately, cancel rest
+
+
 @dataclass
 class Order:
     """Represents an order on a prediction market"""
@@ -32,6 +38,7 @@ class Order:
     status: OrderStatus
     created_at: datetime
     updated_at: Optional[datetime] = None
+    time_in_force: OrderTimeInForce = OrderTimeInForce.GTC
 
     @property
     def remaining(self) -> float:

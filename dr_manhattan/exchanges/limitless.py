@@ -25,7 +25,7 @@ from ..base.errors import (
 )
 from ..base.exchange import Exchange
 from ..models.market import Market
-from ..models.order import Order, OrderSide, OrderStatus
+from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from ..models.position import Position
 from .limitless_ws import (
     LimitlessUserWebSocket,
@@ -636,6 +636,7 @@ class Limitless(Exchange):
         price: float,
         size: float,
         params: Optional[Dict[str, Any]] = None,
+        time_in_force: OrderTimeInForce = OrderTimeInForce.GTC,
     ) -> Order:
         """
         Create a new order on Limitless.
@@ -649,11 +650,18 @@ class Limitless(Exchange):
             params: Additional parameters:
                 - token_id: Token ID (optional if outcome provided)
                 - order_type: "GTC" or "FOK" (default: "GTC")
+            time_in_force: Order time in force. Limitless supports GTC and FOK only.
 
         Returns:
             Order object
         """
         self._ensure_authenticated()
+
+        # Validate time_in_force - Limitless only supports GTC and FOK
+        if time_in_force == OrderTimeInForce.IOC:
+            raise InvalidOrder(
+                "Limitless does not support IOC orders. Use GTC or FOK instead."
+            )
 
         extra_params = params or {}
         token_id = extra_params.get("token_id")
@@ -670,7 +678,11 @@ class Limitless(Exchange):
         if price <= 0 or price >= 1:
             raise InvalidOrder(f"Price must be between 0 and 1, got: {price}")
 
-        order_type = extra_params.get("order_type", "GTC").upper()
+        # Map time_in_force to order_type, or use params override
+        order_type = extra_params.get("order_type")
+        if not order_type:
+            order_type = "FOK" if time_in_force == OrderTimeInForce.FOK else "GTC"
+        order_type = order_type.upper()
 
         # Get venue exchange address for EIP-712 signing
         venue = market.metadata.get("venue", {})

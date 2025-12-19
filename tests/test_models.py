@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from dr_manhattan.models.market import Market
-from dr_manhattan.models.order import Order, OrderSide, OrderStatus
+from dr_manhattan.models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from dr_manhattan.models.position import Position
 
 
@@ -357,3 +357,55 @@ class TestOrderEnums:
         assert OrderStatus.PARTIALLY_FILLED.value == "partially_filled"
         assert OrderStatus.CANCELLED.value == "cancelled"
         assert OrderStatus.REJECTED.value == "rejected"
+
+    def test_order_time_in_force_enum(self):
+        """Test OrderTimeInForce enum"""
+        assert OrderTimeInForce.GTC.value == "gtc"
+        assert OrderTimeInForce.FOK.value == "fok"
+        assert OrderTimeInForce.IOC.value == "ioc"
+
+    def test_order_with_time_in_force(self):
+        """Test creating an order with time_in_force"""
+        # Test default (GTC)
+        order_default = Order(
+            id="o1",
+            market_id="m1",
+            outcome="Yes",
+            side=OrderSide.BUY,
+            price=0.65,
+            size=100,
+            filled=0,
+            status=OrderStatus.OPEN,
+            created_at=datetime(2025, 1, 1),
+        )
+        assert order_default.time_in_force == OrderTimeInForce.GTC
+
+        # Test FOK
+        order_fok = Order(
+            id="o2",
+            market_id="m1",
+            outcome="Yes",
+            side=OrderSide.BUY,
+            price=0.65,
+            size=100,
+            filled=0,
+            status=OrderStatus.OPEN,
+            created_at=datetime(2025, 1, 1),
+            time_in_force=OrderTimeInForce.FOK,
+        )
+        assert order_fok.time_in_force == OrderTimeInForce.FOK
+
+        # Test IOC
+        order_ioc = Order(
+            id="o3",
+            market_id="m1",
+            outcome="Yes",
+            side=OrderSide.BUY,
+            price=0.65,
+            size=100,
+            filled=0,
+            status=OrderStatus.OPEN,
+            created_at=datetime(2025, 1, 1),
+            time_in_force=OrderTimeInForce.IOC,
+        )
+        assert order_ioc.time_in_force == OrderTimeInForce.IOC

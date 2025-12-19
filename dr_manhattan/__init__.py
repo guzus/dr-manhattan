@@ -31,7 +31,7 @@ from .exchanges.opinion import Opinion
 from .exchanges.polymarket import Polymarket
 from .exchanges.predictfun import PredictFun
 from .models.market import ExchangeOutcomeRef, Market, OutcomeRef, ReadableMarketId
-from .models.order import Order, OrderSide, OrderStatus
+from .models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from .models.position import Position
 
 __version__ = "0.0.1"
@@ -57,6 +57,7 @@ __all__ = [
     "Order",
     "OrderSide",
     "OrderStatus",
+    "OrderTimeInForce",
     "Position",
     "Polymarket",
     "Limitless",

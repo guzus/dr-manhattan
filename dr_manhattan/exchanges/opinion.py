@@ -20,7 +20,7 @@ from ..base.errors import (
 )
 from ..base.exchange import Exchange
 from ..models.market import Market
-from ..models.order import Order, OrderSide, OrderStatus
+from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from ..models.position import Position
 
 
@@ -566,6 +566,7 @@ class Opinion(Exchange):
         price: float,
         size: float,
         params: Optional[Dict[str, Any]] = None,
+        time_in_force: OrderTimeInForce = OrderTimeInForce.GTC,
     ) -> Order:
         """
         Create a new order on Opinion.
@@ -580,6 +581,8 @@ class Opinion(Exchange):
                 - token_id: Token ID (required)
                 - order_type: "limit" or "market" (default: "limit")
                 - check_approval: Whether to check approvals (default: False)
+            time_in_force: Order time in force (GTC, FOK, IOC). Default is GTC.
+                Note: Opinion SDK may have limited support for FOK/IOC.
 
         Returns:
             Order object
@@ -643,6 +646,7 @@ class Opinion(Exchange):
                 status=status,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
+                time_in_force=time_in_force,
             )
 
         except InvalidOrder:

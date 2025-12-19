@@ -9,7 +9,8 @@ from typing import Any, Dict, Optional
 from ..base.errors import NetworkError, RateLimitError
 from ..models.crypto_hourly import CryptoHourlyMarket
 from ..models.market import Market
-from ..models.order import Order, OrderSide
+from ..models.nav import NAV, PositionBreakdown
+from ..models.order import Order, OrderSide, OrderTimeInForce
 from ..models.position import Position
 
 
@@ -109,6 +110,7 @@ class Exchange(ABC):
         price: float,
         size: float,
         params: Optional[Dict[str, Any]] = None,
+        time_in_force: OrderTimeInForce = OrderTimeInForce.GTC,
     ) -> Order:
         """
         Create a new order.
@@ -120,6 +122,10 @@ class Exchange(ABC):
             price: Price per share (0-1 or 0-100 depending on exchange)
             size: Number of shares
             params: Additional exchange-specific parameters
+            time_in_force: Order time in force (GTC, FOK, IOC). Default is GTC.
+                - GTC (Good-Til-Cancel): Order remains active until filled or cancelled
+                - FOK (Fill-Or-Kill): Order must be filled immediately and completely or cancelled
+                - IOC (Immediate-Or-Cancel): Fill what's available immediately, cancel the rest
 
         Returns:
             Order object
