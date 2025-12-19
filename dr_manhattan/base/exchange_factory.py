@@ -118,8 +118,43 @@ def _load_env_config(name: str) -> ExchangeConfig:
     return config
 
 
+def _validate_private_key(key: str, name: str) -> bool:
+    """
+    Validate private key format.
+
+    Args:
+        key: Private key to validate
+        name: Exchange name for context
+
+    Returns:
+        True if valid
+
+    Raises:
+        ValueError: If key format is invalid
+    """
+    if not key:
+        return False
+
+    # Strip 0x prefix if present
+    clean_key = key[2:] if key.startswith("0x") else key
+
+    # Check length (64 hex chars = 32 bytes)
+    if len(clean_key) != 64:
+        raise ValueError(
+            f"Invalid private key length for {name}. " "Expected 64 hex characters (32 bytes)."
+        )
+
+    # Check valid hex
+    try:
+        int(clean_key, 16)
+    except ValueError:
+        raise ValueError(f"Invalid private key format for {name}. " "Must be valid hexadecimal.")
+
+    return True
+
+
 def _validate_config(name: str, config: ExchangeConfig) -> None:
-    """Validate that required config fields are present."""
+    """Validate that required config fields are present and properly formatted."""
     required: Dict[str, list] = {
         "polymarket": ["private_key", "funder"],
         "opinion": ["api_key", "private_key", "multi_sig_addr"],
@@ -132,6 +167,10 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
         env_prefix = name.upper()
         env_vars = [f"{env_prefix}_{key.upper()}" for key in missing]
         raise ValueError(f"Missing required config: {missing}. Set env vars: {env_vars}")
+
+    # Validate private key format if present
+    if private_key := config.get("private_key"):
+        _validate_private_key(private_key, name)
 
 
 def list_exchanges() -> list[str]:

@@ -9,7 +9,7 @@ import asyncio
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..models.market import Market
 from ..models.nav import NAV, PositionBreakdown
@@ -136,9 +136,9 @@ class ExchangeClient:
 
         # Cached account state
         self._balance_cache: Dict[str, float] = {}
-        self._positions_cache: List[Position] = []
         self._balance_last_updated: float = 0
-        self._positions_last_updated: float = 0
+        # Per-market positions cache: market_id -> (positions, last_updated)
+        self._positions_cache: Dict[str, Tuple[List[Position], float]] = {}
 
         # Mid-price cache: maps token_id/market_id -> yes_price
         self._mid_price_cache: Dict[str, float] = {}
@@ -171,8 +171,10 @@ class ExchangeClient:
                 self._user_ws = self._exchange.get_user_websocket()
                 self._user_ws.on_trade(self._order_tracker.handle_trade)
                 self._user_ws.start()
-            except Exception:
-                pass  # WebSocket not available, will use polling
+            except ConnectionError:
+                logger.debug("WebSocket not available, will use polling")
+            except Exception as e:
+                logger.warning(f"Failed to setup user WebSocket: {e}")
 
     def on_fill(self, callback: OrderCallback) -> "ExchangeClient":
         """
@@ -313,6 +315,8 @@ class ExchangeClient:
             self._orderbook_manager = self._market_ws.get_orderbook_manager()
 
             # Fetch initial orderbook data via REST before connecting WebSocket
+            # Note: Sequential fetches for each token (N+1 pattern) - consider batch API if available
+            fetch_start = time.time()
             for token_id in token_ids:
                 rest_data = self.get_orderbook(token_id)
                 if rest_data:
@@ -320,6 +324,11 @@ class ExchangeClient:
                     self._orderbook_manager.update(token_id, orderbook.to_dict())
                     # Update mid price cache
                     self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
+            fetch_duration = time.time() - fetch_start
+            if fetch_duration > 1.0:
+                logger.info(
+                    f"Initial orderbook fetch took {fetch_duration:.2f}s for {len(token_ids)} tokens"
+                )
 
             # Create event loop for WebSocket
             if self._market_ws.loop is None:
@@ -334,16 +343,28 @@ class ExchangeClient:
 
             # Define coroutine that connects, subscribes, and runs receive loop
             async def run_websocket():
-                await self._market_ws.connect()
-                await self._market_ws.watch_orderbook_by_market(
-                    market_id, token_ids, callback=on_orderbook_update
-                )
-                await self._market_ws._receive_loop()
+                try:
+                    await self._market_ws.connect()
+                    await self._market_ws.watch_orderbook_by_market(
+                        market_id, token_ids, callback=on_orderbook_update
+                    )
+                    await self._market_ws._receive_loop()
+                except asyncio.CancelledError:
+                    logger.debug("WebSocket task cancelled")
+                except Exception as e:
+                    logger.warning(f"WebSocket error: {e}")
+                finally:
+                    if self._market_ws:
+                        try:
+                            await self._market_ws.close()
+                        except Exception:
+                            pass
 
-            # Run in background thread
+            # Run in background thread with proper event loop management
             def run_loop():
                 asyncio.set_event_loop(self._market_ws.loop)
-                self._market_ws.loop.run_until_complete(run_websocket())
+                self._market_ws.loop.create_task(run_websocket())
+                self._market_ws.loop.run_forever()
 
             ws_thread = threading.Thread(target=run_loop, daemon=True)
             ws_thread.start()
@@ -356,6 +377,29 @@ class ExchangeClient:
             self._market_ws = None
             self._orderbook_manager = None
             return False
+
+    def _parse_price_level(self, level: Any) -> Optional[float]:
+        """
+        Parse price from an orderbook level entry.
+
+        Handles dict format ({"price": x}) and list/tuple format ([price, size]).
+
+        Args:
+            level: Price level entry from orderbook
+
+        Returns:
+            Parsed price or None if invalid
+        """
+        try:
+            if isinstance(level, dict):
+                price = float(level.get("price", 0))
+                return price if price > 0 else None
+            elif isinstance(level, (list, tuple)):
+                price = float(level[0])
+                return price if price > 0 else None
+        except (ValueError, TypeError, IndexError):
+            return None
+        return None
 
     def get_best_bid_ask(self, token_id: str) -> Tuple[Optional[float], Optional[float]]:
         """
@@ -379,24 +423,8 @@ class ExchangeClient:
         bids = orderbook.get("bids", [])
         asks = orderbook.get("asks", [])
 
-        best_bid = None
-        best_ask = None
-
-        if bids:
-            if isinstance(bids[0], dict):
-                price = float(bids[0].get("price", 0))
-                best_bid = price if price > 0 else None
-            elif isinstance(bids[0], (list, tuple)):
-                price = float(bids[0][0])
-                best_bid = price if price > 0 else None
-
-        if asks:
-            if isinstance(asks[0], dict):
-                price = float(asks[0].get("price", 0))
-                best_ask = price if price > 0 else None
-            elif isinstance(asks[0], (list, tuple)):
-                price = float(asks[0][0])
-                best_ask = price if price > 0 else None
+        best_bid = self._parse_price_level(bids[0]) if bids else None
+        best_ask = self._parse_price_level(asks[0]) if asks else None
 
         return best_bid, best_ask
 
@@ -422,8 +450,7 @@ class ExchangeClient:
             try:
                 self._update_balance_cache()
             except Exception as e:
-                if self.verbose:
-                    print(f"Background balance update failed: {e}")
+                logger.warning(f"Background balance update failed: {e}")
 
         return self._balance_cache.copy()
 
@@ -438,17 +465,26 @@ class ExchangeClient:
             List of cached Position objects
         """
         current_time = time.time()
+        cache_key = market_id or "__all__"
 
-        if current_time - self._positions_last_updated > self._cache_ttl:
-            try:
-                self._update_positions_cache(market_id)
-            except Exception as e:
-                if self.verbose:
-                    print(f"Background positions update failed: {e}")
+        # Check if cache exists and is fresh
+        if cache_key in self._positions_cache:
+            positions, last_updated = self._positions_cache[cache_key]
+            if current_time - last_updated <= self._cache_ttl:
+                return positions.copy()
 
-        if market_id:
-            return [p for p in self._positions_cache if p.market_id == market_id]
-        return self._positions_cache.copy()
+        # Cache miss or stale - update
+        try:
+            self._update_positions_cache(market_id)
+            if cache_key in self._positions_cache:
+                return self._positions_cache[cache_key][0].copy()
+        except Exception as e:
+            logger.warning(f"Background positions update failed: {e}")
+
+        # Return stale cache if available, otherwise empty
+        if cache_key in self._positions_cache:
+            return self._positions_cache[cache_key][0].copy()
+        return []
 
     def get_positions_dict(self, market_id: Optional[str] = None) -> Dict[str, float]:
         """
@@ -481,8 +517,7 @@ class ExchangeClient:
             for pos in positions_list:
                 positions[pos.outcome] = pos.size
         except Exception as e:
-            if self.verbose:
-                print(f"Failed to fetch positions: {e}")
+            logger.warning(f"Failed to fetch positions: {e}")
         return positions
 
     def fetch_positions_dict_for_market(self, market: Market) -> Dict[str, float]:
@@ -503,8 +538,7 @@ class ExchangeClient:
             for pos in positions_list:
                 positions[pos.outcome] = pos.size
         except Exception as e:
-            if self.verbose:
-                print(f"Failed to fetch positions for market: {e}")
+            logger.warning(f"Failed to fetch positions for market: {e}")
         return positions
 
     def fetch_open_orders(self, market_id: Optional[str] = None) -> List:
@@ -547,15 +581,14 @@ class ExchangeClient:
                 self.cancel_order(order.id, market_id=market_id)
                 cancelled += 1
             except Exception as e:
-                if self.verbose:
-                    print(f"Failed to cancel order {order.id}: {e}")
+                logger.warning(f"Failed to cancel order {order.id}: {e}")
 
         return cancelled
 
     def liquidate_positions(
         self,
         market: Market,
-        get_best_bid: callable,
+        get_best_bid: Callable[[str], Optional[float]],
         tick_size: float = 0.001,
     ) -> int:
         """
@@ -591,15 +624,13 @@ class ExchangeClient:
                     break
 
             if not token_id:
-                if self.verbose:
-                    print(f"Cannot find token_id for {outcome}")
+                logger.warning(f"Cannot find token_id for {outcome}")
                 continue
 
             # Get best bid
             best_bid = get_best_bid(token_id)
             if best_bid is None or best_bid <= 0:
-                if self.verbose:
-                    print(f"{outcome}: No bid available, cannot liquidate")
+                logger.warning(f"{outcome}: No bid available, cannot liquidate")
                 continue
 
             # Round price to tick size
@@ -621,8 +652,7 @@ class ExchangeClient:
                 )
                 liquidated += 1
             except Exception as e:
-                if self.verbose:
-                    print(f"Failed to liquidate {outcome}: {e}")
+                logger.error(f"Failed to liquidate {outcome}: {e}")
 
         return liquidated
 
@@ -633,19 +663,17 @@ class ExchangeClient:
             self._balance_cache = balance
             self._balance_last_updated = time.time()
         except Exception as e:
-            if self.verbose:
-                print(f"Failed to update balance cache: {e}")
+            logger.warning(f"Failed to update balance cache: {e}")
             raise
 
     def _update_positions_cache(self, market_id: Optional[str] = None):
-        """Internal method to update positions cache"""
+        """Internal method to update positions cache for a specific market"""
         try:
             positions = self._exchange.fetch_positions(market_id=market_id)
-            self._positions_cache = positions
-            self._positions_last_updated = time.time()
+            cache_key = market_id or "__all__"
+            self._positions_cache[cache_key] = (positions, time.time())
         except Exception as e:
-            if self.verbose:
-                print(f"Failed to update positions cache: {e}")
+            logger.warning(f"Failed to update positions cache: {e}")
             raise
 
     def refresh_account_state(self, market_id: Optional[str] = None):
