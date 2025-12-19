@@ -13,8 +13,9 @@ import threading
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from dr_manhattan.exchanges import Polymarket
 import logging
+
+from polymarket import Polymarket
 
 
 # ========== LOGGING CONFIG ==========
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 # ========== CONFIG ==========
 
 WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
-S3_BUCKET = os.getenv("S3_BUCKET", "polymarket-snapshot")
+S3_BUCKET = os.getenv("S3_BUCKET")
 POLL_INTERVAL_SEC = 60*3
 WS_PING_INTERVAL_SEC = 20
 WS_RECONNECT_DELAY_SEC = 3
@@ -106,20 +107,12 @@ class SharedState:
 MARKET_CONFIG: List[MarketConfig] = [
     # ===== BTC =====
     MarketConfig(
-        name="btc_15m",
-        slug="15M",
-        keywords=["bitcoin", "up or down"],
-        rule="current_and_previous",
-        window_minutes=15 * 2,
-        prefix="crypto/freq=15M",
-    ),
-    MarketConfig(
         name="btc_1h",
         slug="1H",
         keywords=["bitcoin", "up or down"],
         rule="current_and_previous",
         window_minutes=60 * 2,
-        prefix="crypto/freq=1H",
+        prefix="crypto/BTC/freq=1H",
     ),
     MarketConfig(
         name="btc_1d",
@@ -127,25 +120,17 @@ MARKET_CONFIG: List[MarketConfig] = [
         keywords=["bitcoin", "up or down"],
         rule="current_and_previous",
         window_minutes=60 * 24 * 2,
-        prefix="crypto/freq=1D",
+        prefix="crypto/BTC/freq=1D",
     ),
 
     # ===== ETH =====
-    MarketConfig(
-        name="eth_15m",
-        slug="15M",
-        keywords=["ethereum", "up or down"],
-        rule="current_and_previous",
-        window_minutes=15 * 2,
-        prefix="crypto/freq=15M",
-    ),
     MarketConfig(
         name="eth_1h",
         slug="1H",
         keywords=["ethereum", "up or down"],
         rule="current_and_previous",
         window_minutes=60 * 2,
-        prefix="crypto/freq=1H",
+        prefix="crypto/ETH/freq=1H",
     ),
     MarketConfig(
         name="eth_1d",
@@ -153,41 +138,53 @@ MARKET_CONFIG: List[MarketConfig] = [
         keywords=["ethereum", "up or down"],
         rule="current_and_previous",
         window_minutes=60 * 24 * 2,
-        prefix="crypto/freq=1D",
+        prefix="crypto/ETH/freq=1D",
     ),
 
-    # ===== EPL BIG6 =====
+    # ===== SOL =====
+    MarketConfig(
+        name="sol_1h",
+        slug="1H",
+        keywords=["solana", "up or down"],
+        rule="current_and_previous",
+        window_minutes=60 * 2,
+        prefix="crypto/SOL/freq=1H",
+    ),
+    MarketConfig(
+        name="sol_1d",
+        slug="today",
+        keywords=["solana", "up or down"],
+        rule="current_and_previous",
+        window_minutes=60 * 24 * 2,
+        prefix="crypto/SOL/freq=1D",
+    ),
+
+    # ===== XRP =====
+    MarketConfig(
+        name="xrp_1h",
+        slug="1H",
+        keywords=["xrp", "up or down"],
+        rule="current_and_previous",
+        window_minutes=60 * 2,
+        prefix="crypto/XRP/freq=1H",
+    ),
+    MarketConfig(
+        name="xrp_1d",
+        slug="today",
+        keywords=["xrp", "up or down"],
+        rule="current_and_previous",
+        window_minutes=60 * 24 * 2,
+        prefix="crypto/XRP/freq=1D",
+    ),
+
+    # ===== EPL =====
     MarketConfig(
         name="tottenham_epl_win",
         slug="EPL",
         keywords=["will", "win on", "tottenham"],
         rule="current_and_previous",
         window_minutes=60 * 24 * 2,
-        prefix="EPL/team=tottenham",
-    ),
-    MarketConfig(
-        name="arsenal_epl_win",
-        slug="EPL",
-        keywords=["will", "win on", "arsenal"],
-        rule="current_and_previous",
-        window_minutes=60 * 24 * 2,
-        prefix="EPL/team=arsenal",
-    ),
-    MarketConfig(
-        name="chelsea_epl_win",
-        slug="EPL",
-        keywords=["will", "win on", "chelsea"],
-        rule="current_and_previous",
-        window_minutes=60 * 24 * 2,
-        prefix="EPL/team=chelsea",
-    ),
-    MarketConfig(
-        name="manchester_city_epl_win",
-        slug="EPL",
-        keywords=["will", "win on", "manchester city"],
-        rule="current_and_previous",
-        window_minutes=60 * 24 * 2,
-        prefix="EPL/team=man_city",
+        prefix="sports/EPL/team=tottenham",
     ),
     MarketConfig(
         name="manchester_united_epl_win",
@@ -195,15 +192,7 @@ MARKET_CONFIG: List[MarketConfig] = [
         keywords=["will", "win on", "manchester united"],
         rule="current_and_previous",
         window_minutes=60 * 24 * 2,
-        prefix="EPL/team=man_united",
-    ),
-    MarketConfig(
-        name="liverpool_epl_win",
-        slug="EPL",
-        keywords=["will", "win on", "liverpool"],
-        rule="current_and_previous",
-        window_minutes=60 * 24 * 2,
-        prefix="EPL/team=liverpool",
+        prefix="sports/EPL/team=manchester_united",
     ),
 ]
 
@@ -285,6 +274,12 @@ def get_outcomes_from_metadata(market: Any, metadata: Dict[str, Any]) -> List[st
 
 
 def is_market_in_window(close_time_str: str, window_minutes: int, now: datetime) -> bool:
+    """
+    Polymarket EPL 등에서 close_time이 경기 시작시간인 경우가 있어서,
+    '지금 시점이 close_time - window 이후'인지 여부만 체크한다.
+    upper bound(now <= close_dt)는 두지 않는다.
+    실제 종료 여부는 API의 closed=False 필터에 맡긴다.
+    """
     try:
         close_dt = date_parser.parse(close_time_str)
     except Exception:
@@ -299,7 +294,7 @@ def is_market_in_window(close_time_str: str, window_minutes: int, now: datetime)
     window = timedelta(minutes=window_minutes)
     start_dt = close_dt - window
 
-    return (start_dt <= now < close_dt)
+    return (start_dt <= now)
 
 
 # ========== MARKET FETCH ==========
@@ -350,7 +345,7 @@ async def poll_markets_loop(state: SharedState):
                     question = getattr(m, "question", "")
                     market_id = getattr(m, "condition_id", None) or getattr(m, "id", "")
                     metadata = getattr(m, "metadata", {}) or {}
-                    close_time_raw = getattr(m, "close_time", None) or metadata.get("endDate")
+                    close_time_raw = metadata.get("endDate")
                     close_time_str = normalize_close_time(close_time_raw)
 
                     if rule == "current_and_previous" and window_minutes:
@@ -434,7 +429,6 @@ class ParquetSink:
         self._buffers: Dict[str, List[dict]] = {}
 
     def _get_lock(self, path: str) -> threading.Lock:
-        # setdefault 를 사용해 동일 path에 대해 항상 동일한 Lock 객체를 보장
         return self._locks.setdefault(path, threading.Lock())
 
     def _tmp_path(self, meta: AssetMeta, event_type: str) -> str:
@@ -444,9 +438,16 @@ class ParquetSink:
         return os.path.join("/tmp", filename)
 
     def _s3_key(self, meta: AssetMeta, event_type: str) -> str:
+        dt = date_parser.parse(meta.close_time_str)
+        year = dt.strftime("%Y")
+        month = dt.strftime("%m")
+        day = dt.strftime("%d")
         return "/".join(
             [
                 meta.prefix,
+                f"year={year}",
+                f"month={month}",
+                f"day={day}",
                 meta.close_time_str,
                 meta.outcome,
                 f"{event_type}.parquet",
