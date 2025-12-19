@@ -5,15 +5,21 @@ Provides stateful wrapper around Exchange for tracking positions, NAV, and clien
 Exchange is regarded as stateless; ExchangeClient maintains client-specific state.
 """
 
+import asyncio
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..models.market import Market
 from ..models.nav import NAV, PositionBreakdown
 from ..models.order import Order, OrderSide
+from ..models.orderbook import Orderbook
 from ..models.position import Position
+from ..utils import setup_logger
 from .order_tracker import OrderCallback, OrderTracker, create_fill_logger
+
+logger = setup_logger(__name__)
 
 
 @dataclass
@@ -141,6 +147,10 @@ class ExchangeClient:
         self._track_fills = track_fills
         self._order_tracker: Optional[OrderTracker] = None
         self._user_ws = None
+
+        # Market data WebSocket for orderbook
+        self._market_ws = None
+        self._orderbook_manager = None
 
         if track_fills:
             self._setup_order_tracker()
@@ -283,12 +293,121 @@ class ExchangeClient:
             return self._exchange.get_user_websocket()
         return None
 
+    def setup_orderbook_websocket(self, market_id: str, token_ids: List[str]) -> bool:
+        """
+        Setup WebSocket connection for real-time orderbook updates.
+
+        Args:
+            market_id: Market ID to subscribe to
+            token_ids: List of token IDs to subscribe to
+
+        Returns:
+            True if WebSocket setup successful, False otherwise
+        """
+        if not hasattr(self._exchange, "get_websocket"):
+            logger.debug("Exchange does not support WebSocket orderbook")
+            return False
+
+        try:
+            self._market_ws = self._exchange.get_websocket()
+            self._orderbook_manager = self._market_ws.get_orderbook_manager()
+
+            # Fetch initial orderbook data via REST before connecting WebSocket
+            for token_id in token_ids:
+                rest_data = self.get_orderbook(token_id)
+                if rest_data:
+                    orderbook = Orderbook.from_rest_response(rest_data, token_id)
+                    self._orderbook_manager.update(token_id, orderbook.to_dict())
+                    # Update mid price cache
+                    self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
+
+            # Create event loop for WebSocket
+            if self._market_ws.loop is None:
+                self._market_ws.loop = asyncio.new_event_loop()
+
+            # Callback to update mid price cache on orderbook updates
+            def on_orderbook_update(market_id: str, orderbook: dict):
+                # Extract token_id from orderbook if available
+                token_id = orderbook.get("asset_id", "")
+                if token_id:
+                    self.update_mid_price_from_orderbook(token_id, orderbook)
+
+            # Define coroutine that connects, subscribes, and runs receive loop
+            async def run_websocket():
+                await self._market_ws.connect()
+                await self._market_ws.watch_orderbook_by_market(
+                    market_id, token_ids, callback=on_orderbook_update
+                )
+                await self._market_ws._receive_loop()
+
+            # Run in background thread
+            def run_loop():
+                asyncio.set_event_loop(self._market_ws.loop)
+                self._market_ws.loop.run_until_complete(run_websocket())
+
+            ws_thread = threading.Thread(target=run_loop, daemon=True)
+            ws_thread.start()
+
+            logger.info("WebSocket orderbook connected")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Failed to setup WebSocket: {e}")
+            self._market_ws = None
+            self._orderbook_manager = None
+            return False
+
+    def get_best_bid_ask(self, token_id: str) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Get best bid and ask prices.
+
+        Uses WebSocket orderbook if available, otherwise falls back to REST API.
+
+        Args:
+            token_id: Token ID to fetch orderbook for
+
+        Returns:
+            Tuple of (best_bid, best_ask), None if not available or invalid
+        """
+        # Try WebSocket orderbook first
+        if self._orderbook_manager and self._orderbook_manager.has_data(token_id):
+            return self._orderbook_manager.get_best_bid_ask(token_id)
+
+        # Fall back to REST API
+        orderbook = self.get_orderbook(token_id)
+
+        bids = orderbook.get("bids", [])
+        asks = orderbook.get("asks", [])
+
+        best_bid = None
+        best_ask = None
+
+        if bids:
+            if isinstance(bids[0], dict):
+                price = float(bids[0].get("price", 0))
+                best_bid = price if price > 0 else None
+            elif isinstance(bids[0], (list, tuple)):
+                price = float(bids[0][0])
+                best_bid = price if price > 0 else None
+
+        if asks:
+            if isinstance(asks[0], dict):
+                price = float(asks[0].get("price", 0))
+                best_ask = price if price > 0 else None
+            elif isinstance(asks[0], (list, tuple)):
+                price = float(asks[0][0])
+                best_ask = price if price > 0 else None
+
+        return best_bid, best_ask
+
     def stop(self):
         """Stop order tracking and WebSocket connections"""
         if self._order_tracker:
             self._order_tracker.stop()
         if self._user_ws:
             self._user_ws.stop()
+        if self._market_ws:
+            self._market_ws.stop()
 
     def get_balance(self) -> Dict[str, float]:
         """
@@ -364,6 +483,28 @@ class ExchangeClient:
         except Exception as e:
             if self.verbose:
                 print(f"Failed to fetch positions: {e}")
+        return positions
+
+    def fetch_positions_dict_for_market(self, market: Market) -> Dict[str, float]:
+        """
+        Fetch fresh positions for a specific market as dictionary (blocking).
+
+        Uses fetch_positions_for_market which properly handles token IDs.
+
+        Args:
+            market: Market object
+
+        Returns:
+            Dict mapping outcome name to position size
+        """
+        positions = {}
+        try:
+            positions_list = self.fetch_positions_for_market(market)
+            for pos in positions_list:
+                positions[pos.outcome] = pos.size
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to fetch positions for market: {e}")
         return positions
 
     def fetch_open_orders(self, market_id: Optional[str] = None) -> List:
@@ -522,13 +663,17 @@ class ExchangeClient:
         Calculate Net Asset Value (NAV) using cached mid-prices.
 
         Args:
-            market: Market to calculate NAV for. If provided, uses cached
-                   mid-prices for that market.
+            market: Market to calculate NAV for. If provided, uses
+                   fetch_positions_for_market and cached mid-prices.
 
         Returns:
             NAV dataclass with breakdown
         """
-        positions = self.get_positions()
+        if market:
+            positions = self.fetch_positions_for_market(market)
+        else:
+            positions = self.get_positions()
+
         balance = self.get_balance()
 
         prices = None

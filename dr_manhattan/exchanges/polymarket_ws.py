@@ -46,17 +46,26 @@ class OrderbookManager:
     """
     Helper class to manage multiple orderbooks efficiently.
     Stores orderbooks for multiple tokens and provides easy access.
+
+    Orderbook format:
+        {
+            "bids": [(price, size), ...],  # Sorted descending
+            "asks": [(price, size), ...],  # Sorted ascending
+        }
     """
 
-    def __init__(self):
-        self.orderbooks: Dict[str, Dict[str, Any]] = {}
+    # Type alias for price level: (price, size)
+    PriceLevel = tuple[float, float]
 
-    def update(self, token_id: str, orderbook: Dict[str, Any]):
-        """Update orderbook for a token"""
+    def __init__(self):
+        self.orderbooks: Dict[str, Dict[str, List[tuple[float, float]]]] = {}
+
+    def update(self, token_id: str, orderbook: Dict[str, List[tuple[float, float]]]):
+        """Update orderbook for a token. Expects normalized format with tuple price levels."""
         self.orderbooks[token_id] = orderbook
 
-    def get(self, token_id: str) -> Optional[Dict[str, Any]]:
-        """Get orderbook for a token"""
+    def get(self, token_id: str) -> Optional[Dict[str, List[tuple[float, float]]]]:
+        """Get orderbook for a token."""
         return self.orderbooks.get(token_id)
 
     def get_best_bid_ask(self, token_id: str) -> tuple[Optional[float], Optional[float]]:
@@ -70,8 +79,8 @@ class OrderbookManager:
         if not orderbook:
             return None, None
 
-        bids = orderbook.get("bids", [])
-        asks = orderbook.get("asks", [])
+        bids: List[tuple[float, float]] = orderbook.get("bids", [])
+        asks: List[tuple[float, float]] = orderbook.get("asks", [])
 
         best_bid = bids[0][0] if bids else None
         best_ask = asks[0][0] if asks else None
@@ -79,14 +88,14 @@ class OrderbookManager:
         return best_bid, best_ask
 
     def has_data(self, token_id: str) -> bool:
-        """Check if we have orderbook data for a token"""
+        """Check if we have orderbook data for a token."""
         orderbook = self.get(token_id)
         if not orderbook:
             return False
         return len(orderbook.get("bids", [])) > 0 and len(orderbook.get("asks", [])) > 0
 
-    def has_all_data(self, token_ids: list[str]) -> bool:
-        """Check if we have orderbook data for all tokens"""
+    def has_all_data(self, token_ids: List[str]) -> bool:
+        """Check if we have orderbook data for all tokens."""
         return all(self.has_data(tid) for tid in token_ids)
 
 

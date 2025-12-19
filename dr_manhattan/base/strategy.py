@@ -69,6 +69,7 @@ class Strategy(ABC):
             check_interval: Seconds between strategy ticks
             track_fills: Enable order fill tracking
         """
+        self.exchange = exchange
         self.client = ExchangeClient(exchange, track_fills=track_fills)
         self.market_id = market_id
         self.max_position = max_position
@@ -122,8 +123,30 @@ class Strategy(ABC):
             for outcome, token_id in zip(outcomes, token_ids)
         ]
 
+        # Setup WebSocket orderbook
+        self.client.setup_orderbook_websocket(self.market_id, token_ids)
+
+        # Load initial positions
+        self._positions = self.client.fetch_positions_dict_for_market(self.market)
+
+        self._log_trader_profile()
         self._log_market_info()
         return True
+
+    def _log_trader_profile(self):
+        """Log trader profile (address and balance)"""
+        logger.info(f"\n{Colors.bold('Trader Profile')}")
+
+        address = getattr(self.exchange, "_address", None)
+        if address:
+            logger.info(f"Address: {Colors.cyan(address)}")
+
+        try:
+            balance = self.client.fetch_balance()
+            usdc = balance.get("USDC", 0.0)
+            logger.info(f"Balance: {Colors.green(f'${usdc:,.2f}')} USDC")
+        except Exception as e:
+            logger.warning(f"Failed to fetch balance: {e}")
 
     def _log_market_info(self):
         """Log market information after setup"""
@@ -263,7 +286,7 @@ class Strategy(ABC):
         Returns:
             Dict mapping outcome name to position size
         """
-        return self.client.fetch_positions_dict(market_id=self.market_id)
+        return self.client.fetch_positions_dict_for_market(self.market)
 
     def get_open_orders(self) -> List[Order]:
         """
@@ -303,6 +326,8 @@ class Strategy(ABC):
         cancelled = self.client.cancel_all_orders(market_id=self.market_id)
         if cancelled > 0:
             logger.info(f"Cancelled {Colors.cyan(str(cancelled))} orders")
+        else:
+            logger.info("No open orders to cancel")
         return cancelled
 
     def cancel_stale_orders(
@@ -358,37 +383,15 @@ class Strategy(ABC):
         """
         Get best bid and ask prices.
 
+        Uses WebSocket orderbook if available, otherwise falls back to REST API.
+
         Args:
             token_id: Token ID to fetch orderbook for
 
         Returns:
             Tuple of (best_bid, best_ask), None if not available or invalid
         """
-        orderbook = self.get_orderbook(token_id)
-
-        bids = orderbook.get("bids", [])
-        asks = orderbook.get("asks", [])
-
-        best_bid = None
-        best_ask = None
-
-        if bids:
-            if isinstance(bids[0], dict):
-                price = float(bids[0].get("price", 0))
-                best_bid = price if price > 0 else None
-            elif isinstance(bids[0], (list, tuple)):
-                price = float(bids[0][0])
-                best_bid = price if price > 0 else None
-
-        if asks:
-            if isinstance(asks[0], dict):
-                price = float(asks[0].get("price", 0))
-                best_ask = price if price > 0 else None
-            elif isinstance(asks[0], (list, tuple)):
-                price = float(asks[0][0])
-                best_ask = price if price > 0 else None
-
-        return best_bid, best_ask
+        return self.client.get_best_bid_ask(token_id)
 
     def round_price(self, price: float) -> float:
         """Round price to tick size"""
@@ -561,6 +564,7 @@ class Strategy(ABC):
         Default: cancel orders, liquidate positions, stop client.
         Override for custom cleanup logic.
         """
+        logger.info(f"\n{Colors.bold('Cleaning up...')}")
         self.cancel_all_orders()
         self.liquidate_positions()
         self.client.stop()
