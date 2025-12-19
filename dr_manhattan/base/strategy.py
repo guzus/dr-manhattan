@@ -8,7 +8,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Optional, Tuple
 
-from ..models.market import Market
+from ..models.market import Market, OutcomeToken
 from ..models.nav import NAV
 from ..models.order import Order, OrderSide
 from ..utils import setup_logger
@@ -78,8 +78,7 @@ class Strategy(ABC):
 
         # Market data (populated by setup())
         self.market: Optional[Market] = None
-        self.token_ids: List[str] = []
-        self.outcomes: List[str] = []
+        self.outcome_tokens: List[OutcomeToken] = []
         self.tick_size: float = 0.01
 
         # Runtime state
@@ -110,23 +109,24 @@ class Strategy(ABC):
             logger.error(f"Market not found: {self.market_id}")
             return False
 
-        self.token_ids = self.market.metadata.get("clobTokenIds", [])
-        self.outcomes = self.market.outcomes
+        token_ids = self.market.metadata.get("clobTokenIds", [])
+        outcomes = self.market.outcomes
         self.tick_size = self.client.get_tick_size(self.market)
 
-        if not self.token_ids:
+        if not token_ids:
             logger.error("No token IDs found in market")
             return False
+
+        self.outcome_tokens = [
+            OutcomeToken(outcome=outcome, token_id=token_id)
+            for outcome, token_id in zip(outcomes, token_ids)
+        ]
 
         self._log_market_info()
         return True
 
     def _log_market_info(self):
         """Log market information after setup"""
-        question = self.market.question
-        if len(question) > 60:
-            question = question[:60] + "..."
-
         logger.info(f"\n{Colors.bold('Market:')} {Colors.cyan(self.market.question)}")
         logger.info(
             f"Outcomes: {Colors.magenta(str(self.outcomes))} | "
@@ -134,9 +134,9 @@ class Strategy(ABC):
             f"Vol: {Colors.cyan(f'${self.market.volume:,.0f}')}"
         )
 
-        for i, (outcome, token_id) in enumerate(zip(self.outcomes, self.token_ids)):
-            price = self.market.prices.get(outcome, 0)
-            outcome_display = outcome[:30] + "..." if len(outcome) > 30 else outcome
+        for i, ot in enumerate(self.outcome_tokens):
+            price = self.market.prices.get(ot.outcome, 0)
+            outcome_display = ot.outcome[:30] + "..." if len(ot.outcome) > 30 else ot.outcome
             logger.info(
                 f"  [{i}] {Colors.magenta(outcome_display)}: {Colors.yellow(f'{price:.4f}')}"
             )
@@ -174,6 +174,16 @@ class Strategy(ABC):
     def cash(self) -> float:
         """Current cash (call refresh_state() first)"""
         return self._nav.cash if self._nav else 0.0
+
+    @property
+    def outcomes(self) -> List[str]:
+        """List of outcome names"""
+        return [ot.outcome for ot in self.outcome_tokens]
+
+    @property
+    def token_ids(self) -> List[str]:
+        """List of token IDs"""
+        return [ot.token_id for ot in self.outcome_tokens]
 
     # Logging helpers
 
@@ -352,7 +362,7 @@ class Strategy(ABC):
             token_id: Token ID to fetch orderbook for
 
         Returns:
-            Tuple of (best_bid, best_ask), None if not available
+            Tuple of (best_bid, best_ask), None if not available or invalid
         """
         orderbook = self.get_orderbook(token_id)
 
@@ -364,15 +374,19 @@ class Strategy(ABC):
 
         if bids:
             if isinstance(bids[0], dict):
-                best_bid = float(bids[0].get("price", 0))
+                price = float(bids[0].get("price", 0))
+                best_bid = price if price > 0 else None
             elif isinstance(bids[0], (list, tuple)):
-                best_bid = float(bids[0][0])
+                price = float(bids[0][0])
+                best_bid = price if price > 0 else None
 
         if asks:
             if isinstance(asks[0], dict):
-                best_ask = float(asks[0].get("price", 0))
+                price = float(asks[0].get("price", 0))
+                best_ask = price if price > 0 else None
             elif isinstance(asks[0], (list, tuple)):
-                best_ask = float(asks[0][0])
+                price = float(asks[0][0])
+                best_ask = price if price > 0 else None
 
         return best_bid, best_ask
 
@@ -384,9 +398,9 @@ class Strategy(ABC):
 
     def get_token_id(self, outcome: str) -> Optional[str]:
         """Get token ID for an outcome"""
-        for i, out in enumerate(self.outcomes):
-            if out == outcome and i < len(self.token_ids):
-                return self.token_ids[i]
+        for ot in self.outcome_tokens:
+            if ot.outcome == outcome:
+                return ot.token_id
         return None
 
     def create_order(
@@ -445,8 +459,8 @@ class Strategy(ABC):
         if get_bbo is None:
             get_bbo = self.get_best_bid_ask
 
-        for outcome, token_id in zip(self.outcomes, self.token_ids):
-            self._place_bbo_for_outcome(outcome, token_id, get_bbo)
+        for ot in self.outcome_tokens:
+            self._place_bbo_for_outcome(ot.outcome, ot.token_id, get_bbo)
 
     def _place_bbo_for_outcome(
         self,

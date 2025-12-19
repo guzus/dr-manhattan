@@ -4,6 +4,14 @@ from typing import Any, Dict, Optional
 
 
 @dataclass
+class OutcomeToken:
+    """Represents a tradeable outcome with its associated token ID."""
+
+    outcome: str
+    token_id: str
+
+
+@dataclass
 class Market:
     """Represents a prediction market"""
 
