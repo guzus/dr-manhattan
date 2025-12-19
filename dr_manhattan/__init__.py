@@ -13,7 +13,16 @@ from .base.errors import (
     RateLimitError,
 )
 from .base.exchange import Exchange
+from .base.exchange_client import (
+    DeltaInfo,
+    ExchangeClient,
+    StrategyState,
+    calculate_delta,
+    format_delta_side,
+    format_positions_compact,
+)
 from .base.order_tracker import OrderEvent, OrderTracker, create_fill_logger
+from .base.strategy import Strategy
 from .exchanges.limitless import Limitless
 from .exchanges.opinion import Opinion
 from .exchanges.polymarket import Polymarket
@@ -25,6 +34,8 @@ __version__ = "0.0.1"
 
 __all__ = [
     "Exchange",
+    "ExchangeClient",
+    "Strategy",
     "DrManhattanError",
     "ExchangeError",
     "NetworkError",
@@ -44,6 +55,11 @@ __all__ = [
     "Polymarket",
     "Limitless",
     "Opinion",
+    "StrategyState",
+    "DeltaInfo",
+    "calculate_delta",
+    "format_positions_compact",
+    "format_delta_side",
 ]
 
 

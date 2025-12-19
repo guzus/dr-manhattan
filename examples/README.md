@@ -7,71 +7,70 @@ Trading strategy examples for Dr. Manhattan library.
 **1. Create `.env` in project root:**
 
 ```env
+# Polymarket
 POLYMARKET_PRIVATE_KEY=0x...
 POLYMARKET_FUNDER=0x...
+
+# Opinion
+OPINION_API_KEY=...
+OPINION_PRIVATE_KEY=0x...
+OPINION_MULTI_SIG_ADDR=0x...
+
+# Limitless
+LIMITLESS_PRIVATE_KEY=0x...
 ```
 
 **2. Run from project root:**
 
 ```bash
-uv run examples/spread_strategy.py
+uv run python examples/spread_strategy.py --exchange polymarket --slug fed-decision
 ```
 
-## Available Examples
+## spread_strategy.py
 
-### spread_strategy.py
+**Exchange-agnostic BBO market making strategy.**
 
-**Live market making strategy for Polymarket.**
-
-Places bid and ask orders inside the spread to provide liquidity.
-
-**Features:**
-- Automatic market selection
-- Dynamic spread calculation
-- Real-time orderbook monitoring
-- Live order placement
+Works with Polymarket, Opinion, Limitless, or any exchange implementing the standard interface.
 
 **Usage:**
 ```bash
-# From project root
-uv run examples/spread_strategy.py
+# Polymarket
+uv run python examples/spread_strategy.py --exchange polymarket --slug fed-decision
+uv run python examples/spread_strategy.py -e polymarket -m 12345
+
+# Opinion
+uv run python examples/spread_strategy.py --exchange opinion --market-id 813
+uv run python examples/spread_strategy.py -e opinion --slug bitcoin
+
+# Environment variables
+EXCHANGE=polymarket MARKET_SLUG=fed-decision uv run python examples/spread_strategy.py
 ```
 
-**⚠️ Warning:** This places REAL orders with REAL money!
+**Options:**
+- `--exchange, -e`: Exchange name (polymarket, opinion, limitless)
+- `--market-id, -m`: Market ID
+- `--slug, -s`: Market slug/keyword for search
+- `--max-position`: Max position per outcome (default: 100)
+- `--order-size`: Order size (default: 5)
 
-**Configuration:**
-- Duration: 2 minutes (configurable)
-- Check interval: 30 seconds
-- Max exposure: $500
+**Warning:** This places REAL orders with REAL money.
 
-### limitless/spread_strategy.py
+## Creating Custom Strategies
 
-**Live market making strategy for Limitless.**
-
-**Usage:**
-```bash
-MARKET_SLUG=dollarbtc-above-dollar8823689-on-dec-20-0900-utc-1766217602236 uv run python examples/limitless/spread_strategy.py
-```
-
-## Adding More Examples
-
-Create new strategy files following this structure:
+Inherit from `Strategy` base class:
 
 ```python
-from dotenv import load_dotenv
-import dr_manhattan
+from dr_manhattan import Strategy
 
-load_dotenv()  # Loads .env from project root
+class MyStrategy(Strategy):
+    def on_tick(self):
+        self.log_status()
+        self.place_bbo_orders()
 
-exchange = dr_manhattan.Polymarket({
-    'private_key': os.getenv('POLYMARKET_PRIVATE_KEY'),
-    'funder': os.getenv('POLYMARKET_FUNDER'),
-})
-
-# Your strategy here...
+strategy = MyStrategy(exchange, market_id="123")
+strategy.run()
 ```
 
 ## Resources
 
 - [Polymarket Setup Guide](../wiki/exchanges/polymarket_setup.md)
-- [Check Wallet Balance](../scripts/polymarket/check_approval.py)
