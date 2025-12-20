@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from dr_manhattan import Limitless, OrderSide, OrderStatus
-from dr_manhattan.base.errors import AuthenticationError, ExchangeError, InvalidOrder, MarketNotFound
+from dr_manhattan.base.errors import (
+    AuthenticationError,
+    ExchangeError,
+    InvalidOrder,
+    MarketNotFound,
+)
 
 
 class TestLimitlessBasic:
@@ -537,27 +542,26 @@ class TestLimitlessAuthenticated:
 
     def test_fetch_positions_success(self, authenticated_exchange):
         """Test successful positions fetch."""
-        mock_response = Mock()
-        mock_response.json.return_value = {
+        mock_api_response = {
             "clob": [
                 {
                     "market": {"slug": "test-market"},
-                    "outcome": "Yes",
-                    "size": 100,
-                    "avgEntryPrice": 0.60,
-                    "currentPrice": 0.70,
+                    "tokensBalance": {"yes": "100000000", "no": "0"},
+                    "positions": {
+                        "yes": {"fillPrice": "600000", "cost": "60000000"},
+                        "no": {"fillPrice": "0", "cost": "0"},
+                    },
+                    "latestTrade": {"latestYesPrice": 0.70, "latestNoPrice": 0.30},
                 }
             ]
         }
-        mock_response.raise_for_status = Mock()
-        mock_response.status_code = 200
-        authenticated_exchange._session.request.return_value = mock_response
-
-        positions = authenticated_exchange.fetch_positions()
+        with patch.object(authenticated_exchange, "_request", return_value=mock_api_response):
+            positions = authenticated_exchange.fetch_positions()
 
         assert len(positions) == 1
         assert positions[0].market_id == "test-market"
-        assert positions[0].size == 100
+        assert positions[0].outcome == "Yes"
+        assert positions[0].size == 100.0
 
     def test_fetch_open_orders_success(self, authenticated_exchange):
         """Test successful open orders fetch."""
@@ -776,9 +780,7 @@ class TestLimitlessSearchMarkets:
 
     def test_search_markets_with_predicate(self, exchange_with_markets):
         """Test searching markets with custom predicate."""
-        results = exchange_with_markets.search_markets(
-            predicate=lambda m: m.volume > 7000
-        )
+        results = exchange_with_markets.search_markets(predicate=lambda m: m.volume > 7000)
 
         assert len(results) == 1
         assert results[0].id == "btc-100k"
