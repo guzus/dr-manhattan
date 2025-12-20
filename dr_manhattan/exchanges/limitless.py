@@ -738,7 +738,7 @@ class Limitless(Exchange):
         self._ensure_authenticated()
 
         try:
-            result = self._request("DELETE", f"/orders/{order_id}", require_auth=True)
+            self._request("DELETE", f"/orders/{order_id}", require_auth=True)
 
             return Order(
                 id=order_id,
