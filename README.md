@@ -217,7 +217,7 @@ OPINION_MARKET_ID=813 uv run python examples/opinion/spread_strategy.py
 OPINION_MARKET_SLUG=bnb-all-time-high uv run python examples/opinion/spread_strategy.py
 
 # Limitless
-uv run python examples/limitless_spread_strategy.py will-btc-reach-100k
+MARKET_SLUG=dollarbtc-above-dollar8823689-on-dec-20-0900-utc-1766217602236 uv run python examples/limitless_spread_strategy.py
 ```
 
 See [examples/README.md](examples/README.md) for detailed documentation.

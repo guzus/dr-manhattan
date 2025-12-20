@@ -128,9 +128,7 @@ class Limitless(Exchange):
         """Authenticate with Limitless using EIP-712 signing."""
         try:
             # Get signing message from API
-            response = self._session.get(
-                f"{self.host}/auth/signing-message", timeout=self.timeout
-            )
+            response = self._session.get(f"{self.host}/auth/signing-message", timeout=self.timeout)
             response.raise_for_status()
 
             # Response is plain text, not JSON
@@ -139,9 +137,7 @@ class Limitless(Exchange):
                 raise AuthenticationError("Failed to get signing message")
 
             # Sign the message
-            signed = self._account.sign_message(
-                signable_message=self._encode_defunct(message)
-            )
+            signed = self._account.sign_message(signable_message=self._encode_defunct(message))
             signature = signed.signature.hex()
             if not signature.startswith("0x"):
                 signature = f"0x{signature}"
@@ -354,9 +350,9 @@ class Limitless(Exchange):
         elif "prices" in data:
             price_data = data.get("prices", {})
             if isinstance(price_data, list):
-                # prices: [yes_price, no_price]
-                prices["Yes"] = float(price_data[0]) / 100 if price_data else 0
-                prices["No"] = float(price_data[1]) / 100 if len(price_data) > 1 else 0
+                # prices: [yes_price, no_price] - already in 0-1 range
+                prices["Yes"] = float(price_data[0]) if price_data else 0
+                prices["No"] = float(price_data[1]) if len(price_data) > 1 else 0
             elif isinstance(price_data, dict):
                 prices["Yes"] = float(price_data.get("yes", 0) or 0)
                 prices["No"] = float(price_data.get("no", 0) or 0)
@@ -827,6 +823,20 @@ class Limitless(Exchange):
             endpoint = "/orders"
             query_params["statuses"] = "LIVE"
 
+        # Build token_id -> outcome mapping if market_id provided
+        token_to_outcome: Dict[str, str] = {}
+        if market_id:
+            try:
+                market = self.fetch_market(market_id)
+                tokens = market.metadata.get("tokens", {})
+                # tokens is {"Yes": "token_id_1", "No": "token_id_2"}
+                # We need reverse mapping: {"token_id_1": "Yes", "token_id_2": "No"}
+                for outcome, token_id in tokens.items():
+                    if token_id:
+                        token_to_outcome[str(token_id)] = outcome
+            except Exception:
+                pass
+
         try:
             response = self._request("GET", endpoint, params=query_params, require_auth=True)
 
@@ -836,21 +846,26 @@ class Limitless(Exchange):
             else:
                 orders_data = response.get("data", [])
 
-            return [self._parse_order(o) for o in orders_data]
+            return [self._parse_order(o, token_to_outcome) for o in orders_data]
 
         except Exception as e:
             if self.verbose:
                 print(f"Failed to fetch open orders: {e}")
             return []
 
-    def _parse_order(self, data: Dict[str, Any]) -> Order:
+    def _parse_order(
+        self, data: Dict[str, Any], token_to_outcome: Optional[Dict[str, str]] = None
+    ) -> Order:
         """Parse order data from API response."""
         order_id = str(data.get("id", data.get("orderId", "")))
         market_id = data.get("marketSlug", data.get("market_id", ""))
 
-        # Parse side
-        side_str = data.get("side", "buy").lower()
-        side = OrderSide.BUY if side_str == "buy" else OrderSide.SELL
+        # Parse side - API returns 0 for BUY, 1 for SELL (or string "buy"/"sell")
+        side_raw = data.get("side", "buy")
+        if isinstance(side_raw, int):
+            side = OrderSide.BUY if side_raw == 0 else OrderSide.SELL
+        else:
+            side = OrderSide.BUY if str(side_raw).lower() == "buy" else OrderSide.SELL
 
         # Parse status
         status = self._parse_order_status(data.get("status", "open"))
@@ -858,10 +873,7 @@ class Limitless(Exchange):
         # Parse amounts
         price = float(data.get("price", 0) or 0)
         size = float(
-            data.get("size", 0)
-            or data.get("amount", 0)
-            or data.get("makerAmount", 0)
-            or 0
+            data.get("size", 0) or data.get("amount", 0) or data.get("makerAmount", 0) or 0
         )
         filled = float(data.get("filled", 0) or data.get("matchedAmount", 0) or 0)
 
@@ -873,10 +885,17 @@ class Limitless(Exchange):
         if not updated_at:
             updated_at = created_at
 
+        # Determine outcome: try direct field first, then map from token/tokenId
+        outcome = data.get("outcome", "")
+        if not outcome and token_to_outcome:
+            # API may return "token" or "tokenId"
+            token_id = str(data.get("token", "") or data.get("tokenId", ""))
+            outcome = token_to_outcome.get(token_id, "")
+
         return Order(
             id=order_id,
             market_id=market_id,
-            outcome=data.get("outcome", ""),
+            outcome=outcome,
             side=side,
             price=price,
             size=size,
@@ -929,13 +948,14 @@ class Limitless(Exchange):
             clob_positions = response.get("clob", [])
 
             for pos_data in clob_positions:
-                position = self._parse_position(pos_data)
+                parsed_positions = self._parse_portfolio_position(pos_data)
 
-                # Filter by market if specified
-                if market_id and position.market_id != market_id:
-                    continue
+                for position in parsed_positions:
+                    # Filter by market if specified
+                    if market_id and position.market_id != market_id:
+                        continue
 
-                positions.append(position)
+                    positions.append(position)
 
             return positions
 
@@ -956,8 +976,75 @@ class Limitless(Exchange):
         """
         return self.fetch_positions(market_id=market.id)
 
+    def _parse_portfolio_position(self, data: Dict[str, Any]) -> List[Position]:
+        """
+        Parse position data from portfolio API response.
+
+        The portfolio API returns positions per market with nested structure:
+        {
+            'market': {'slug': '...', ...},
+            'tokensBalance': {'yes': '12345', 'no': '67890'},
+            'positions': {'yes': {...}, 'no': {...}},
+            'latestTrade': {'latestYesPrice': 0.65, 'latestNoPrice': 0.35, ...}
+        }
+        """
+        positions = []
+
+        market_data = data.get("market", {})
+        market_id = market_data.get("slug", "")
+
+        tokens_balance = data.get("tokensBalance", {})
+        position_details = data.get("positions", {})
+        latest_trade = data.get("latestTrade", {})
+
+        # Parse Yes position
+        yes_balance = float(tokens_balance.get("yes", 0) or 0)
+        if yes_balance > 0:
+            yes_details = position_details.get("yes", {})
+            fill_price = float(yes_details.get("fillPrice", 0) or 0)
+            # fillPrice is in scaled format (e.g., 650000 = 0.65)
+            avg_price = fill_price / 1_000_000 if fill_price > 1 else fill_price
+            current_price = float(latest_trade.get("latestYesPrice", 0) or 0)
+
+            # Convert balance from scaled format (6 decimals)
+            size = yes_balance / 1_000_000
+
+            positions.append(
+                Position(
+                    market_id=market_id,
+                    outcome="Yes",
+                    size=size,
+                    average_price=avg_price,
+                    current_price=current_price,
+                )
+            )
+
+        # Parse No position
+        no_balance = float(tokens_balance.get("no", 0) or 0)
+        if no_balance > 0:
+            no_details = position_details.get("no", {})
+            fill_price = float(no_details.get("fillPrice", 0) or 0)
+            # fillPrice is in scaled format (e.g., 350000 = 0.35)
+            avg_price = fill_price / 1_000_000 if fill_price > 1 else fill_price
+            current_price = float(latest_trade.get("latestNoPrice", 0) or 0)
+
+            # Convert balance from scaled format (6 decimals)
+            size = no_balance / 1_000_000
+
+            positions.append(
+                Position(
+                    market_id=market_id,
+                    outcome="No",
+                    size=size,
+                    average_price=avg_price,
+                    current_price=current_price,
+                )
+            )
+
+        return positions
+
     def _parse_position(self, data: Dict[str, Any]) -> Position:
-        """Parse position data from API response."""
+        """Parse position data from API response (legacy format)."""
         # Handle nested market data
         market_data = data.get("market", {})
         market_id = market_data.get("slug", data.get("marketSlug", data.get("market_id", "")))
@@ -1288,9 +1375,7 @@ class Limitless(Exchange):
             try:
                 outcome_index = market.outcomes.index(outcome)
             except ValueError as err:
-                raise ExchangeError(
-                    f"Outcome {outcome} not found in market {market.id}"
-                ) from err
+                raise ExchangeError(f"Outcome {outcome} not found in market {market.id}") from err
 
         if outcome_index < 0 or outcome_index >= len(token_ids):
             raise ExchangeError(

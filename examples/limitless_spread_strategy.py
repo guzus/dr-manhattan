@@ -94,6 +94,14 @@ class LimitlessSpreadStrategy:
             logger.error(f"Failed to fetch market: {e}")
             return False
 
+        # Check if market is CLOB (orderbook) type
+        trade_type = self.market.metadata.get("tradeType", "")
+        if trade_type != "clob":
+            logger.error(
+                f"Market is not CLOB type (tradeType={trade_type}). Only CLOB markets are supported."
+            )
+            return False
+
         # Extract token IDs and outcomes
         self.token_ids = self.market.metadata.get("clobTokenIds", [])
         self.outcomes = self.market.outcomes
@@ -212,6 +220,61 @@ class LimitlessSpreadStrategy:
         """Round price to tick size."""
         return round(round(price / self.tick_size) * self.tick_size, 4)
 
+    def liquidate_positions(self):
+        """Liquidate all positions by selling at best bid."""
+        positions = self.get_positions()
+
+        if not positions:
+            logger.info("No positions to liquidate")
+            return
+
+        logger.info(f"{Colors.bold('Liquidating positions...')}")
+
+        for outcome, size in positions.items():
+            if size <= 0:
+                continue
+
+            # Find token_id for this outcome
+            token_id = None
+            for i, out in enumerate(self.outcomes):
+                if out == outcome and i < len(self.token_ids):
+                    token_id = self.token_ids[i]
+                    break
+
+            if not token_id:
+                logger.warning(f"  Cannot find token_id for {outcome}")
+                continue
+
+            # Get best bid from orderbook
+            orderbook_prices = self.get_orderbook_prices()
+            bid_ask = orderbook_prices.get(outcome, (None, None))
+            best_bid = bid_ask[0]
+
+            if best_bid is None or best_bid <= 0:
+                logger.warning(f"  {outcome}: No bid available, cannot liquidate")
+                continue
+
+            # Sell at best bid
+            try:
+                # Floor the size to avoid insufficient balance errors
+                sell_size = float(int(size))
+                if sell_size <= 0:
+                    continue
+                order = self.exchange.create_order(
+                    market_id=self.market.id,
+                    outcome=outcome,
+                    side=OrderSide.SELL,
+                    price=self.round_price(best_bid),
+                    size=sell_size,
+                    params={"token_id": token_id},
+                )
+                logger.info(
+                    f"  {Colors.red('SELL')} {sell_size:.0f} {Colors.magenta(outcome)} "
+                    f"@ {Colors.yellow(f'{best_bid:.4f}')} (liquidate)"
+                )
+            except Exception as e:
+                logger.error(f"  Failed to liquidate {outcome}: {e}")
+
     def place_orders(self):
         """Main market making logic."""
         # Refresh market data
@@ -234,7 +297,10 @@ class LimitlessSpreadStrategy:
         delta_side = ""
         if delta > 0 and positions:
             max_outcome = max(positions, key=positions.get)
-            delta_abbrev = max_outcome[0] if len(self.outcomes) == 2 else max_outcome
+            if max_outcome:
+                delta_abbrev = max_outcome[0] if len(self.outcomes) == 2 else max_outcome
+            else:
+                delta_abbrev = "?"
             delta_side = f" {Colors.magenta(delta_abbrev)}"
 
         # Create compact position string
@@ -242,7 +308,10 @@ class LimitlessSpreadStrategy:
         if positions:
             parts = []
             for outcome, size in positions.items():
-                abbrev = outcome[0] if len(self.outcomes) == 2 else outcome
+                if outcome:
+                    abbrev = outcome[0] if len(self.outcomes) == 2 else outcome
+                else:
+                    abbrev = "?"
                 parts.append(f"{Colors.blue(f'{size:.0f}')} {Colors.magenta(abbrev)}")
             pos_compact = " ".join(parts)
         else:
@@ -282,9 +351,7 @@ class LimitlessSpreadStrategy:
 
         # Check delta risk
         if delta > self.max_delta:
-            logger.warning(
-                f"Delta ({delta:.2f}) > max ({self.max_delta:.2f}) - reducing exposure"
-            )
+            logger.warning(f"Delta ({delta:.2f}) > max ({self.max_delta:.2f}) - reducing exposure")
 
         # Place orders for each outcome
         for i, outcome in enumerate(self.outcomes):
@@ -450,6 +517,7 @@ class LimitlessSpreadStrategy:
         finally:
             self.is_running = False
             self.cancel_all_orders()
+            self.liquidate_positions()
             logger.info("Market maker stopped")
 
 
@@ -482,13 +550,13 @@ def main():
         logger.error("  MARKET_SLUG=xxx uv run python examples/limitless_spread_strategy.py")
         logger.error("\nExample:")
         logger.error("  uv run python examples/limitless_spread_strategy.py will-btc-reach-100k")
-        logger.error("  MARKET_SLUG=will-btc-reach-100k uv run python examples/limitless_spread_strategy.py")
+        logger.error(
+            "  MARKET_SLUG=will-btc-reach-100k uv run python examples/limitless_spread_strategy.py"
+        )
         return 1
 
     # Create exchange
-    exchange = dr_manhattan.Limitless(
-        {"private_key": private_key, "verbose": True}
-    )
+    exchange = dr_manhattan.Limitless({"private_key": private_key, "verbose": True})
 
     # Display trader profile
     logger.info(f"\n{Colors.bold('Trader Profile')}")
