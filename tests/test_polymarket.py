@@ -86,6 +86,7 @@ def test_fetch_market(mock_request):
         "clobTokenIds": '["token1", "token2"]',
         "active": True,
         "closed": False,
+        "minimum_tick_size": 0.01,
     }
     mock_response.raise_for_status = Mock()
     mock_request.return_value = mock_response

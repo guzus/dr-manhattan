@@ -21,6 +21,7 @@ class TestMarket:
             liquidity=5000.0,
             prices={"Yes": 0.6, "No": 0.4},
             metadata={"category": "weather"},
+            tick_size=0.01,
         )
 
         assert market.id == "market_123"
@@ -42,6 +43,7 @@ class TestMarket:
             liquidity=0,
             prices={},
             metadata={},
+            tick_size=0.01,
         )
         assert binary_market.is_binary is True
 
@@ -54,6 +56,7 @@ class TestMarket:
             liquidity=0,
             prices={},
             metadata={},
+            tick_size=0.01,
         )
         assert multi_outcome_market.is_binary is False
 
@@ -68,6 +71,7 @@ class TestMarket:
             liquidity=0,
             prices={},
             metadata={},
+            tick_size=0.01,
         )
         assert future_market.is_open is True
 
@@ -80,6 +84,7 @@ class TestMarket:
             liquidity=0,
             prices={},
             metadata={},
+            tick_size=0.01,
         )
         assert past_market.is_open is False
 
@@ -92,6 +97,7 @@ class TestMarket:
             liquidity=0,
             prices={},
             metadata={},
+            tick_size=0.01,
         )
         assert no_close_time_market.is_open is True
 
@@ -107,6 +113,7 @@ class TestMarket:
             liquidity=0,
             prices={"Yes": 0.6, "No": 0.4},
             metadata={},
+            tick_size=0.01,
         )
         assert market.spread is not None
         assert abs(market.spread) < 0.01  # Should be very close to 0
@@ -121,6 +128,7 @@ class TestMarket:
             liquidity=0,
             prices={"Yes": 0.55, "No": 0.40},
             metadata={},
+            tick_size=0.01,
         )
         spread = market_with_spread.spread
         assert spread is not None
@@ -136,6 +144,7 @@ class TestMarket:
             liquidity=0,
             prices={"A": 0.33, "B": 0.33, "C": 0.33},
             metadata={},
+            tick_size=0.01,
         )
         assert multi_market.spread is None
 

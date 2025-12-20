@@ -610,6 +610,7 @@ class TestLimitlessHelperMethods:
             liquidity=0,
             prices={},
             metadata={"clobTokenIds": ["token_yes", "token_no"]},
+            tick_size=0.01,
         )
 
         token_ids = Limitless._extract_token_ids(market)
@@ -628,6 +629,7 @@ class TestLimitlessHelperMethods:
             liquidity=0,
             prices={},
             metadata={"clobTokenIds": '["token_1", "token_2"]'},
+            tick_size=0.01,
         )
 
         token_ids = Limitless._extract_token_ids(market)
@@ -647,6 +649,7 @@ class TestLimitlessHelperMethods:
             liquidity=0,
             prices={},
             metadata={"clobTokenIds": ["yes_token", "no_token"]},
+            tick_size=0.01,
         )
 
         assert exchange._lookup_token_id(market, "Yes") == "yes_token"
@@ -668,6 +671,7 @@ class TestLimitlessHelperMethods:
             liquidity=0,
             prices={},
             metadata={"clobTokenIds": ["yes_token", "no_token"]},
+            tick_size=0.01,
         )
 
         with pytest.raises(ExchangeError, match="Outcome Maybe not found"):
@@ -690,6 +694,7 @@ class TestLimitlessHelperMethods:
                 "slug": "btc-100k",
                 "category": "Crypto",
             },
+            tick_size=0.01,
         )
 
         text = Limitless._build_search_text(market)

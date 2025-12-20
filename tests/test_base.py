@@ -29,6 +29,7 @@ class MockExchange(Exchange):
             liquidity=0,
             prices={"Yes": 0.5, "No": 0.5},
             metadata={},
+            tick_size=0.01,
         )
 
     def create_order(self, market_id, outcome, side, price, size, params=None):
