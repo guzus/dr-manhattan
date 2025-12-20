@@ -204,7 +204,7 @@ Check out the [examples/](examples/) directory for working examples:
 
 - **spread_strategy.py** - Market making strategy for Polymarket
 - **opinion/spread_strategy.py** - Market making strategy for Opinion
-- **limitless_spread_strategy.py** - Market making strategy for Limitless
+- **limitless/spread_strategy.py** - Market making strategy for Limitless
 
 Run examples:
 
@@ -217,7 +217,7 @@ OPINION_MARKET_ID=813 uv run python examples/opinion/spread_strategy.py
 OPINION_MARKET_SLUG=bnb-all-time-high uv run python examples/opinion/spread_strategy.py
 
 # Limitless
-MARKET_SLUG=dollarbtc-above-dollar8823689-on-dec-20-0900-utc-1766217602236 uv run python examples/limitless_spread_strategy.py
+MARKET_SLUG=dollarbtc-above-dollar8823689-on-dec-20-0900-utc-1766217602236 uv run python examples/limitless/spread_strategy.py
 ```
 
 See [examples/README.md](examples/README.md) for detailed documentation.
