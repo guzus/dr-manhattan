@@ -43,7 +43,7 @@ Exchange Allowance: $0.00
 ## Adding New Scripts
 
 Utility scripts should:
-1. Be organized by exchange (`polymarket/`, `limitless/`, etc.)
+1. Be organized by exchange (`polymarket/`, `opinion/`, `limitless/`)
 2. Be focused on a single operational task
 3. Require minimal setup (use .env)
 4. Provide clear output and guidance

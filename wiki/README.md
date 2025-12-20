@@ -7,6 +7,8 @@ Documentation for the Dr. Manhattan prediction market trading library.
 Exchange-specific documentation:
 
 - [Polymarket](exchanges/polymarket.md) - Decentralized prediction market on Polygon
+- Opinion - Prediction market on BNB Chain
+- Limitless - Prediction market on Base
 - [Template](exchanges/TEMPLATE.md) - Template for creating new exchange documentation
 
 ## Core Concepts
@@ -45,7 +47,8 @@ Market(
     volume: float,              # Trading volume
     liquidity: float,           # Available liquidity
     prices: Dict[str, float],   # Current prices by outcome
-    metadata: dict              # Exchange-specific data
+    metadata: dict,             # Exchange-specific data
+    description: str            # Resolution criteria
 )
 ```
 
@@ -198,7 +201,9 @@ dr_manhattan/
 │   └── errors.py           # Exception definitions
 ├── exchanges/
 │   ├── polymarket.py       # Polymarket implementation
-│   └── polymarket_ws.py    # Polymarket WebSocket
+│   ├── polymarket_ws.py    # Polymarket WebSocket
+│   ├── opinion.py          # Opinion implementation
+│   └── limitless.py        # Limitless implementation
 ├── models/
 │   ├── market.py           # Market model
 │   ├── order.py            # Order model

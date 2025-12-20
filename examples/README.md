@@ -26,6 +26,25 @@ LIMITLESS_PRIVATE_KEY=0x...
 uv run python examples/spread_strategy.py --exchange polymarket --slug fed-decision
 ```
 
+## list_all_markets.py
+
+**List markets from any exchange.**
+
+```bash
+uv run python examples/list_all_markets.py polymarket
+uv run python examples/list_all_markets.py opinion
+uv run python examples/list_all_markets.py limitless
+uv run python examples/list_all_markets.py polymarket --limit 50 --open-only
+```
+
+## find_common_markets.py
+
+**Find markets that exist on both Polymarket and Opinion exchanges.**
+
+```bash
+uv run python examples/find_common_markets.py
+```
+
 ## spread_strategy.py
 
 **Exchange-agnostic BBO market making strategy.**
