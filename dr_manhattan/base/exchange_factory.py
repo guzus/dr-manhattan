@@ -3,12 +3,15 @@ Exchange factory for creating exchange instances.
 """
 
 import os
-from typing import Any, Dict, Optional, Type
+from typing import Dict, List, Optional, Type
 
 from .exchange import Exchange
-
-# Type alias for exchange configuration
-ExchangeConfig = Dict[str, Any]
+from .exchange_config import (
+    ExchangeConfig,
+    LimitlessConfig,
+    OpinionConfig,
+    PolymarketConfig,
+)
 
 
 def get_exchange_class(name: str) -> Type[Exchange]:
@@ -49,6 +52,7 @@ def create_exchange(
     *,
     use_env: bool = True,
     verbose: bool = True,
+    validate: bool = True,
 ) -> Exchange:
     """
     Create an exchange instance by name.
@@ -57,65 +61,84 @@ def create_exchange(
 
     Args:
         name: Exchange name (polymarket, opinion, limitless)
-        config: Optional configuration dict to override env vars
+        config: Optional exchange-specific config to override env vars
         use_env: Whether to load credentials from environment
         verbose: Enable verbose logging
+        validate: Whether to validate required credentials (set False for read-only)
 
     Returns:
         Configured exchange instance
 
     Raises:
-        ValueError: If required credentials are missing
+        ValueError: If required credentials are missing and validate=True
 
     Example:
         >>> exchange = create_exchange("polymarket")
-        >>> exchange = create_exchange("opinion", {"api_key": "..."})
+        >>> exchange = create_exchange("polymarket", PolymarketConfig(private_key="...", funder="..."))
+        >>> exchange = create_exchange("limitless", validate=False)  # read-only
     """
     name_lower = name.lower()
     exchange_class = get_exchange_class(name_lower)
 
-    # Build config from env vars and overrides
-    final_config: ExchangeConfig = {"verbose": verbose}
-
+    # Load from environment if enabled, otherwise use provided config or empty
     if use_env:
-        env_config = _load_env_config(name_lower)
-        final_config.update(env_config)
+        final_config = _load_env_config(name_lower)
+    else:
+        final_config = _get_empty_config(name_lower)
 
+    final_config.verbose = verbose
+
+    # Override with provided config
     if config:
-        final_config.update(config)
+        _merge_config(final_config, config)
 
     # Validate required fields
-    _validate_config(name_lower, final_config)
+    if validate:
+        _validate_config(name_lower, final_config)
 
-    return exchange_class(final_config)
+    return exchange_class(final_config.to_dict())
+
+
+def _get_empty_config(name: str) -> ExchangeConfig:
+    """Get empty config for exchange."""
+    configs: Dict[str, type] = {
+        "polymarket": PolymarketConfig,
+        "opinion": OpinionConfig,
+        "limitless": LimitlessConfig,
+    }
+    return configs[name]()
+
+
+def _merge_config(target: ExchangeConfig, source: ExchangeConfig) -> None:
+    """Merge source config into target config."""
+    for field in source.__dataclass_fields__:
+        value = getattr(source, field)
+        if value and value != getattr(source.__class__, field, None):
+            if hasattr(target, field):
+                setattr(target, field, value)
 
 
 def _load_env_config(name: str) -> ExchangeConfig:
     """Load exchange config from environment variables."""
-    config: ExchangeConfig = {}
-
     if name == "polymarket":
-        if private_key := os.getenv("POLYMARKET_PRIVATE_KEY"):
-            config["private_key"] = private_key
-        if funder := os.getenv("POLYMARKET_FUNDER"):
-            config["funder"] = funder
-        if api_key := os.getenv("POLYMARKET_API_KEY"):
-            config["api_key"] = api_key
-        config["cache_ttl"] = float(os.getenv("POLYMARKET_CACHE_TTL", "2.0"))
-
+        return PolymarketConfig(
+            private_key=os.getenv("POLYMARKET_PRIVATE_KEY", ""),
+            funder=os.getenv("POLYMARKET_FUNDER", ""),
+            api_key=os.getenv("POLYMARKET_API_KEY"),
+            cache_ttl=float(os.getenv("POLYMARKET_CACHE_TTL", "2.0")),
+        )
     elif name == "opinion":
-        if api_key := os.getenv("OPINION_API_KEY"):
-            config["api_key"] = api_key
-        if private_key := os.getenv("OPINION_PRIVATE_KEY"):
-            config["private_key"] = private_key
-        if multi_sig := os.getenv("OPINION_MULTI_SIG_ADDR"):
-            config["multi_sig_addr"] = multi_sig
-
+        return OpinionConfig(
+            api_key=os.getenv("OPINION_API_KEY", ""),
+            private_key=os.getenv("OPINION_PRIVATE_KEY", ""),
+            multi_sig_addr=os.getenv("OPINION_MULTI_SIG_ADDR", ""),
+        )
     elif name == "limitless":
-        if private_key := os.getenv("LIMITLESS_PRIVATE_KEY"):
-            config["private_key"] = private_key
-
-    return config
+        return LimitlessConfig(
+            private_key=os.getenv("LIMITLESS_PRIVATE_KEY", ""),
+        )
+    else:
+        raise ValueError(f"Unknown exchange: {name}")
 
 
 def _validate_private_key(key: str, name: str) -> bool:
@@ -155,13 +178,13 @@ def _validate_private_key(key: str, name: str) -> bool:
 
 def _validate_config(name: str, config: ExchangeConfig) -> None:
     """Validate that required config fields are present and properly formatted."""
-    required: Dict[str, list] = {
+    required: Dict[str, List[str]] = {
         "polymarket": ["private_key", "funder"],
         "opinion": ["api_key", "private_key", "multi_sig_addr"],
         "limitless": ["private_key"],
     }
 
-    missing = [key for key in required.get(name, []) if not config.get(key)]
+    missing = [key for key in required.get(name, []) if not getattr(config, key, None)]
 
     if missing:
         env_prefix = name.upper()
@@ -169,7 +192,8 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
         raise ValueError(f"Missing required config: {missing}. Set env vars: {env_vars}")
 
     # Validate private key format if present
-    if private_key := config.get("private_key"):
+    private_key = getattr(config, "private_key", None)
+    if private_key:
         _validate_private_key(private_key, name)
 
 

@@ -462,6 +462,7 @@ class Polymarket(Exchange):
                 liquidity=0,  # Not in sampling-markets
                 prices=prices,
                 metadata=metadata,
+                description=data.get("description", ""),
             )
         except Exception as e:
             if self.verbose:
@@ -510,6 +511,7 @@ class Polymarket(Exchange):
                 liquidity=0,  # CLOB API doesn't include liquidity
                 prices=prices,
                 metadata=metadata,
+                description=data.get("description", ""),
             )
         except Exception as e:
             if self.verbose:
@@ -601,6 +603,7 @@ class Polymarket(Exchange):
             liquidity=liquidity,
             prices=prices,
             metadata=metadata,
+            description=data.get("description", ""),
         )
 
     def fetch_token_ids(self, condition_id: str) -> list[str]:

@@ -396,6 +396,7 @@ class Limitless(Exchange):
             liquidity=liquidity,
             prices=prices,
             metadata=metadata,
+            description=data.get("description", ""),
         )
 
     def get_orderbook(self, market_slug: str) -> Dict[str, Any]:

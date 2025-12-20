@@ -23,6 +23,7 @@ class Market:
     liquidity: float
     prices: Dict[str, float]  # outcome -> price (0-1 or 0-100)
     metadata: Dict[str, Any]
+    description: str = ""  # Resolution criteria
 
     @property
     def is_binary(self) -> bool:

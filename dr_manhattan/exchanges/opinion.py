@@ -345,6 +345,9 @@ class Opinion(Exchange):
         else:
             metadata["closed"] = False  # Default to open for unknown status
 
+        # Extract description from metadata (already stored there)
+        description = metadata.get("description", "")
+
         return Market(
             id=market_id,
             question=question,
@@ -354,6 +357,7 @@ class Opinion(Exchange):
             liquidity=liquidity,
             prices=prices,
             metadata=metadata,
+            description=description,
         )
 
     def fetch_markets(self, params: Optional[Dict[str, Any]] = None) -> List[Market]:

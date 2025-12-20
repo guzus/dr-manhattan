@@ -21,6 +21,7 @@ from .base.exchange_client import (
     format_delta_side,
     format_positions_compact,
 )
+from .base.exchange_factory import create_exchange, list_exchanges
 from .base.order_tracker import OrderEvent, OrderTracker, create_fill_logger
 from .base.strategy import Strategy
 from .exchanges.limitless import Limitless
@@ -33,6 +34,8 @@ from .models.position import Position
 __version__ = "0.0.1"
 
 __all__ = [
+    "create_exchange",
+    "list_exchanges",
     "Exchange",
     "ExchangeClient",
     "Strategy",
