@@ -7,6 +7,7 @@ CCXT-style unified API for prediction markets. Simple, scalable, and easy to ext
   <img src="assets/polymarket.png" alt="Polymarket" width="50"/>
   <img src="assets/kalshi.jpeg" alt="Kalshi" width="50"/>
   <img src="assets/opinion.jpg" alt="Opinion" width="50"/>
+  <img src="assets/limitless.jpg" alt="Limitless" width="50"/>
 </p>
 
 ## Architecture
@@ -203,6 +204,7 @@ Check out the [examples/](examples/) directory for working examples:
 
 - **spread_strategy.py** - Market making strategy for Polymarket
 - **opinion/spread_strategy.py** - Market making strategy for Opinion
+- **limitless_spread_strategy.py** - Market making strategy for Limitless
 
 Run examples:
 
@@ -213,6 +215,9 @@ MARKET_SLUG=fed-decision-in-december uv run python examples/spread_strategy.py
 # Opinion
 OPINION_MARKET_ID=813 uv run python examples/opinion/spread_strategy.py
 OPINION_MARKET_SLUG=bnb-all-time-high uv run python examples/opinion/spread_strategy.py
+
+# Limitless
+uv run python examples/limitless_spread_strategy.py will-btc-reach-100k
 ```
 
 See [examples/README.md](examples/README.md) for detailed documentation.
