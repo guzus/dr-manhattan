@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # Price level: (price, size)
 PriceLevel = Tuple[float, float]
@@ -82,3 +82,46 @@ class Orderbook:
             "asset_id": self.asset_id,
             "market_id": self.market_id,
         }
+
+
+class OrderbookManager:
+    """
+    Helper class to manage multiple orderbooks efficiently.
+    Stores orderbooks for multiple tokens and provides easy access.
+    """
+
+    def __init__(self):
+        self.orderbooks: Dict[str, Dict[str, List[PriceLevel]]] = {}
+
+    def update(self, token_id: str, orderbook: Dict[str, List[PriceLevel]]):
+        """Update orderbook for a token."""
+        self.orderbooks[token_id] = orderbook
+
+    def get(self, token_id: str) -> Optional[Dict[str, List[PriceLevel]]]:
+        """Get orderbook for a token."""
+        return self.orderbooks.get(token_id)
+
+    def get_best_bid_ask(self, token_id: str) -> Tuple[Optional[float], Optional[float]]:
+        """Get best bid and ask for a token."""
+        orderbook = self.get(token_id)
+        if not orderbook:
+            return None, None
+
+        bids: List[PriceLevel] = orderbook.get("bids", [])
+        asks: List[PriceLevel] = orderbook.get("asks", [])
+
+        best_bid = bids[0][0] if bids else None
+        best_ask = asks[0][0] if asks else None
+
+        return best_bid, best_ask
+
+    def has_data(self, token_id: str) -> bool:
+        """Check if we have orderbook data for a token."""
+        orderbook = self.get(token_id)
+        if not orderbook:
+            return False
+        return len(orderbook.get("bids", [])) > 0 and len(orderbook.get("asks", [])) > 0
+
+    def has_all_data(self, token_ids: List[str]) -> bool:
+        """Check if we have orderbook data for all tokens."""
+        return all(self.has_data(tid) for tid in token_ids)

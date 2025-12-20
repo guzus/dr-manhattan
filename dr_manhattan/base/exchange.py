@@ -1,6 +1,5 @@
 import random
 import re
-import threading
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
@@ -526,67 +525,6 @@ class Exchange(ABC):
         # Simple heuristic: use smaller of max position or 10% of liquidity
         liquidity_based_size = market.liquidity * 0.1
         return min(max_position_size, liquidity_based_size)
-
-    def stream_market_data(self, market_ids: list[str], callback):
-        """
-        Stream real-time market data for specified markets.
-
-        Args:
-            market_ids: List of market IDs to stream
-            callback: Function to call with market updates
-        """
-
-        def _stream_worker():
-            """Worker thread for streaming market data"""
-            while True:
-                try:
-                    for market_id in market_ids:
-                        market = self.fetch_market(market_id)
-                        callback(market_id, market)
-                    time.sleep(1)  # Update every second
-                except Exception as e:
-                    if self.verbose:
-                        print(f"Streaming error: {e}")
-                    time.sleep(5)  # Wait longer on error
-
-        stream_thread = threading.Thread(target=_stream_worker, daemon=True)
-        stream_thread.start()
-        return stream_thread
-
-    def watch_order_book(self, market_id: str, callback):
-        """
-        Watch order book changes for a specific market.
-        DEPRECATED: Use WebSocket implementation via get_websocket() for real-time updates.
-
-        Args:
-            market_id: Market ID to watch
-            callback: Function to call with order book updates
-        """
-
-        def _order_book_worker():
-            """Worker thread for watching order book"""
-            last_prices = None
-
-            while True:
-                try:
-                    market = self.fetch_market(market_id)
-                    current_prices = market.prices
-
-                    # Only call callback if prices changed
-                    if current_prices != last_prices:
-                        callback(market_id, current_prices)
-                        last_prices = current_prices.copy()
-
-                    time.sleep(0.5)  # Check every 500ms
-
-                except Exception as e:
-                    if self.verbose:
-                        print(f"Order book watch error: {e}")
-                    time.sleep(2)
-
-        watch_thread = threading.Thread(target=_order_book_worker, daemon=True)
-        watch_thread.start()
-        return watch_thread
 
     def get_websocket(self):
         """

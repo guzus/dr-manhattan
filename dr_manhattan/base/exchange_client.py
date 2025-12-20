@@ -8,13 +8,14 @@ Exchange is regarded as stateless; ExchangeClient maintains client-specific stat
 import asyncio
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..models.market import Market
 from ..models.nav import NAV, PositionBreakdown
 from ..models.order import Order, OrderSide
-from ..models.orderbook import Orderbook
+from ..models.orderbook import Orderbook, OrderbookManager
 from ..models.position import Position
 from ..utils import setup_logger
 from .order_tracker import OrderCallback, OrderTracker, create_fill_logger
@@ -151,6 +152,12 @@ class ExchangeClient:
         # Market data WebSocket for orderbook
         self._market_ws = None
         self._orderbook_manager = None
+        self._ws_thread = None
+
+        # Polling fallback for exchanges without WebSocket
+        self._polling_thread = None
+        self._polling_stop = False
+        self._polling_token_ids: List[str] = []
 
         if track_fills:
             self._setup_order_tracker()
@@ -295,35 +302,84 @@ class ExchangeClient:
             return self._exchange.get_user_websocket()
         return None
 
+    def _setup_orderbook_polling(self, token_ids: List[str], interval: float = 0.5) -> bool:
+        """
+        Setup REST polling for orderbook updates.
+        Used as fallback when WebSocket is not supported.
+
+        Args:
+            token_ids: List of token IDs to poll
+            interval: Polling interval in seconds
+
+        Returns:
+            True if polling setup successful
+        """
+        self._orderbook_manager = OrderbookManager()
+        self._polling_token_ids = token_ids
+        self._polling_stop = False
+
+        # Initial fetch
+        for token_id in token_ids:
+            rest_data = self.get_orderbook(token_id)
+            if rest_data:
+                orderbook = Orderbook.from_rest_response(rest_data, token_id)
+                self._orderbook_manager.update(token_id, orderbook.to_dict())
+                self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
+
+        def polling_worker():
+            while not self._polling_stop:
+                try:
+                    for token_id in self._polling_token_ids:
+                        if self._polling_stop:
+                            break
+                        rest_data = self.get_orderbook(token_id)
+                        if rest_data:
+                            orderbook = Orderbook.from_rest_response(rest_data, token_id)
+                            self._orderbook_manager.update(token_id, orderbook.to_dict())
+                            self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
+                except Exception as e:
+                    logger.warning(f"Orderbook polling error: {e}")
+                time.sleep(interval)
+
+        self._polling_thread = threading.Thread(target=polling_worker, daemon=False)
+        self._polling_thread.start()
+        logger.info(f"Orderbook polling started for {len(token_ids)} tokens")
+        return True
+
     def setup_orderbook_websocket(self, market_id: str, token_ids: List[str]) -> bool:
         """
         Setup WebSocket connection for real-time orderbook updates.
+        Falls back to REST polling if WebSocket is not supported.
 
         Args:
             market_id: Market ID to subscribe to
             token_ids: List of token IDs to subscribe to
 
         Returns:
-            True if WebSocket setup successful, False otherwise
+            True if setup successful (WebSocket or polling), False otherwise
         """
         if not hasattr(self._exchange, "get_websocket"):
-            logger.debug("Exchange does not support WebSocket orderbook")
-            return False
+            logger.debug("Exchange does not support WebSocket, using REST polling")
+            return self._setup_orderbook_polling(token_ids)
 
         try:
             self._market_ws = self._exchange.get_websocket()
             self._orderbook_manager = self._market_ws.get_orderbook_manager()
 
             # Fetch initial orderbook data via REST before connecting WebSocket
-            # Note: Sequential fetches for each token (N+1 pattern) - consider batch API if available
+            # Parallelized to reduce latency for markets with many outcomes
             fetch_start = time.time()
-            for token_id in token_ids:
+
+            def fetch_and_update(token_id: str):
                 rest_data = self.get_orderbook(token_id)
                 if rest_data:
                     orderbook = Orderbook.from_rest_response(rest_data, token_id)
                     self._orderbook_manager.update(token_id, orderbook.to_dict())
-                    # Update mid price cache
                     self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
+
+            with ThreadPoolExecutor(max_workers=min(len(token_ids), 5)) as executor:
+                executor.map(fetch_and_update, token_ids)
+
             fetch_duration = time.time() - fetch_start
             if fetch_duration > 1.0:
                 logger.info(
@@ -366,8 +422,8 @@ class ExchangeClient:
                 self._market_ws.loop.create_task(run_websocket())
                 self._market_ws.loop.run_forever()
 
-            ws_thread = threading.Thread(target=run_loop, daemon=True)
-            ws_thread.start()
+            self._ws_thread = threading.Thread(target=run_loop, daemon=False)
+            self._ws_thread.start()
 
             logger.info("WebSocket orderbook connected")
             return True
@@ -429,30 +485,43 @@ class ExchangeClient:
         return best_bid, best_ask
 
     def stop(self):
-        """Stop order tracking and WebSocket connections"""
+        """Stop order tracking, WebSocket connections, and polling"""
         if self._order_tracker:
             self._order_tracker.stop()
         if self._user_ws:
             self._user_ws.stop()
         if self._market_ws:
+            if self._market_ws.loop:
+                self._market_ws.loop.call_soon_threadsafe(self._market_ws.loop.stop)
             self._market_ws.stop()
+        # Stop polling thread
+        if self._polling_thread:
+            self._polling_stop = True
+            self._polling_thread.join(timeout=2.0)
+        if self._ws_thread:
+            self._ws_thread.join(timeout=5.0)
 
     def get_balance(self) -> Dict[str, float]:
         """
         Get cached balance (non-blocking). Updates cache in background if stale.
 
         Returns:
-            Dictionary with cached balance info
+            Dictionary with cached balance info. Contains '_stale' key (bool)
+            indicating if cache update failed and data may be outdated.
         """
         current_time = time.time()
+        stale = False
 
         if current_time - self._balance_last_updated > self._cache_ttl:
             try:
                 self._update_balance_cache()
             except Exception as e:
                 logger.warning(f"Background balance update failed: {e}")
+                stale = True
 
-        return self._balance_cache.copy()
+        result = self._balance_cache.copy()
+        result["_stale"] = stale
+        return result
 
     def get_positions(self, market_id: Optional[str] = None) -> List[Position]:
         """
