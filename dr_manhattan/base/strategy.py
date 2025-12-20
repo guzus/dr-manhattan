@@ -13,6 +13,7 @@ from ..models.nav import NAV
 from ..models.order import Order, OrderSide
 from ..utils import setup_logger
 from ..utils.logger import Colors
+from ..utils.price import round_to_tick_size
 from .exchange_client import (
     DeltaInfo,
     ExchangeClient,
@@ -112,7 +113,7 @@ class Strategy(ABC):
 
         token_ids = self.market.metadata.get("clobTokenIds", [])
         outcomes = self.market.outcomes
-        self.tick_size = self.client.get_tick_size(self.market)
+        self.tick_size = self.market.tick_size
 
         if not token_ids:
             logger.error("No token IDs found in market")
@@ -395,7 +396,7 @@ class Strategy(ABC):
 
     def round_price(self, price: float) -> float:
         """Round price to tick size"""
-        return self.client.round_to_tick_size(price, self.tick_size)
+        return round_to_tick_size(price, self.tick_size)
 
     # Order helpers
 

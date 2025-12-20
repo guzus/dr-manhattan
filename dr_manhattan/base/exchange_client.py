@@ -278,18 +278,6 @@ class ExchangeClient:
             return self._exchange.get_orderbook(token_id)
         return {"bids": [], "asks": []}
 
-    def get_tick_size(self, market: Market) -> float:
-        """Get tick size for a market"""
-        if hasattr(self._exchange, "get_tick_size"):
-            return self._exchange.get_tick_size(market)
-        return 0.01
-
-    def round_to_tick_size(self, price: float, tick_size: float) -> float:
-        """Round price to tick size"""
-        if hasattr(self._exchange, "round_to_tick_size"):
-            return self._exchange.round_to_tick_size(price, tick_size)
-        return round(round(price / tick_size) * tick_size, 3)
-
     def get_websocket(self):
         """Get market data WebSocket (if exchange supports it)"""
         if hasattr(self._exchange, "get_websocket"):

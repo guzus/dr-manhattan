@@ -21,9 +21,15 @@ class Market:
     close_time: Optional[datetime]
     volume: float
     liquidity: float
-    prices: Dict[str, float]  # outcome -> price (0-1 or 0-100)
+    prices: Dict[str, float]  # outcome -> price (0-1)
     metadata: Dict[str, Any]
+    tick_size: float
     description: str = ""  # Resolution criteria
+
+    def __post_init__(self):
+        for outcome, price in self.prices.items():
+            if not (0 <= price <= 1):
+                raise ValueError(f"Price for '{outcome}' must be between 0 and 1, got {price}")
 
     @property
     def is_binary(self) -> bool:

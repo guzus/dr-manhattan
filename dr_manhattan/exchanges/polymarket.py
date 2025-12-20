@@ -366,11 +366,6 @@ class Polymarket(Exchange):
             if clob_token_ids:
                 market.metadata["clobTokenIds"] = clob_token_ids
 
-            # Set default tick size
-            if "tick_size" not in market.metadata and "minimum_tick_size" not in market.metadata:
-                market.metadata["minimum_tick_size"] = 0.001
-                market.metadata["tick_size"] = 0.001
-
             markets.append(market)
 
         return markets
@@ -420,7 +415,11 @@ class Polymarket(Exchange):
             # Extract tick size (minimum price increment)
             # The API returns minimum_tick_size (e.g., 0.01 or 0.001)
             # Note: minimum_order_size is different - it's the min shares per order
-            minimum_tick_size = data.get("minimum_tick_size", 0.01)
+            minimum_tick_size = data.get("minimum_tick_size")
+            if minimum_tick_size is None:
+                raise ExchangeError(
+                    f"Missing minimum_tick_size in sampling market response for {condition_id}"
+                )
 
             # Extract tokens - sampling-markets has them in "tokens" array
             tokens_data = data.get("tokens", [])
@@ -444,13 +443,12 @@ class Polymarket(Exchange):
                         except (ValueError, TypeError):
                             pass
 
-            # Build metadata with token IDs and tick size
+            # Build metadata with token IDs
             metadata = {
                 **data,
                 "clobTokenIds": token_ids,
                 "condition_id": condition_id,
                 "minimum_tick_size": minimum_tick_size,
-                "tick_size": minimum_tick_size,  # Alias for convenience
             }
 
             return Market(
@@ -462,6 +460,7 @@ class Polymarket(Exchange):
                 liquidity=0,  # Not in sampling-markets
                 prices=prices,
                 metadata=metadata,
+                tick_size=minimum_tick_size,
                 description=data.get("description", ""),
             )
         except Exception as e:
@@ -500,7 +499,17 @@ class Polymarket(Exchange):
                             pass
 
             # Build metadata with token IDs already included
-            metadata = {**data, "clobTokenIds": token_ids, "condition_id": condition_id}
+            minimum_tick_size = data.get("minimum_tick_size")
+            if minimum_tick_size is None:
+                raise ExchangeError(
+                    f"Missing minimum_tick_size in CLOB market response for {condition_id}"
+                )
+            metadata = {
+                **data,
+                "clobTokenIds": token_ids,
+                "condition_id": condition_id,
+                "minimum_tick_size": minimum_tick_size,
+            }
 
             return Market(
                 id=condition_id,
@@ -511,6 +520,7 @@ class Polymarket(Exchange):
                 liquidity=0,  # CLOB API doesn't include liquidity
                 prices=prices,
                 metadata=metadata,
+                tick_size=minimum_tick_size,
                 description=data.get("description", ""),
             )
         except Exception as e:
@@ -594,6 +604,14 @@ class Polymarket(Exchange):
                 # If parsing fails, remove it - will be fetched separately
                 del metadata["clobTokenIds"]
 
+        # Extract tick size - required field, no default fallback
+        minimum_tick_size = data.get("minimum_tick_size")
+        if minimum_tick_size is None:
+            raise ExchangeError(
+                f"Missing minimum_tick_size in market response for {data.get('id', 'unknown')}"
+            )
+        metadata["minimum_tick_size"] = minimum_tick_size
+
         return Market(
             id=data.get("id", ""),
             question=data.get("question", ""),
@@ -603,6 +621,7 @@ class Polymarket(Exchange):
             liquidity=liquidity,
             prices=prices,
             metadata=metadata,
+            tick_size=minimum_tick_size,
             description=data.get("description", ""),
         )
 

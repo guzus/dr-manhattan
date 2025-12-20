@@ -315,6 +315,9 @@ class Opinion(Exchange):
             volume = 0.0
         liquidity = float(getattr(data, "liquidity", 0) or 0)
 
+        # Opinion uses fixed tick size of 0.001 for all markets
+        tick_size = 0.001
+
         # Build metadata with clobTokenIds for compatibility with base class
         metadata = {
             "topic_id": market_id,
@@ -333,8 +336,7 @@ class Opinion(Exchange):
             "description": getattr(data, "description", "") or getattr(data, "rules", ""),
             "category": getattr(data, "category", ""),
             "image_url": getattr(data, "image_url", ""),
-            "minimum_tick_size": 0.01,
-            "tick_size": 0.01,
+            "minimum_tick_size": tick_size,
         }
 
         status = getattr(data, "status", None)
@@ -357,6 +359,7 @@ class Opinion(Exchange):
             liquidity=liquidity,
             prices=prices,
             metadata=metadata,
+            tick_size=tick_size,
             description=description,
         )
 
@@ -570,12 +573,6 @@ class Opinion(Exchange):
 
         if price <= 0 or price >= 1:
             raise InvalidOrder(f"Price must be between 0 and 1, got: {price}")
-
-        # Validate tick size (0.001)
-        tick_size = 0.001
-        aligned_price = round(round(price / tick_size) * tick_size, 3)
-        if abs(aligned_price - round(price, 3)) > 0.0001:
-            raise InvalidOrder(f"Price must be aligned to tick size {tick_size}, got: {price}")
 
         opinion_side = BUY if side == OrderSide.BUY else SELL
 

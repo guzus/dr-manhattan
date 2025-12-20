@@ -369,6 +369,9 @@ class Limitless(Exchange):
         volume = float(volume_raw) if volume_raw else 0
         liquidity = float(liquidity_raw) if liquidity_raw else 0
 
+        # Limitless uses fixed tick size of 0.001 for all markets
+        tick_size = 0.001
+
         # Build metadata
         metadata = {
             **data,
@@ -376,8 +379,7 @@ class Limitless(Exchange):
             "clobTokenIds": token_ids,
             "token_ids": token_ids,
             "tokens": {"Yes": yes_token_id, "No": no_token_id},
-            "minimum_tick_size": 0.01,
-            "tick_size": 0.01,
+            "minimum_tick_size": tick_size,
         }
 
         # Check status
@@ -396,6 +398,7 @@ class Limitless(Exchange):
             liquidity=liquidity,
             prices=prices,
             metadata=metadata,
+            tick_size=tick_size,
             description=data.get("description", ""),
         )
 
