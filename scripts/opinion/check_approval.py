@@ -63,8 +63,14 @@ try:
     print("Positions:")
     if positions:
         for pos in positions:
-            pnl_str = f"+{pos.unrealized_pnl:.2f}" if pos.unrealized_pnl >= 0 else f"{pos.unrealized_pnl:.2f}"
-            print(f"  Market {pos.market_id} | {pos.outcome}: {pos.size:.2f} @ {pos.average_price:.4f} (PnL: {pnl_str})")
+            pnl_str = (
+                f"+{pos.unrealized_pnl:.2f}"
+                if pos.unrealized_pnl >= 0
+                else f"{pos.unrealized_pnl:.2f}"
+            )
+            print(
+                f"  Market {pos.market_id} | {pos.outcome}: {pos.size:.2f} @ {pos.average_price:.4f} (PnL: {pnl_str})"
+            )
     else:
         print("  No positions")
     print()

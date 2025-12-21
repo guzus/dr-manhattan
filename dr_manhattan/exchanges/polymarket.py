@@ -1,7 +1,3 @@
-from typing import Optional, Dict, Any, Sequence, List, Literal, Callable, Iterable
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from decimal import Decimal
 import json
 import logging
 import re
@@ -10,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence
 
+import pandas as pd
 import requests
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import AssetType, BalanceAllowanceParams, OrderArgs, OrderType
@@ -32,27 +29,6 @@ from .polymarket_ws import PolymarketUserWebSocket, PolymarketWebSocket
 
 
 @dataclass
-class PricePoint:
-    timestamp: datetime
-    price: float
-    raw: Dict[str, Any]
-
-
-@dataclass
-class Tag:
-    id: str
-    label: str | None
-    slug: str | None
-    force_show: bool | None
-    force_hide: bool | None
-    is_carousel: bool | None
-    published_at: str | None
-    created_at: str | None
-    updated_at: str | None
-    raw: dict
-
-
-@dataclass
 class PublicTrade:
     proxy_wallet: str
     side: str
@@ -94,73 +70,6 @@ class Tag:
     created_at: str | None
     updated_at: str | None
     raw: dict
-
-
-@dataclass
-class PublicTrade:
-    proxy_wallet: str
-    side: str
-    asset: str
-    condition_id: str
-    size: float
-    price: float
-    timestamp: datetime
-    title: str | None
-    slug: str | None
-    icon: str | None
-    event_slug: str | None
-    outcome: str | None
-    outcome_index: int | None
-    name: str | None
-    pseudonym: str | None
-    bio: str | None
-    profile_image: str | None
-    profile_image_optimized: str | None
-    transaction_hash: str | None
-
-
-@dataclass
-class PricePoint:
-    timestamp: datetime
-    price: float
-    raw: Dict[str, Any]
-
-
-@dataclass
-class Tag:
-    id: str
-    label: str | None
-    slug: str | None
-    force_show: bool | None
-    force_hide: bool | None
-    is_carousel: bool | None
-    published_at: str | None
-    created_at: str | None
-    updated_at: str | None
-    raw: dict
-
-
-@dataclass
-class PublicTrade:
-    proxy_wallet: str
-    side: str
-    asset: str
-    condition_id: str
-    size: float
-    price: float
-    timestamp: datetime
-    title: str | None
-    slug: str | None
-    icon: str | None
-    event_slug: str | None
-    outcome: str | None
-    outcome_index: int | None
-    name: str | None
-    pseudonym: str | None
-    bio: str | None
-    profile_image: str | None
-    profile_image_optimized: str | None
-    transaction_hash: str | None
 
 
 class Polymarket(Exchange):
@@ -1476,7 +1385,7 @@ class Polymarket(Exchange):
         interval: Literal["1m", "1h", "6h", "1d", "1w", "max"] = "1m",
         fidelity: int = 10,
         as_dataframe: bool = False,
-    ) -> List[PricePoint] | "pandas.DataFrame":
+    ) -> List[PricePoint] | pd.DataFrame:
         if interval not in self.SUPPORTED_INTERVALS:
             raise ValueError(
                 f"Unsupported interval '{interval}'. Pick from {self.SUPPORTED_INTERVALS}."
@@ -1505,10 +1414,6 @@ class Polymarket(Exchange):
         points = self._parse_history(history)
 
         if as_dataframe:
-            try:
-                import pandas as pd
-            except ImportError as exc:
-                raise RuntimeError("pandas is required when as_dataframe=True.") from exc
 
             data = {
                 "timestamp": [p.timestamp for p in points],
@@ -1629,8 +1534,8 @@ class Polymarket(Exchange):
             return []
 
         initial_offset = max(0, int(offset))
-        DEFAULT_PAGE_SIZE_MARKETS = 200
-        page_size = min(DEFAULT_PAGE_SIZE_MARKETS, total_limit)
+        default_page_size_markets = 200
+        page_size = min(default_page_size_markets, total_limit)
 
         def _dt(v: datetime | None) -> str | None:
             return v.isoformat() if isinstance(v, datetime) else None
@@ -1777,7 +1682,7 @@ class Polymarket(Exchange):
         filter_amount: float | None = None,
         as_dataframe: bool = False,
         log: bool = False,
-    ) -> List[PublicTrade] | "pandas.DataFrame":
+    ) -> List[PublicTrade] | pd.DataFrame:
 
         total_limit = int(limit)
         if total_limit <= 0:
@@ -1787,8 +1692,8 @@ class Polymarket(Exchange):
             raise ValueError("offset must be between 0 and 10000")
 
         initial_offset = int(offset)
-        DEFAULT_PAGE_SIZE_TRADES = 500
-        page_size = min(DEFAULT_PAGE_SIZE_TRADES, total_limit)
+        default_page_size_trades = 500
+        page_size = min(default_page_size_trades, total_limit)
 
         # ---------- condition_id resolve ----------
         condition_id: str | None = None
@@ -1889,10 +1794,6 @@ class Polymarket(Exchange):
             return trades
 
         # ---------- as_dataframe=True: Convert to DataFrame----------
-        try:
-            import pandas as pd
-        except ImportError as exc:
-            raise RuntimeError("pandas is required when as_dataframe=True.") from exc
 
         df = pd.DataFrame(
             [

@@ -1,22 +1,19 @@
 import asyncio
 import json
+import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Set, Any
+from datetime import UTC, datetime, timedelta, timezone
+from typing import Any, Dict, List, Set
 
-import websockets
-from dateutil import parser as date_parser
-from datetime import timezone, datetime, timedelta, UTC
 import boto3
-import threading
 import pyarrow as pa
 import pyarrow.parquet as pq
-
-import logging
-
+import websockets
+from dateutil import parser as date_parser
 from polymarket import Polymarket
-
 
 # ========== LOGGING CONFIG ==========
 
@@ -31,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 S3_BUCKET = os.getenv("S3_BUCKET")
-POLL_INTERVAL_SEC = 60*3
+POLL_INTERVAL_SEC = 60 * 3
 WS_PING_INTERVAL_SEC = 20
 WS_RECONNECT_DELAY_SEC = 3
 WS_NO_ASSETS_SLEEP_SEC = 15
@@ -53,6 +50,7 @@ EVENT_TYPES = [
 
 
 # ========== DATA CLASSES ==========
+
 
 @dataclass
 class MarketConfig:
@@ -85,7 +83,7 @@ class SharedState:
     need_resubscribe: bool = False
     seen_event_hashes: Dict[str, Set[str]] = field(default_factory=dict)
 
-    # === asset_id 포함 dedup ===
+    # === Dedup including asset_id ===
     def mark_event_seen(self, event_type: str, asset_id: str, event_hash: str) -> bool:
         key = f"{asset_id}:{event_hash}"
         bucket = self.seen_event_hashes.setdefault(event_type, set())
@@ -122,7 +120,6 @@ MARKET_CONFIG: List[MarketConfig] = [
         window_minutes=60 * 24 * 2,
         prefix="crypto/BTC/freq=1D",
     ),
-
     # ===== ETH =====
     MarketConfig(
         name="eth_1h",
@@ -140,7 +137,6 @@ MARKET_CONFIG: List[MarketConfig] = [
         window_minutes=60 * 24 * 2,
         prefix="crypto/ETH/freq=1D",
     ),
-
     # ===== SOL =====
     MarketConfig(
         name="sol_1h",
@@ -158,7 +154,6 @@ MARKET_CONFIG: List[MarketConfig] = [
         window_minutes=60 * 24 * 2,
         prefix="crypto/SOL/freq=1D",
     ),
-
     # ===== XRP =====
     MarketConfig(
         name="xrp_1h",
@@ -176,7 +171,6 @@ MARKET_CONFIG: List[MarketConfig] = [
         window_minutes=60 * 24 * 2,
         prefix="crypto/XRP/freq=1D",
     ),
-
     # ===== EPL =====
     MarketConfig(
         name="tottenham_epl_win",
@@ -199,6 +193,7 @@ MARKET_CONFIG: List[MarketConfig] = [
 
 # ========== TIME FORMATTER ==========
 
+
 def normalize_close_time(raw: Any) -> str:
     if raw is None:
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -207,16 +202,16 @@ def normalize_close_time(raw: Any) -> str:
         try:
             dt = date_parser.parse(raw)
         except Exception:
-            # 파싱 실패 시 원본 문자열 그대로 반환
+            # Return original string if parsing fails
             return raw
     else:
         if isinstance(raw, datetime):
             dt = raw
         elif isinstance(raw, (int, float)):
-            # epoch timestamp로 가정
+            # Assume epoch timestamp
             dt = datetime.fromtimestamp(float(raw), tz=timezone.utc)
         else:
-            # 그 외 타입은 문자열로 캐스팅해서 한 번 더 시도
+            # For other types, try once more by casting to string
             try:
                 dt = date_parser.parse(str(raw))
             except Exception:
@@ -230,6 +225,7 @@ def normalize_close_time(raw: Any) -> str:
 
 
 # ========== METADATA HELPERS ==========
+
 
 def parse_json_list_string(value: str) -> List[str]:
     try:
@@ -275,10 +271,10 @@ def get_outcomes_from_metadata(market: Any, metadata: Dict[str, Any]) -> List[st
 
 def is_market_in_window(close_time_str: str, window_minutes: int, now: datetime) -> bool:
     """
-    Polymarket EPL 등에서 close_time이 경기 시작시간인 경우가 있어서,
-    '지금 시점이 close_time - window 이후'인지 여부만 체크한다.
-    upper bound(now <= close_dt)는 두지 않는다.
-    실제 종료 여부는 API의 closed=False 필터에 맡긴다.
+    In Polymarket EPL etc., close_time may be the game start time,
+    so we only check whether 'current time is after close_time - window'.
+    We don't set an upper bound (now <= close_dt).
+    Actual termination status is handled by the API's closed=False filter.
     """
     try:
         close_dt = date_parser.parse(close_time_str)
@@ -294,10 +290,11 @@ def is_market_in_window(close_time_str: str, window_minutes: int, now: datetime)
     window = timedelta(minutes=window_minutes)
     start_dt = close_dt - window
 
-    return (start_dt <= now)
+    return start_dt <= now
 
 
 # ========== MARKET FETCH ==========
+
 
 def get_open_market(exchange, slug: str, keywords: List[str]):
     tag = exchange.get_tag_by_slug(slug)
@@ -315,6 +312,7 @@ def get_open_market(exchange, slug: str, keywords: List[str]):
 
 
 # ========== MARKET POLL LOOP ==========
+
 
 async def poll_markets_loop(state: SharedState):
     exchange = Polymarket()
@@ -417,6 +415,7 @@ async def poll_markets_loop(state: SharedState):
 
 # ========== PARQUET + S3 SINK ==========
 
+
 class ParquetSink:
     def __init__(self, s3_bucket: str | None = S3_BUCKET, flush_every_rows: int = 1000):
         self.s3_bucket = s3_bucket
@@ -434,7 +433,9 @@ class ParquetSink:
     def _tmp_path(self, meta: AssetMeta, event_type: str) -> str:
         sanitized_prefix = meta.prefix.replace("/", "_")
         safe_close = meta.close_time_str.replace(":", "-")
-        filename = f"{sanitized_prefix}_{meta.freq}_{safe_close}_{meta.outcome}_{event_type}.parquet"
+        filename = (
+            f"{sanitized_prefix}_{meta.freq}_{safe_close}_{meta.outcome}_{event_type}.parquet"
+        )
         return os.path.join("/tmp", filename)
 
     def _s3_key(self, meta: AssetMeta, event_type: str) -> str:
@@ -538,6 +539,7 @@ parquet_sink = ParquetSink()
 
 # ========== WS MESSAGE HANDLERS ==========
 
+
 async def handle_book(msg: dict, state: SharedState):
     asset_id = msg.get("asset_id")
     if not asset_id:
@@ -597,7 +599,9 @@ async def handle_price_change(msg: dict, state: SharedState):
             filtered = []
             for row in rows:
                 event_hash = row.get("hash")
-                if event_hash and not state.mark_event_seen(EVENT_PRICE_CHANGE, asset_id, event_hash):
+                if event_hash and not state.mark_event_seen(
+                    EVENT_PRICE_CHANGE, asset_id, event_hash
+                ):
                     continue
                 filtered.append(row)
 
@@ -606,7 +610,7 @@ async def handle_price_change(msg: dict, state: SharedState):
             else:
                 rows_by_asset[asset_id] = filtered
 
-    # asset 단위로 묶어서 한 번에 to_thread 호출
+    # Group by asset and call to_thread at once
     for asset_id, rows in rows_by_asset.items():
         async with state.lock:
             meta = state.asset_meta.get(asset_id)
@@ -702,6 +706,7 @@ async def dispatch_raw(raw: str, state: SharedState):
 
 # ========== WEBSOCKET WORKER ==========
 
+
 class WebSocketWorker:
     def __init__(self, state: SharedState, asset_ids: List[str], generation: int):
         self.state = state
@@ -725,7 +730,7 @@ class WebSocketWorker:
                     len(self.asset_ids),
                 )
 
-                # (요청대로 기존 필드명 그대로 유지)
+                # (Keep existing field name as requested)
                 sub_msg = {
                     "type": "MARKET",
                     "assets_ids": self.asset_ids,
@@ -768,6 +773,7 @@ class WebSocketWorker:
 
 
 # ========== WS MANAGER ==========
+
 
 async def manage_ws_connections(state: SharedState):
     worker: WebSocketWorker | None = None
@@ -827,6 +833,7 @@ async def manage_ws_connections(state: SharedState):
 
 
 # ========== MAIN ==========
+
 
 async def main():
     state = SharedState()
