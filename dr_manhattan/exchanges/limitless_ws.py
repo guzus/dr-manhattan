@@ -130,7 +130,8 @@ class LimitlessWebSocket:
 
         # Event loop (public for compatibility with exchange_client)
         self.loop: Optional[asyncio.AbstractEventLoop] = None
-        self._thread = None
+        self._thread: Optional[threading.Thread] = None
+        self._ready = threading.Event()  # Signals when connection is ready
 
         # Orderbook manager for compatibility with exchange_client
         self.orderbook_manager = OrderbookManager()
@@ -384,6 +385,7 @@ class LimitlessWebSocket:
                 transports=["websocket"],
                 headers=headers,
             )
+            self._ready.set()  # Signal that connection is ready
         except Exception as e:
             self.state = WebSocketState.DISCONNECTED
             raise ConnectionError(f"Failed to connect to Limitless WebSocket: {e}")
@@ -465,14 +467,21 @@ class LimitlessWebSocket:
         self._error_callbacks.append(callback)
         return self
 
-    def start(self) -> threading.Thread:
+    def start(self, timeout: float = 5.0) -> threading.Thread:
         """
         Start WebSocket connection in background thread.
 
+        Args:
+            timeout: Seconds to wait for connection to establish
+
         Returns:
             Background thread running the WebSocket
+
+        Raises:
+            ConnectionError: If connection is not established within timeout
         """
         self.loop = asyncio.new_event_loop()
+        self._ready.clear()
 
         async def _run():
             await self.connect()
@@ -487,9 +496,16 @@ class LimitlessWebSocket:
             except Exception as e:
                 if self.verbose:
                     logger.error(f"WebSocket thread error: {e}")
+            finally:
+                self.loop.close()
 
         self._thread = threading.Thread(target=_thread_target, daemon=True)
         self._thread.start()
+
+        # Wait for connection to be ready
+        if not self._ready.wait(timeout=timeout):
+            raise ConnectionError(f"WebSocket connection not established within {timeout}s")
+
         return self._thread
 
     def get_orderbook_manager(self) -> OrderbookManager:
@@ -558,10 +574,22 @@ class LimitlessWebSocket:
         self.on_orderbook(on_orderbook_update)
         await self.subscribe_market(market_id)
 
-    def stop(self):
-        """Stop WebSocket connection"""
+    def stop(self, timeout: float = 5.0):
+        """
+        Stop WebSocket connection and wait for cleanup.
+
+        Args:
+            timeout: Seconds to wait for disconnect and thread cleanup
+        """
         if self.loop and self.sio.connected:
-            asyncio.run_coroutine_threadsafe(self.disconnect(), self.loop)
+            future = asyncio.run_coroutine_threadsafe(self.disconnect(), self.loop)
+            try:
+                future.result(timeout=timeout)
+            except Exception:
+                pass  # Ignore timeout/errors during shutdown
+
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=timeout)
 
     @property
     def connected(self) -> bool:
