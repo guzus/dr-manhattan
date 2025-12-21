@@ -13,7 +13,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import websockets
 from dateutil import parser as date_parser
-from polymarket import Polymarket
+
+from dr_manhattan.exchanges.polymarket import Polymarket
 
 # ========== LOGGING CONFIG ==========
 

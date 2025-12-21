@@ -608,12 +608,9 @@ class Polymarket(Exchange):
                 # If parsing fails, remove it - will be fetched separately
                 del metadata["clobTokenIds"]
 
-        # Extract tick size - required field, no default fallback
-        minimum_tick_size = data.get("minimum_tick_size")
-        if minimum_tick_size is None:
-            raise ExchangeError(
-                f"Missing minimum_tick_size in market response for {data.get('id', 'unknown')}"
-            )
+        # Extract tick size - default to 0.01 (standard Polymarket tick size)
+        # Gamma API may not include this field; CLOB API always does
+        minimum_tick_size = data.get("minimum_tick_size", 0.01)
         metadata["minimum_tick_size"] = minimum_tick_size
 
         return Market(
