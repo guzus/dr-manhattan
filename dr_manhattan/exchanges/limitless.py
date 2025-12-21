@@ -506,12 +506,10 @@ class Limitless(Exchange):
             # No asks (sell No) = 1 - Yes bids
             if is_no_token:
                 inverted_bids = [
-                    {"price": str(round(1 - float(a["price"]), 3)), "size": a["size"]}
-                    for a in asks
+                    {"price": str(round(1 - float(a["price"]), 3)), "size": a["size"]} for a in asks
                 ]
                 inverted_asks = [
-                    {"price": str(round(1 - float(b["price"]), 3)), "size": b["size"]}
-                    for b in bids
+                    {"price": str(round(1 - float(b["price"]), 3)), "size": b["size"]} for b in bids
                 ]
                 # Re-sort after inversion
                 inverted_bids.sort(key=lambda x: float(x["price"]), reverse=True)

@@ -539,12 +539,8 @@ class LimitlessWebSocket:
             # No token gets inverted orderbook
             # No bids = 1 - Yes asks, No asks = 1 - Yes bids
             if no_token:
-                no_bids = [
-                    (round(1 - price, 3), size) for price, size in update.asks
-                ]
-                no_asks = [
-                    (round(1 - price, 3), size) for price, size in update.bids
-                ]
+                no_bids = [(round(1 - price, 3), size) for price, size in update.asks]
+                no_asks = [(round(1 - price, 3), size) for price, size in update.bids]
                 # Re-sort after inversion
                 no_bids.sort(reverse=True)
                 no_asks.sort()
