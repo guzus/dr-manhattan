@@ -27,6 +27,26 @@ from ..base.exchange import Exchange
 from ..models.market import Market
 from ..models.order import Order, OrderSide, OrderStatus
 from ..models.position import Position
+from .limitless_ws import (
+    LimitlessUserWebSocket,
+    LimitlessWebSocket,
+    OrderbookUpdate,
+    PositionUpdate,
+    PriceUpdate,
+    Trade,
+    WebSocketState,
+)
+
+__all__ = [
+    "Limitless",
+    "LimitlessWebSocket",
+    "LimitlessUserWebSocket",
+    "WebSocketState",
+    "OrderbookUpdate",
+    "PriceUpdate",
+    "PositionUpdate",
+    "Trade",
+]
 
 
 @dataclass
@@ -43,7 +63,7 @@ class PublicTrade:
     """Represents a public trade from Limitless"""
 
     id: str
-    market_slug: str
+    slug: str
     token_id: str
     side: str
     price: float
@@ -108,6 +128,15 @@ class Limitless(Exchange):
         self._address = None
         self._authenticated = False
         self._owner_id = None  # User profile ID from login response
+
+        # WebSocket instances
+        self._ws: Optional[LimitlessWebSocket] = None
+        self._user_ws: Optional[LimitlessUserWebSocket] = None
+
+        # Token ID to market slug mapping (for orderbook lookups)
+        self._token_to_slug: Dict[str, str] = {}
+        # Track which token IDs are "No" tokens (need inverted orderbook)
+        self._no_tokens: set = set()
 
         # Initialize account and authenticate if private key provided
         if self.private_key:
@@ -260,7 +289,7 @@ class Limitless(Exchange):
         Args:
             params: Optional parameters:
                 - page: Page number (default 1)
-                - limit: Items per page (default 50)
+                - limit: Items per page (default 25, max 25)
                 - category: Filter by category ID
                 - sortBy: Sort field
 
@@ -272,7 +301,7 @@ class Limitless(Exchange):
         def _fetch():
             query_params = params or {}
             page = query_params.get("page", 1)
-            limit = query_params.get("limit", 50)
+            limit = min(query_params.get("limit", 25), 25)  # API max is 25
 
             response = self._request(
                 "GET",
@@ -342,20 +371,27 @@ class Limitless(Exchange):
         outcomes = ["Yes", "No"]
         token_ids = [yes_token_id, no_token_id] if yes_token_id and no_token_id else []
 
-        # Extract prices
+        # Extract prices (API returns percentage 0-100, normalize to 0-1)
         prices = {}
         if "yesPrice" in data:
-            prices["Yes"] = float(data.get("yesPrice", 0) or 0)
-            prices["No"] = float(data.get("noPrice", 0) or 0)
+            yes_price = float(data.get("yesPrice", 0) or 0)
+            no_price = float(data.get("noPrice", 0) or 0)
+            # Normalize to 0-1 range if in percentage format
+            prices["Yes"] = yes_price / 100 if yes_price > 1 else yes_price
+            prices["No"] = no_price / 100 if no_price > 1 else no_price
         elif "prices" in data:
             price_data = data.get("prices", {})
             if isinstance(price_data, list):
-                # prices: [yes_price, no_price] - already in 0-1 range
-                prices["Yes"] = float(price_data[0]) if price_data else 0
-                prices["No"] = float(price_data[1]) if len(price_data) > 1 else 0
+                # prices: [yes_price, no_price] - may be 0-100 or 0-1
+                yes_price = float(price_data[0]) if price_data else 0
+                no_price = float(price_data[1]) if len(price_data) > 1 else 0
+                prices["Yes"] = yes_price / 100 if yes_price > 1 else yes_price
+                prices["No"] = no_price / 100 if no_price > 1 else no_price
             elif isinstance(price_data, dict):
-                prices["Yes"] = float(price_data.get("yes", 0) or 0)
-                prices["No"] = float(price_data.get("no", 0) or 0)
+                yes_price = float(price_data.get("yes", 0) or 0)
+                no_price = float(price_data.get("no", 0) or 0)
+                prices["Yes"] = yes_price / 100 if yes_price > 1 else yes_price
+                prices["No"] = no_price / 100 if no_price > 1 else no_price
 
         # Parse close time
         close_time = None
@@ -389,6 +425,14 @@ class Limitless(Exchange):
         else:
             metadata["closed"] = False
 
+        # Cache token_id -> slug mapping for orderbook lookups
+        for token_id in token_ids:
+            if token_id:
+                self._token_to_slug[token_id] = slug
+        # Track No token for orderbook inversion
+        if no_token_id:
+            self._no_tokens.add(no_token_id)
+
         return Market(
             id=slug,
             question=title,
@@ -402,18 +446,28 @@ class Limitless(Exchange):
             description=data.get("description", ""),
         )
 
-    def get_orderbook(self, market_slug: str) -> Dict[str, Any]:
+    def get_orderbook(self, market_slug_or_token_id: str) -> Dict[str, Any]:
         """
         Fetch orderbook for a specific market.
 
         Args:
-            market_slug: Market slug
+            market_slug_or_token_id: Market slug or token ID (token ID will be mapped to slug)
 
         Returns:
             Dictionary with 'bids' and 'asks' arrays
+
+        Note:
+            Limitless has one orderbook per market (for Yes token).
+            For No token, we invert: No bids = 1-Yes asks, No asks = 1-Yes bids
         """
+        # Check if this is a No token (needs inverted orderbook)
+        is_no_token = market_slug_or_token_id in self._no_tokens
+
+        # Map token_id to slug
+        slug = self._token_to_slug.get(market_slug_or_token_id, market_slug_or_token_id)
+
         try:
-            response = self._request("GET", f"/markets/{market_slug}/orderbook")
+            response = self._request("GET", f"/markets/{slug}/orderbook")
 
             bids = []
             asks = []
@@ -431,10 +485,6 @@ class Limitless(Exchange):
                     else:
                         asks.append(entry)
 
-            # Sort: bids descending, asks ascending
-            bids.sort(key=lambda x: float(x["price"]), reverse=True)
-            asks.sort(key=lambda x: float(x["price"]))
-
             # Also check for pre-sorted bids/asks
             if "bids" in response:
                 for bid in response["bids"]:
@@ -446,6 +496,27 @@ class Limitless(Exchange):
                     asks.append(
                         {"price": str(ask.get("price", 0)), "size": str(ask.get("size", 0))}
                     )
+
+            # Sort: bids descending, asks ascending
+            bids.sort(key=lambda x: float(x["price"]), reverse=True)
+            asks.sort(key=lambda x: float(x["price"]))
+
+            # For No token, invert the orderbook
+            # No bids (buy No) = 1 - Yes asks
+            # No asks (sell No) = 1 - Yes bids
+            if is_no_token:
+                inverted_bids = [
+                    {"price": str(round(1 - float(a["price"]), 3)), "size": a["size"]}
+                    for a in asks
+                ]
+                inverted_asks = [
+                    {"price": str(round(1 - float(b["price"]), 3)), "size": b["size"]}
+                    for b in bids
+                ]
+                # Re-sort after inversion
+                inverted_bids.sort(key=lambda x: float(x["price"]), reverse=True)
+                inverted_asks.sort(key=lambda x: float(x["price"]))
+                return {"bids": inverted_bids, "asks": inverted_asks}
 
             return {"bids": bids, "asks": asks}
 
@@ -1467,7 +1538,62 @@ class Limitless(Exchange):
                 "search_markets": True,
                 "fetch_feed_events": True,
                 "fetch_market_events": True,
-                "get_websocket": False,  # TODO: Implement WebSocket support
-                "get_user_websocket": False,  # TODO: Implement WebSocket support
+                "get_websocket": True,
+                "get_user_websocket": True,
             },
         }
+
+    def get_websocket(self) -> LimitlessWebSocket:
+        """
+        Get WebSocket instance for real-time market data.
+
+        Returns:
+            LimitlessWebSocket instance for price/orderbook updates
+
+        Example:
+            ws = exchange.get_websocket()
+            ws.on_orderbook(lambda update: print(update))
+            ws.subscribe_market("btc-above-100k")
+            ws.start()
+        """
+        if self._ws is None:
+            self._ws = LimitlessWebSocket(config={"verbose": self.verbose})
+        return self._ws
+
+    def get_user_websocket(self) -> LimitlessUserWebSocket:
+        """
+        Get authenticated WebSocket for user-specific updates.
+
+        Requires authentication (private_key in config).
+
+        Returns:
+            LimitlessUserWebSocket instance for position updates
+
+        Example:
+            user_ws = exchange.get_user_websocket()
+            user_ws.on_position(lambda pos: print(f"Position: {pos}"))
+            user_ws.start()
+        """
+        if not self._authenticated:
+            raise AuthenticationError(
+                "Not authenticated. Provide private_key in config for user WebSocket."
+            )
+
+        if self._user_ws is None:
+            # Get session cookie from current session
+            session_cookie = None
+            for cookie in self._session.cookies:
+                if cookie.name == "limitless_session":
+                    session_cookie = cookie.value
+                    break
+
+            if not session_cookie:
+                raise AuthenticationError(
+                    "Session cookie not available. Re-authenticate to get session."
+                )
+
+            self._user_ws = LimitlessUserWebSocket(
+                session_cookie=session_cookie,
+                config={"verbose": self.verbose},
+            )
+        return self._user_ws

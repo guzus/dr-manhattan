@@ -566,8 +566,28 @@ class Strategy(ABC):
         Override for custom cleanup logic.
         """
         logger.info(f"\n{Colors.bold('Cleaning up...')}")
+
+        # Cancel all orders
         self.cancel_all_orders()
+
+        # Liquidate positions
         self.liquidate_positions()
+
+        # Wait for liquidation orders to fill
+        time.sleep(3)
+
+        # Check remaining orders and positions
+        try:
+            remaining_orders = self.client.fetch_open_orders(market_id=self.market_id)
+            if remaining_orders:
+                logger.warning(f"  {len(remaining_orders)} orders still open (may be unfilled)")
+
+            remaining_positions = self.get_positions()
+            if any(size > 0 for size in remaining_positions.values()):
+                logger.warning(f"  Positions still open: {remaining_positions}")
+        except Exception:
+            pass
+
         self.client.stop()
 
     # Main loop

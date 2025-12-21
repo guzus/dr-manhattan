@@ -7,7 +7,7 @@
 - **Type**: Prediction Market
 - **Base Class**: [Exchange](../../dr_manhattan/base/exchange.py)
 - **REST API**: `https://api.limitless.exchange`
-- **WebSocket API**: `wss://ws.limitless.exchange` (not yet implemented)
+- **WebSocket API**: `wss://ws.limitless.exchange` (Socket.IO)
 - **Documentation**: https://api.limitless.exchange/api-v1
 - **Chain**: Base (Chain ID: 8453)
 
@@ -53,11 +53,12 @@ Limitless is a prediction market platform built on Base chain with CLOB-style or
 | `fetch_open_orders()` | ✅ | ❌ | Fetch all open orders |
 | `fetch_positions()` | ✅ | ❌ | Fetch current positions |
 | `fetch_balance()` | ✅ | ❌ | Fetch USDC balance |
-| `get_orderbook()` | ✅ | ❌ | Fetch orderbook for a market |
+| `get_orderbook()` | ✅ | ✅ | Fetch orderbook for a market |
 | `fetch_price_history()` | ✅ | ❌ | Fetch historical price data |
 | `search_markets()` | ✅ | ❌ | Search markets by query |
 | `fetch_feed_events()` | ✅ | ❌ | Fetch market feed events |
-| `watch_orderbook()` | ❌ | ❌ | Real-time orderbook (not implemented) |
+| `get_websocket()` | ❌ | ✅ | Get market WebSocket instance |
+| `get_user_websocket()` | ❌ | ✅ | Get user WebSocket instance |
 
 ### Exchange Capabilities
 
@@ -87,8 +88,8 @@ exchange.describe()
         'search_markets': True,
         'fetch_feed_events': True,
         'fetch_market_events': True,
-        'get_websocket': False,
-        'get_user_websocket': False,
+        'get_websocket': True,
+        'get_user_websocket': True,
     }
 }
 ```

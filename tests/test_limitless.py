@@ -801,3 +801,211 @@ class TestLimitlessSearchMarkets:
         results = exchange_with_markets.search_markets(limit=0)
 
         assert len(results) == 0
+
+
+class TestLimitlessWebSocket:
+    """Test WebSocket functionality."""
+
+    def test_describe_has_websocket(self):
+        """Test describe shows WebSocket support."""
+        exchange = Limitless({})
+        info = exchange.describe()
+
+        assert info["has"]["get_websocket"] is True
+        assert info["has"]["get_user_websocket"] is True
+
+    def test_get_websocket_returns_instance(self):
+        """Test get_websocket returns LimitlessWebSocket instance."""
+        from dr_manhattan.exchanges.limitless_ws import LimitlessWebSocket
+
+        exchange = Limitless({})
+        ws = exchange.get_websocket()
+
+        assert isinstance(ws, LimitlessWebSocket)
+        assert ws is exchange._ws  # Should be cached
+
+    def test_get_websocket_cached(self):
+        """Test get_websocket returns same instance."""
+        exchange = Limitless({})
+        ws1 = exchange.get_websocket()
+        ws2 = exchange.get_websocket()
+
+        assert ws1 is ws2
+
+    def test_get_user_websocket_requires_auth(self):
+        """Test get_user_websocket requires authentication."""
+        exchange = Limitless({})
+
+        with pytest.raises(AuthenticationError, match="Not authenticated"):
+            exchange.get_user_websocket()
+
+    def test_websocket_state_enum(self):
+        """Test WebSocketState enum values."""
+        from dr_manhattan.exchanges.limitless_ws import WebSocketState
+
+        assert WebSocketState.DISCONNECTED.value == "disconnected"
+        assert WebSocketState.CONNECTING.value == "connecting"
+        assert WebSocketState.CONNECTED.value == "connected"
+        assert WebSocketState.RECONNECTING.value == "reconnecting"
+        assert WebSocketState.CLOSED.value == "closed"
+
+    def test_orderbook_update_dataclass(self):
+        """Test OrderbookUpdate dataclass."""
+        from datetime import datetime, timezone
+
+        from dr_manhattan.exchanges.limitless_ws import OrderbookUpdate
+
+        update = OrderbookUpdate(
+            slug="test-market",
+            bids=[(0.50, 100), (0.49, 200)],
+            asks=[(0.52, 150), (0.53, 100)],
+            timestamp=datetime.now(timezone.utc),
+        )
+
+        assert update.slug == "test-market"
+        assert len(update.bids) == 2
+        assert len(update.asks) == 2
+        assert update.bids[0] == (0.50, 100)
+
+    def test_price_update_dataclass(self):
+        """Test PriceUpdate dataclass."""
+        from datetime import datetime, timezone
+
+        from dr_manhattan.exchanges.limitless_ws import PriceUpdate
+
+        update = PriceUpdate(
+            market_address="0x1234",
+            yes_price=0.65,
+            no_price=0.35,
+            block_number=12345678,
+            timestamp=datetime.now(timezone.utc),
+        )
+
+        assert update.market_address == "0x1234"
+        assert update.yes_price == 0.65
+        assert update.no_price == 0.35
+
+    def test_position_update_dataclass(self):
+        """Test PositionUpdate dataclass."""
+        from dr_manhattan.exchanges.limitless_ws import PositionUpdate
+
+        update = PositionUpdate(
+            account="0xabc",
+            market_address="0x123",
+            token_id="456",
+            balance=100.0,
+            outcome_index=0,
+            market_type="CLOB",
+        )
+
+        assert update.account == "0xabc"
+        assert update.balance == 100.0
+        assert update.market_type == "CLOB"
+
+    def test_websocket_callback_registration(self):
+        """Test WebSocket callback registration."""
+        from dr_manhattan.exchanges.limitless_ws import LimitlessWebSocket
+
+        ws = LimitlessWebSocket()
+
+        callbacks_called = {"orderbook": False, "price": False, "error": False}
+
+        def on_orderbook(update):
+            callbacks_called["orderbook"] = True
+
+        def on_price(update):
+            callbacks_called["price"] = True
+
+        def on_error(msg):
+            callbacks_called["error"] = True
+
+        # Test chaining
+        result = ws.on_orderbook(on_orderbook).on_price(on_price).on_error(on_error)
+
+        assert result is ws  # Should return self for chaining
+        assert len(ws._orderbook_callbacks) == 1
+        assert len(ws._price_callbacks) == 1
+        assert len(ws._error_callbacks) == 1
+
+    def test_websocket_subscribe_market(self):
+        """Test subscribing to a market."""
+        import asyncio
+
+        from dr_manhattan.exchanges.limitless_ws import LimitlessWebSocket
+
+        async def _test():
+            ws = LimitlessWebSocket()
+            await ws.subscribe_market("btc-100k")
+            assert "btc-100k" in ws._subscribed_slugs
+
+        asyncio.run(_test())
+
+    def test_websocket_unsubscribe_market(self):
+        """Test unsubscribing from a market."""
+        import asyncio
+
+        from dr_manhattan.exchanges.limitless_ws import LimitlessWebSocket
+
+        async def _test():
+            ws = LimitlessWebSocket()
+            await ws.subscribe_market("btc-100k")
+            await ws.unsubscribe_market("btc-100k")
+            assert "btc-100k" not in ws._subscribed_slugs
+
+        asyncio.run(_test())
+
+    def test_websocket_parse_orderbook_update(self):
+        """Test parsing orderbook update message."""
+        from dr_manhattan.exchanges.limitless_ws import LimitlessWebSocket
+
+        ws = LimitlessWebSocket()
+
+        data = {
+            "marketSlug": "test-market",
+            "orderbook": {
+                "bids": [{"price": 0.50, "size": 100}, {"price": 0.49, "size": 200}],
+                "asks": [{"price": 0.52, "size": 150}],
+            },
+            "timestamp": "2024-01-01T00:00:00Z",
+        }
+
+        update = ws._parse_orderbook_update(data)
+
+        assert update is not None
+        assert update.slug == "test-market"
+        assert len(update.bids) == 2
+        assert update.bids[0] == (0.50, 100)  # Sorted descending
+        assert len(update.asks) == 1
+
+    def test_websocket_parse_price_update(self):
+        """Test parsing price update message."""
+        from dr_manhattan.exchanges.limitless_ws import LimitlessWebSocket
+
+        ws = LimitlessWebSocket()
+
+        data = {
+            "marketAddress": "0x1234567890abcdef",
+            "updatedPrices": {"yes": 0.65, "no": 0.35},
+            "blockNumber": 12345678,
+            "timestamp": "2024-01-01T00:00:00Z",
+        }
+
+        update = ws._parse_price_update(data)
+
+        assert update is not None
+        assert update.market_address == "0x1234567890abcdef"
+        assert update.yes_price == 0.65
+        assert update.no_price == 0.35
+        assert update.block_number == 12345678
+
+    def test_user_websocket_init(self):
+        """Test LimitlessUserWebSocket initialization."""
+        from dr_manhattan.exchanges.limitless_ws import LimitlessUserWebSocket
+
+        ws = LimitlessUserWebSocket(
+            session_cookie="test_session_cookie",
+            config={"verbose": True},
+        )
+
+        assert ws.session_cookie == "test_session_cookie"
+        assert ws.verbose is True
