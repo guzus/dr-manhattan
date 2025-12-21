@@ -113,7 +113,7 @@ class LimitlessWebSocket:
             reconnection_attempts=0,  # Infinite
             reconnection_delay=1,
             reconnection_delay_max=30,
-            logger=self.verbose,
+            logger=False,
             engineio_logger=False,
         )
 
