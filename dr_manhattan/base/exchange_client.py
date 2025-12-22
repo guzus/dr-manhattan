@@ -167,6 +167,61 @@ class ExchangeClient:
         """Get verbose setting from exchange"""
         return getattr(self._exchange, "verbose", False)
 
+    @property
+    def _uses_market_orderbook(self) -> bool:
+        """Check if exchange uses market-level orderbook (vs token-level)"""
+        return getattr(self._exchange, "id", "") == "limitless"
+
+    def _invert_orderbook(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Invert orderbook for No token in binary markets.
+
+        In binary markets, No orderbook is derived from Yes:
+        - No bids = 1 - Yes asks
+        - No asks = 1 - Yes bids
+
+        Args:
+            data: Yes token orderbook with 'bids' and 'asks'
+
+        Returns:
+            Inverted orderbook for No token
+        """
+        inverted_bids = []
+        inverted_asks = []
+
+        for ask in data.get("asks", []):
+            try:
+                if isinstance(ask, dict):
+                    price = float(ask.get("price", 0))
+                    size = ask.get("size", 0)
+                elif isinstance(ask, (list, tuple)) and len(ask) >= 2:
+                    price = float(ask[0])
+                    size = ask[1]
+                else:
+                    continue
+                inverted_bids.append({"price": str(round(1 - price, 4)), "size": str(size)})
+            except (ValueError, TypeError, IndexError):
+                continue
+
+        for bid in data.get("bids", []):
+            try:
+                if isinstance(bid, dict):
+                    price = float(bid.get("price", 0))
+                    size = bid.get("size", 0)
+                elif isinstance(bid, (list, tuple)) and len(bid) >= 2:
+                    price = float(bid[0])
+                    size = bid[1]
+                else:
+                    continue
+                inverted_asks.append({"price": str(round(1 - price, 4)), "size": str(size)})
+            except (ValueError, TypeError, IndexError):
+                continue
+
+        inverted_bids.sort(key=lambda x: float(x["price"]), reverse=True)
+        inverted_asks.sort(key=lambda x: float(x["price"]))
+
+        return {"bids": inverted_bids, "asks": inverted_asks}
+
     def _setup_order_tracker(self):
         """Setup order fill tracking"""
         self._order_tracker = OrderTracker(verbose=self.verbose)
@@ -310,51 +365,19 @@ class ExchangeClient:
         self._polling_market_id = market_id
         self._polling_stop = False
 
-        # Limitless uses market_slug for orderbook, not token_id
-        use_market_id = getattr(self._exchange, "id", "") == "limitless"
-
-        def invert_orderbook(data: Dict) -> Dict:
-            """Invert orderbook for No token: swap bids/asks and invert prices (1-price)"""
-            inverted_bids = []
-            inverted_asks = []
-
-            # Yes asks -> No bids (price = 1 - yes_ask)
-            for ask in data.get("asks", []):
-                price = float(ask.get("price", 0) if isinstance(ask, dict) else ask[0])
-                size = ask.get("size", 0) if isinstance(ask, dict) else ask[1]
-                inverted_bids.append({"price": str(round(1 - price, 4)), "size": str(size)})
-
-            # Yes bids -> No asks (price = 1 - yes_bid)
-            for bid in data.get("bids", []):
-                price = float(bid.get("price", 0) if isinstance(bid, dict) else bid[0])
-                size = bid.get("size", 0) if isinstance(bid, dict) else bid[1]
-                inverted_asks.append({"price": str(round(1 - price, 4)), "size": str(size)})
-
-            # Sort: bids descending, asks ascending
-            inverted_bids.sort(key=lambda x: float(x["price"]), reverse=True)
-            inverted_asks.sort(key=lambda x: float(x["price"]))
-
-            return {"bids": inverted_bids, "asks": inverted_asks}
-
         def fetch_orderbooks():
             """Fetch orderbook data for all tokens"""
-            if use_market_id and market_id:
-                # Limitless: single orderbook for the market (Yes token)
+            if self._uses_market_orderbook and market_id:
+                # Market-level orderbook (e.g., Limitless): single fetch, derive No from Yes
                 rest_data = self.get_orderbook(market_id)
                 if rest_data:
                     for i, token_id in enumerate(token_ids):
-                        if i == 0:
-                            # Yes token: use orderbook as-is
-                            ob_data = rest_data
-                        else:
-                            # No token: invert orderbook (swap bids/asks, 1-price)
-                            ob_data = invert_orderbook(rest_data)
-
+                        ob_data = rest_data if i == 0 else self._invert_orderbook(rest_data)
                         orderbook = Orderbook.from_rest_response(ob_data, token_id)
                         self._orderbook_manager.update(token_id, orderbook.to_dict())
                         self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
             else:
-                # Polymarket: per-token orderbook
+                # Token-level orderbook (e.g., Polymarket): fetch per token
                 for token_id in token_ids:
                     if self._polling_stop:
                         break
@@ -364,8 +387,11 @@ class ExchangeClient:
                         self._orderbook_manager.update(token_id, orderbook.to_dict())
                         self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
 
-        # Initial fetch
-        fetch_orderbooks()
+        # Initial fetch with error handling
+        try:
+            fetch_orderbooks()
+        except Exception as e:
+            logger.warning(f"Initial orderbook fetch failed: {e}")
 
         def polling_worker():
             while not self._polling_stop:
@@ -403,52 +429,29 @@ class ExchangeClient:
             # Fetch initial orderbook data via REST before connecting WebSocket
             fetch_start = time.time()
 
-            # Limitless uses market_slug for orderbook, not token_id
-            use_market_id = getattr(self._exchange, "id", "") == "limitless"
-
-            def invert_orderbook(data: Dict) -> Dict:
-                """Invert orderbook for No token: swap bids/asks and invert prices"""
-                inverted_bids = []
-                inverted_asks = []
-
-                for ask in data.get("asks", []):
-                    price = float(ask.get("price", 0) if isinstance(ask, dict) else ask[0])
-                    size = ask.get("size", 0) if isinstance(ask, dict) else ask[1]
-                    inverted_bids.append({"price": str(round(1 - price, 4)), "size": str(size)})
-
-                for bid in data.get("bids", []):
-                    price = float(bid.get("price", 0) if isinstance(bid, dict) else bid[0])
-                    size = bid.get("size", 0) if isinstance(bid, dict) else bid[1]
-                    inverted_asks.append({"price": str(round(1 - price, 4)), "size": str(size)})
-
-                inverted_bids.sort(key=lambda x: float(x["price"]), reverse=True)
-                inverted_asks.sort(key=lambda x: float(x["price"]))
-                return {"bids": inverted_bids, "asks": inverted_asks}
-
-            if use_market_id:
-                # Limitless: single orderbook for the market (Yes token)
-                rest_data = self.get_orderbook(market_id)
-                if rest_data:
-                    for i, token_id in enumerate(token_ids):
-                        if i == 0:
-                            ob_data = rest_data
-                        else:
-                            ob_data = invert_orderbook(rest_data)
-
-                        orderbook = Orderbook.from_rest_response(ob_data, token_id)
-                        self._orderbook_manager.update(token_id, orderbook.to_dict())
-                        self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
-            else:
-                # Polymarket: per-token orderbook (parallelized)
-                def fetch_and_update(token_id: str):
-                    rest_data = self.get_orderbook(token_id)
+            try:
+                if self._uses_market_orderbook:
+                    # Market-level orderbook (e.g., Limitless)
+                    rest_data = self.get_orderbook(market_id)
                     if rest_data:
-                        orderbook = Orderbook.from_rest_response(rest_data, token_id)
-                        self._orderbook_manager.update(token_id, orderbook.to_dict())
-                        self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
+                        for i, token_id in enumerate(token_ids):
+                            ob_data = rest_data if i == 0 else self._invert_orderbook(rest_data)
+                            orderbook = Orderbook.from_rest_response(ob_data, token_id)
+                            self._orderbook_manager.update(token_id, orderbook.to_dict())
+                            self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
+                else:
+                    # Token-level orderbook (e.g., Polymarket): parallelized
+                    def fetch_and_update(token_id: str):
+                        rest_data = self.get_orderbook(token_id)
+                        if rest_data:
+                            orderbook = Orderbook.from_rest_response(rest_data, token_id)
+                            self._orderbook_manager.update(token_id, orderbook.to_dict())
+                            self.update_mid_price_from_orderbook(token_id, orderbook.to_dict())
 
-                with ThreadPoolExecutor(max_workers=min(len(token_ids), 5)) as executor:
-                    executor.map(fetch_and_update, token_ids)
+                    with ThreadPoolExecutor(max_workers=min(len(token_ids), 5)) as executor:
+                        executor.map(fetch_and_update, token_ids)
+            except Exception as e:
+                logger.warning(f"Initial orderbook fetch failed: {e}")
 
             fetch_duration = time.time() - fetch_start
             if fetch_duration > 1.0:
