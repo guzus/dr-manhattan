@@ -945,9 +945,27 @@ class Limitless(Exchange):
 
         # Parse amounts
         price = float(data.get("price", 0) or 0)
-        size = float(
-            data.get("size", 0) or data.get("amount", 0) or data.get("makerAmount", 0) or 0
-        )
+
+        # Determine size from API response
+        # Note: makerAmount/takerAmount are scaled (1e6) and differ by side:
+        #   BUY: makerAmount = collateral (price * shares), takerAmount = shares
+        #   SELL: makerAmount = shares, takerAmount = collateral
+        size_raw = data.get("size", 0) or data.get("amount", 0)
+        if size_raw:
+            size = float(size_raw)
+        else:
+            maker_amount = float(data.get("makerAmount", 0) or 0)
+            taker_amount = float(data.get("takerAmount", 0) or 0)
+
+            if maker_amount or taker_amount:
+                # Use takerAmount for BUY (shares), makerAmount for SELL (shares)
+                if side == OrderSide.BUY:
+                    size = taker_amount / 1_000_000 if taker_amount else 0
+                else:
+                    size = maker_amount / 1_000_000 if maker_amount else 0
+            else:
+                size = 0
+
         filled = float(data.get("filled", 0) or data.get("matchedAmount", 0) or 0)
 
         created_at = self._parse_datetime(data.get("createdAt"))
