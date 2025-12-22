@@ -419,11 +419,8 @@ class Polymarket(Exchange):
             # Extract tick size (minimum price increment)
             # The API returns minimum_tick_size (e.g., 0.01 or 0.001)
             # Note: minimum_order_size is different - it's the min shares per order
-            minimum_tick_size = data.get("minimum_tick_size")
-            if minimum_tick_size is None:
-                raise ExchangeError(
-                    f"Missing minimum_tick_size in sampling market response for {condition_id}"
-                )
+            # Default to 0.01 (standard Polymarket tick size) if not provided
+            minimum_tick_size = data.get("minimum_tick_size", 0.01)
 
             # Extract tokens - sampling-markets has them in "tokens" array
             tokens_data = data.get("tokens", [])
@@ -503,11 +500,8 @@ class Polymarket(Exchange):
                             pass
 
             # Build metadata with token IDs already included
-            minimum_tick_size = data.get("minimum_tick_size")
-            if minimum_tick_size is None:
-                raise ExchangeError(
-                    f"Missing minimum_tick_size in CLOB market response for {condition_id}"
-                )
+            # Default to 0.01 (standard Polymarket tick size) if not provided
+            minimum_tick_size = data.get("minimum_tick_size", 0.01)
             metadata = {
                 **data,
                 "clobTokenIds": token_ids,
