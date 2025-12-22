@@ -18,18 +18,27 @@ CCXT-style unified API for prediction markets. Simple, scalable, and easy to ext
 
 ```
 dr_manhattan/
-├── base/           # Core abstractions
-│   ├── exchange.py # Abstract base class
-│   └── errors.py   # Exception hierarchy
-├── exchanges/      # Exchange implementations
+├── base/               # Core abstractions
+│   ├── exchange.py     # Abstract base class for exchanges
+│   ├── exchange_client.py  # High-level trading client
+│   ├── exchange_factory.py # Exchange instantiation
+│   ├── strategy.py     # Strategy base class
+│   ├── order_tracker.py    # Order event tracking
+│   ├── websocket.py    # WebSocket base class
+│   └── errors.py       # Exception hierarchy
+├── exchanges/          # Exchange implementations
 │   ├── polymarket.py
+│   ├── polymarket_ws.py
 │   ├── opinion.py
-│   └── limitless.py
-├── models/         # Data models
+│   ├── limitless.py
+│   └── limitless_ws.py
+├── models/             # Data models
 │   ├── market.py
 │   ├── order.py
+│   ├── orderbook.py
 │   └── position.py
-└── utils/          # Utilities (future)
+├── strategies/         # Strategy implementations
+└── utils/              # Utilities
 ```
 
 ### Design Principles
@@ -44,6 +53,9 @@ dr_manhattan/
 - Fetch markets and market data
 - Create and cancel orders
 - Query positions and balances
+- WebSocket support for real-time data
+- Strategy base class for building trading strategies
+- Order tracking and event logging
 - Standardized error handling
 - Exchange-agnostic code
 
@@ -74,18 +86,13 @@ for market in markets:
 
 ### Advanced Usage (With Authentication)
 
-The implementations use symbolic links to integrate with existing market maker implementations:
-
 ```python
 import dr_manhattan
 
-# Polymarket with poly-mm integration
+# Polymarket
 polymarket = dr_manhattan.Polymarket({
     'private_key': 'your_private_key',
-    'condition_id': 'condition_id',
-    'yes_token_id': 'yes_token',
-    'no_token_id': 'no_token',
-    'dry_run': False
+    'funder': 'your_funder_address',
 })
 
 # Opinion (BNB Chain)
@@ -95,7 +102,7 @@ opinion = dr_manhattan.Opinion({
     'multi_sig_addr': 'your_multi_sig_addr'
 })
 
-# Limitless with limitless-mm integration
+# Limitless
 limitless = dr_manhattan.Limitless({
     'private_key': 'your_private_key',
     'timeout': 30
@@ -116,15 +123,30 @@ balance = polymarket.fetch_balance()
 print(f"USDC: {balance['USDC']}")
 ```
 
-### Unified API Pattern
+### Using the Strategy Base Class
 
 ```python
-import dr_manhattan
+from dr_manhattan import Strategy
 
-# Works with any exchange
-for exchange_id in dr_manhattan.exchanges:
-    exchange = dr_manhattan.exchanges[exchange_id]()
-    print(f"{exchange.name}: {exchange.id}")
+class MyStrategy(Strategy):
+    def on_tick(self):
+        self.log_status()
+        self.place_bbo_orders()
+
+strategy = MyStrategy(exchange, market_id="123")
+strategy.run()
+```
+
+### Exchange Factory
+
+```python
+from dr_manhattan import create_exchange, list_exchanges
+
+# List available exchanges
+print(list_exchanges())  # ['polymarket', 'limitless', 'opinion']
+
+# Create exchange by name
+exchange = create_exchange('polymarket', {'timeout': 30})
 ```
 
 ## Adding New Exchanges
@@ -163,15 +185,6 @@ exchanges = {
 }
 ```
 
-### Using Symbolic Links
-
-The implementations leverage existing market maker codebases through symbolic links:
-
-1. **poly-mm**: Full Polymarket market maker implementation
-2. **limitless-mm**: Full Limitless market maker implementation
-
-When initialized with authentication credentials, the exchange classes use these implementations directly, providing access to production-ready trading functionality.
-
 ## Data Models
 
 ### Market
@@ -189,12 +202,18 @@ When initialized with authentication credentials, the exchange classes use these
 - PnL calculation
 - Average entry price
 
+### OrderBook
+- Bids and asks
+- Best bid/ask prices
+
 ## Error Handling
 
 All errors inherit from `DrManhattanError`:
 - `ExchangeError` - Exchange-specific errors
 - `NetworkError` - Connectivity issues
+- `RateLimitError` - Rate limit exceeded
 - `AuthenticationError` - Auth failures
+- `InsufficientFunds` - Not enough balance
 - `InvalidOrder` - Invalid order parameters
 - `MarketNotFound` - Market doesn't exist
 
@@ -202,30 +221,34 @@ All errors inherit from `DrManhattanError`:
 
 Check out the [examples/](examples/) directory for working examples:
 
-- **spread_strategy.py** - Market making strategy for Polymarket
-- **opinion/spread_strategy.py** - Market making strategy for Opinion
-- **limitless/spread_strategy.py** - Market making strategy for Limitless
+- **list_all_markets.py** - List markets from any exchange
+- **spread_strategy.py** - Exchange-agnostic BBO market making strategy
 
 Run examples:
 
 ```bash
-# Polymarket
-MARKET_SLUG=fed-decision-in-december uv run python examples/spread_strategy.py
+# List markets
+uv run python examples/list_all_markets.py polymarket
+uv run python examples/list_all_markets.py opinion
+uv run python examples/list_all_markets.py limitless
 
-# Opinion
-OPINION_MARKET_ID=813 uv run python examples/opinion/spread_strategy.py
-OPINION_MARKET_SLUG=bnb-all-time-high uv run python examples/opinion/spread_strategy.py
-
-# Limitless
-MARKET_SLUG=dollarbtc-above-dollar8823689-on-dec-20-0900-utc-1766217602236 uv run python examples/limitless/spread_strategy.py
+# Run spread strategy
+uv run python examples/spread_strategy.py --exchange polymarket --slug fed-decision
+uv run python examples/spread_strategy.py --exchange opinion --market-id 813
 ```
 
 See [examples/README.md](examples/README.md) for detailed documentation.
 
 ## Dependencies
 
-- Python >= 3.10
+- Python >= 3.11
 - requests >= 2.31.0
+- websockets >= 15.0.1
+- python-socketio >= 5.11.0
+- eth-account >= 0.11.0
+- py-clob-client >= 0.28.0
+- opinion-clob-sdk >= 0.4.3
+- pandas >= 2.0.0
 
 Development:
 - pytest
