@@ -2,6 +2,7 @@
 
 CCXT-style unified API for prediction markets. Simple, scalable, and easy to extend.
 
+[![](https://deepwiki.com/badge.svg)](https://deepwiki.com/guzus/dr-manhattan)
 
 <p align="center">
   <img src="assets/polymarket.png" alt="Polymarket" width="50"/>
