@@ -223,6 +223,7 @@ Check out the [examples/](examples/) directory for working examples:
 
 - **list_all_markets.py** - List markets from any exchange
 - **spread_strategy.py** - Exchange-agnostic BBO market making strategy
+- **spike_bot.py** - Momentum trading bot that exploits price spikes
 
 Run examples:
 
@@ -235,6 +236,9 @@ uv run python examples/list_all_markets.py limitless
 # Run spread strategy
 uv run python examples/spread_strategy.py --exchange polymarket --slug fed-decision
 uv run python examples/spread_strategy.py --exchange opinion --market-id 813
+
+# Run spike bot
+uv run python examples/spike_bot.py --slug btc-above-100k
 ```
 
 See [examples/README.md](examples/README.md) for detailed documentation.
