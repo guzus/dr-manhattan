@@ -23,6 +23,7 @@ dependencies = [
     "matplotlib>=3.10.8",
     "rich>=14.2.0",
     "predict-sdk>=0.0.8",
+    "cryptography>=42.0.0",
 ]
 
 [project.urls]

@@ -1,3 +1,4 @@
+from .kalshi import Kalshi
 from .limitless import Limitless
 from .opinion import Opinion
 from .polymarket import Polymarket
@@ -8,4 +9,5 @@ __all__ = [
     "Limitless",
     "Opinion",
     "PredictFun",
+    "Kalshi",
 ]
