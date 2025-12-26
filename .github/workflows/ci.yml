@@ -12,20 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Install dependencies
-        run: uv sync --dev
-
-      - name: Check formatting with black
-        run: uv run black --check dr_manhattan tests
-
       - name: Lint with ruff
-        run: uv run ruff check dr_manhattan tests
+        uses: astral-sh/ruff-action@v3
+
+      - name: Check formatting with ruff
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "format --check"
 
   test:
     runs-on: ubuntu-latest
