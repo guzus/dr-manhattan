@@ -25,7 +25,6 @@ from ..models.order import Order, OrderSide, OrderStatus
 from ..models.orderbook import Orderbook
 from ..models.position import Position
 
-
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 DEMO_URL = "https://demo-api.kalshi.co/trade-api/v2"
 
