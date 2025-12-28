@@ -48,7 +48,7 @@ class KalshiAuth:
             self._private_key: rsa.RSAPrivateKey = private_key
             self._padding = padding.PSS(
                 mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH,
+                salt_length=padding.PSS.DIGEST_LENGTH,
             )
             self._hash_algorithm = hashes.SHA256()
         except ImportError as e:
