@@ -2,7 +2,7 @@
 Kalshi exchange implementation for prediction markets.
 
 Kalshi is a CFTC-regulated prediction market exchange in the US.
-Authentication uses RSA-PKCS1v15 signatures.
+Authentication uses RSA-PSS with SHA256 signatures.
 """
 
 import base64
@@ -30,7 +30,7 @@ DEMO_URL = "https://demo-api.kalshi.co/trade-api/v2"
 
 
 class KalshiAuth:
-    """RSA-PKCS1v15 signature authentication for Kalshi API."""
+    """RSA-PSS with SHA256 signature authentication for Kalshi API."""
 
     def __init__(self, private_key_pem: str):
         try:
@@ -46,7 +46,10 @@ class KalshiAuth:
                 raise AuthenticationError("Private key must be RSA key")
 
             self._private_key: rsa.RSAPrivateKey = private_key
-            self._padding = padding.PKCS1v15()
+            self._padding = padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH,
+            )
             self._hash_algorithm = hashes.SHA256()
         except ImportError as e:
             raise AuthenticationError(
@@ -57,7 +60,7 @@ class KalshiAuth:
             raise AuthenticationError(f"Failed to load RSA private key: {e}") from e
 
     def sign(self, timestamp_ms: int, method: str, path: str) -> str:
-        message = f"{timestamp_ms}{method.upper()}{path}"
+        message = f"{timestamp_ms}{method.upper()}/trade-api/v2{path}"
         signature = self._private_key.sign(
             message.encode("utf-8"),
             self._padding,
@@ -123,7 +126,8 @@ class Kalshi(Exchange):
             return {}
 
         timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        signature = self._auth.sign(timestamp_ms, method, path)
+        path_for_signing = path.split("?")[0]
+        signature = self._auth.sign(timestamp_ms, method, path_for_signing)
 
         return {
             "KALSHI-ACCESS-KEY": self._api_key_id,
