@@ -160,7 +160,7 @@ class SpikeStrategy(Strategy):
             return
 
         _, ask = self.get_best_bid_ask(token_id)
-        if ask is None or ask <= 0:
+        if ask is None or ask <= 0 or ask > 1.0:
             return
 
         entry_price = self.round_price(ask)
@@ -188,6 +188,10 @@ class SpikeStrategy(Strategy):
 
         token_id = self.get_token_id(outcome)
         if not token_id:
+            return
+
+        if pos.entry_price <= 0:
+            del self.entries[outcome]
             return
 
         pnl = (price - pos.entry_price) / pos.entry_price

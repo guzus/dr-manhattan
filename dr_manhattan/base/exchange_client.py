@@ -480,16 +480,16 @@ class ExchangeClient:
             self._user_ws.stop()
         if self._market_ws:
             # Stop WebSocket and wait for disconnect to complete
-            if self._market_ws.loop and self._market_ws.loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(
-                    self._market_ws.disconnect(), self._market_ws.loop
-                )
+            if self._market_ws.loop:
                 try:
-                    future.result(timeout=3.0)
-                except Exception:
-                    pass
-                # Stop the loop
-                self._market_ws.loop.call_soon_threadsafe(self._market_ws.loop.stop)
+                    if self._market_ws.loop.is_running():
+                        future = asyncio.run_coroutine_threadsafe(
+                            self._market_ws.disconnect(), self._market_ws.loop
+                        )
+                        future.result(timeout=3.0)
+                        self._market_ws.loop.call_soon_threadsafe(self._market_ws.loop.stop)
+                except (RuntimeError, TimeoutError) as e:
+                    logger.debug(f"WebSocket disconnect: {e}")
         # Stop polling thread
         if self._polling_thread:
             self._polling_stop = True
