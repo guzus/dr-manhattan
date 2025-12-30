@@ -74,6 +74,28 @@ EXCHANGE=polymarket MARKET_SLUG=fed-decision uv run python examples/spread_strat
 
 **Warning:** This places REAL orders with REAL money.
 
+## spike_strategy.py
+
+**Mean reversion strategy that buys price dips.**
+
+Detects when price drops below EMA baseline and enters expecting bounce back.
+
+**Usage:**
+```bash
+uv run python examples/spike_strategy.py --exchange polymarket --slug fed-decision
+uv run python examples/spike_strategy.py -e polymarket -m 12345 --spike-threshold 0.02
+```
+
+**Options:**
+- `--exchange, -e`: Exchange name (polymarket, opinion, limitless)
+- `--market-id, -m`: Market ID
+- `--slug, -s`: Market slug/keyword for search
+- `--spike-threshold`: Entry threshold (default: 1.5%)
+- `--profit-target`: Take profit (default: 3%)
+- `--stop-loss`: Stop loss (default: 2%)
+
+**Warning:** This places REAL orders with REAL money.
+
 ## Creating Custom Strategies
 
 Inherit from `Strategy` base class:

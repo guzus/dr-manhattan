@@ -105,7 +105,7 @@ class SpikeStrategy(Strategy):
             if not token_id:
                 continue
 
-            price = self._get_mid_price(outcome)
+            price = self._get_mid_price(outcome, token_id)
             if price is None or price <= 0:
                 continue
 
@@ -115,16 +115,17 @@ class SpikeStrategy(Strategy):
             pos = self._positions.get(outcome, 0)
 
             if outcome in self.entries:
-                self._manage_position(outcome, price, pos)
+                self._manage_position(outcome, price, pos, token_id)
             else:
                 self._check_spike_and_buy(outcome, price, token_id)
 
         self._log_status()
 
-    def _get_mid_price(self, outcome: str) -> Optional[float]:
-        token_id = self.get_token_id(outcome)
-        if not token_id:
-            return None
+    def _get_mid_price(self, outcome: str, token_id: Optional[str] = None) -> Optional[float]:
+        if token_id is None:
+            token_id = self.get_token_id(outcome)
+            if not token_id:
+                return None
 
         bid, ask = self.get_best_bid_ask(token_id)
         if bid is None or ask is None or bid <= 0 or ask <= 0:
@@ -160,6 +161,7 @@ class SpikeStrategy(Strategy):
             return
 
         _, ask = self.get_best_bid_ask(token_id)
+        # Binary market prices are 0-1 (probability)
         if ask is None or ask <= 0 or ask > 1.0:
             return
 
@@ -177,17 +179,16 @@ class SpikeStrategy(Strategy):
         except Exception as e:
             logger.error(f"  Buy failed: {e}")
 
-    def _manage_position(self, outcome: str, price: float, exchange_pos: float):
+    def _manage_position(
+        self, outcome: str, price: float, exchange_pos: float, token_id: str
+    ):
         pos = self.entries.get(outcome)
         if not pos:
             return
 
+        # Positions < 1 are dust (below minimum order size)
         if exchange_pos < 1:
             del self.entries[outcome]
-            return
-
-        token_id = self.get_token_id(outcome)
-        if not token_id:
             return
 
         if pos.entry_price <= 0:
@@ -262,8 +263,8 @@ class SpikeStrategy(Strategy):
                     min(exchange_pos, pos.size),
                     token_id,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Cleanup sell failed for {outcome}: {e}")
 
         time.sleep(3)
         self.client.stop()
