@@ -1,3 +1,18 @@
+# Claude Code Workflow
+#
+# How we use this:
+# 1. Spot good trading strategies on Twitter/X
+# 2. Create a GitHub issue describing the strategy
+# 3. Add a label: "feature" (feat/), "bug" (fix/), or "chore" (chore/)
+# 4. Mention @claude in the issue
+# 5. Claude automatically creates a PR with the implementation
+#
+# Branch naming:
+#   - feature label -> feat/issue-{number}
+#   - bug label     -> fix/issue-{number}
+#   - chore label   -> chore/issue-{number}
+#   - no label      -> claude/issue-{number}
+
 name: Claude Code
 
 on:
