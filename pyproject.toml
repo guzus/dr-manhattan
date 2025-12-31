@@ -70,7 +70,7 @@ packages = ["dr_manhattan"]
 dev = [
     "pytest>=8.0.0",
     "black>=24.0.0",
-    "ruff>=0.1.0",
+    "ruff==0.14.2",
     "twine>=6.0.0",
     "pre-commit>=4.5.1",
 ]
