@@ -855,7 +855,7 @@ dev = [
     { name = "black", specifier = ">=24.0.0" },
     { name = "pre-commit", specifier = ">=4.5.1" },
     { name = "pytest", specifier = ">=8.0.0" },
-    { name = "ruff", specifier = ">=0.1.0" },
+    { name = "ruff", specifier = "==0.14.2" },
     { name = "twine", specifier = ">=6.0.0" },
 ]
 

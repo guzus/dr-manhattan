@@ -80,7 +80,7 @@ def find_market_id(
             logger.info(f"Selected market [{market_index}]: {markets[market_index].question}")
             return markets[market_index].id
         else:
-            logger.error(f"Market index {market_index} out of range (0-{len(markets)-1})")
+            logger.error(f"Market index {market_index} out of range (0-{len(markets) - 1})")
             return None
 
     # Interactive selection using TUI utility

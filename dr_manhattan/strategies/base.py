@@ -62,14 +62,14 @@ class BaseStrategy(ABC):
             market: Market to trade on (if None, will auto-select)
             duration_minutes: How long to run (None = run forever)
         """
-        logger.info(f"\n{'='*80}")
+        logger.info(f"\n{'=' * 80}")
         logger.info(f"Starting {self.__class__.__name__}")
-        logger.info(f"{'='*80}")
+        logger.info(f"{'=' * 80}")
         logger.info(f"Max exposure: ${self.max_exposure:.2f}")
         logger.info(f"Check interval: {self.check_interval}s")
         if duration_minutes:
             logger.info(f"Duration: {duration_minutes} minutes")
-        logger.info(f"{'='*80}\n")
+        logger.info(f"{'=' * 80}\n")
 
         # Select market if not provided
         if market is None:
@@ -103,9 +103,9 @@ class BaseStrategy(ABC):
                     break
 
                 iteration += 1
-                logger.info(f"\n{'─'*80}")
+                logger.info(f"\n{'─' * 80}")
                 logger.info(f"Iteration #{iteration} - {time.strftime('%H:%M:%S')}")
-                logger.info(f"{'─'*80}")
+                logger.info(f"{'─' * 80}")
 
                 # Call user's strategy logic
                 try:
@@ -122,11 +122,11 @@ class BaseStrategy(ABC):
         finally:
             self.is_running = False
             self.on_stop()
-            logger.info(f"\n{'='*80}")
+            logger.info(f"\n{'=' * 80}")
             logger.info("Strategy stopped")
             logger.info(f"Total iterations: {iteration}")
             logger.info(f"Total orders placed: {len(self.placed_orders)}")
-            logger.info(f"{'='*80}\n")
+            logger.info(f"{'=' * 80}\n")
 
 
 class MarketMakingStrategy(BaseStrategy):

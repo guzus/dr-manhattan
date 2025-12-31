@@ -164,14 +164,14 @@ def _validate_private_key(key: str, name: str) -> bool:
     # Check length (64 hex chars = 32 bytes)
     if len(clean_key) != 64:
         raise ValueError(
-            f"Invalid private key length for {name}. " "Expected 64 hex characters (32 bytes)."
+            f"Invalid private key length for {name}. Expected 64 hex characters (32 bytes)."
         )
 
     # Check valid hex
     try:
         int(clean_key, 16)
     except ValueError:
-        raise ValueError(f"Invalid private key format for {name}. " "Must be valid hexadecimal.")
+        raise ValueError(f"Invalid private key format for {name}. Must be valid hexadecimal.")
 
     return True
 

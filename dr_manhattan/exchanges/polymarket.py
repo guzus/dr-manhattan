@@ -1405,7 +1405,6 @@ class Polymarket(Exchange):
         points = self._parse_history(history)
 
         if as_dataframe:
-
             data = {
                 "timestamp": [p.timestamp for p in points],
                 "price": [p.price for p in points],
@@ -1424,7 +1423,6 @@ class Polymarket(Exchange):
         dedup_key: Callable[[Any], Any] | None = None,
         log: bool | None = False,
     ) -> List[Any]:
-
         if total_limit <= 0:
             return []
 
@@ -1518,7 +1516,6 @@ class Polymarket(Exchange):
         # Log
         log: bool | None = False,
     ) -> List[Market]:
-
         # ---------- 0) Pre-process ----------
         total_limit = int(limit)
         if total_limit <= 0:
@@ -1674,7 +1671,6 @@ class Polymarket(Exchange):
         as_dataframe: bool = False,
         log: bool = False,
     ) -> List[PublicTrade] | pd.DataFrame:
-
         total_limit = int(limit)
         if total_limit <= 0:
             return []
