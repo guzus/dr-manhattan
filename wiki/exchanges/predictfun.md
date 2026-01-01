@@ -229,7 +229,6 @@ Cancel an existing order.
 ```python
 order = exchange.cancel_order(
     order_id='0x...',  # Order hash
-    market_id='123'
 )
 ```
 
