@@ -1,0 +1,459 @@
+"""
+Dr. Manhattan MCP Server
+
+Main entry point for the Model Context Protocol server.
+"""
+
+import asyncio
+import signal
+import sys
+from pathlib import Path
+from typing import Any
+
+from dotenv import load_dotenv
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import TextContent, Tool
+
+import logging
+
+# Monkey-patch setup_logger BEFORE any imports
+import dr_manhattan.utils.logger as logger_module
+import dr_manhattan.utils
+
+def mcp_setup_logger(name: str = None, level: int = logging.INFO):
+    """MCP-compatible logger that outputs to stderr without colors."""
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.handlers = []
+
+    # Use stderr instead of stdout
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%H:%M:%S'))
+    logger.addHandler(handler)
+    logger.propagate = False
+
+    return logger
+
+# Replace setup_logger in both locations
+logger_module.setup_logger = mcp_setup_logger
+dr_manhattan.utils.setup_logger = mcp_setup_logger
+
+# Configure all logging to use stderr (MCP uses stdout for JSON-RPC)
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%H:%M:%S',
+    stream=sys.stderr,
+    force=True
+)
+
+# Load environment variables from .env file
+env_path = Path(__file__).parent.parent.parent / ".env"
+load_dotenv(env_path)
+
+def fix_all_loggers():
+    """Remove ALL handlers and configure only root logger with stderr."""
+    # Remove all handlers from all loggers
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    for name in logging.Logger.manager.loggerDict:
+        logger_obj = logging.getLogger(name)
+        if not isinstance(logger_obj, logging.Logger):
+            continue
+        for handler in logger_obj.handlers[:]:
+            logger_obj.removeHandler(handler)
+        # Enable propagation so it uses root logger
+        logger_obj.propagate = True
+
+    # Add single stderr handler to root logger
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%H:%M:%S'))
+    root_logger.addHandler(stderr_handler)
+    root_logger.setLevel(logging.INFO)
+
+
+# Import modules (they will create loggers with stdout)
+from .session import ExchangeSessionManager, StrategySessionManager
+from .tools import (
+    account_tools,
+    exchange_tools,
+    market_tools,
+    strategy_tools,
+    trading_tools,
+)
+from .utils import translate_error
+
+# Fix loggers immediately after imports
+fix_all_loggers()
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
+
+# Initialize server
+app = Server("dr-manhattan")
+
+# Session managers (now loggers are fixed)
+exchange_manager = ExchangeSessionManager()
+strategy_manager = StrategySessionManager()
+
+
+# Tool registration
+@app.list_tools()
+async def list_tools() -> list[Tool]:
+    """List all available MCP tools."""
+    return [
+        # Exchange tools (3)
+        Tool(
+            name="list_exchanges",
+            description="List all available prediction market exchanges",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        Tool(
+            name="get_exchange_info",
+            description="Get exchange metadata and capabilities",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {
+                        "type": "string",
+                        "description": "Exchange name (polymarket, opinion, limitless)",
+                    }
+                },
+                "required": ["exchange"],
+            },
+        ),
+        Tool(
+            name="validate_credentials",
+            description="Validate exchange credentials without trading",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {
+                        "type": "string",
+                        "description": "Exchange name",
+                    }
+                },
+                "required": ["exchange"],
+            },
+        ),
+        # Market tools (10)
+        Tool(
+            name="fetch_markets",
+            description="Fetch all available markets from an exchange",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string", "description": "Exchange name"},
+                    "params": {
+                        "type": "object",
+                        "description": "Optional filters (limit, offset, closed, active)",
+                    },
+                },
+                "required": ["exchange"],
+            },
+        ),
+        Tool(
+            name="fetch_market",
+            description="Fetch a specific market by ID",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "market_id": {"type": "string", "description": "Market identifier"},
+                },
+                "required": ["exchange", "market_id"],
+            },
+        ),
+        Tool(
+            name="fetch_markets_by_slug",
+            description="Fetch markets by slug or URL (Polymarket, Limitless)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "slug": {"type": "string", "description": "Market slug or full URL"},
+                },
+                "required": ["exchange", "slug"],
+            },
+        ),
+        Tool(
+            name="get_orderbook",
+            description="Get orderbook for a token",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "token_id": {"type": "string", "description": "Token ID"},
+                },
+                "required": ["exchange", "token_id"],
+            },
+        ),
+        Tool(
+            name="get_best_bid_ask",
+            description="Get best bid and ask prices (uses WebSocket cache if available)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "token_id": {"type": "string"},
+                },
+                "required": ["exchange", "token_id"],
+            },
+        ),
+        # Trading tools (5)
+        Tool(
+            name="create_order",
+            description="Create a new order",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "market_id": {"type": "string"},
+                    "outcome": {"type": "string", "description": "Outcome (Yes, No, etc.)"},
+                    "side": {"type": "string", "enum": ["buy", "sell"]},
+                    "price": {"type": "number", "minimum": 0, "maximum": 1},
+                    "size": {"type": "number", "minimum": 0},
+                    "params": {"type": "object", "description": "Additional parameters"},
+                },
+                "required": ["exchange", "market_id", "outcome", "side", "price", "size"],
+            },
+        ),
+        Tool(
+            name="cancel_order",
+            description="Cancel an existing order",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "order_id": {"type": "string"},
+                    "market_id": {"type": "string"},
+                },
+                "required": ["exchange", "order_id"],
+            },
+        ),
+        Tool(
+            name="cancel_all_orders",
+            description="Cancel all open orders",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "market_id": {"type": "string", "description": "Optional market filter"},
+                },
+                "required": ["exchange"],
+            },
+        ),
+        Tool(
+            name="fetch_open_orders",
+            description="Fetch all open orders",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "market_id": {"type": "string"},
+                },
+                "required": ["exchange"],
+            },
+        ),
+        # Account tools (4)
+        Tool(
+            name="fetch_balance",
+            description="Fetch account balance",
+            inputSchema={
+                "type": "object",
+                "properties": {"exchange": {"type": "string"}},
+                "required": ["exchange"],
+            },
+        ),
+        Tool(
+            name="fetch_positions",
+            description="Fetch current positions",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "market_id": {"type": "string"},
+                },
+                "required": ["exchange"],
+            },
+        ),
+        Tool(
+            name="calculate_nav",
+            description="Calculate Net Asset Value",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "market_id": {"type": "string"},
+                },
+                "required": ["exchange"],
+            },
+        ),
+        # Strategy tools (6)
+        Tool(
+            name="create_strategy_session",
+            description="Start market making strategy in background",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "strategy_type": {"type": "string", "enum": ["market_making"]},
+                    "exchange": {"type": "string"},
+                    "market_id": {"type": "string"},
+                    "max_position": {"type": "number", "default": 100.0},
+                    "order_size": {"type": "number", "default": 5.0},
+                    "max_delta": {"type": "number", "default": 20.0},
+                    "check_interval": {"type": "number", "default": 5.0},
+                    "duration_minutes": {"type": "number"},
+                },
+                "required": ["strategy_type", "exchange", "market_id"],
+            },
+        ),
+        Tool(
+            name="get_strategy_status",
+            description="Get real-time strategy status",
+            inputSchema={
+                "type": "object",
+                "properties": {"session_id": {"type": "string"}},
+                "required": ["session_id"],
+            },
+        ),
+        Tool(
+            name="stop_strategy",
+            description="Stop strategy and optionally cleanup",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "cleanup": {"type": "boolean", "default": True},
+                },
+                "required": ["session_id"],
+            },
+        ),
+        Tool(
+            name="list_strategy_sessions",
+            description="List all active strategy sessions",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+    ]
+
+
+@app.call_tool()
+async def call_tool(name: str, arguments: Any) -> list[TextContent]:
+    """Handle tool execution."""
+    try:
+        # Route to appropriate tool function
+        if name == "list_exchanges":
+            result = exchange_tools.list_exchanges()
+
+        elif name == "get_exchange_info":
+            result = exchange_tools.get_exchange_info(**arguments)
+
+        elif name == "validate_credentials":
+            result = exchange_tools.validate_credentials(**arguments)
+
+        elif name == "fetch_markets":
+            result = market_tools.fetch_markets(**arguments)
+
+        elif name == "fetch_market":
+            result = market_tools.fetch_market(**arguments)
+
+        elif name == "fetch_markets_by_slug":
+            result = market_tools.fetch_markets_by_slug(**arguments)
+
+        elif name == "get_orderbook":
+            result = market_tools.get_orderbook(**arguments)
+
+        elif name == "get_best_bid_ask":
+            result = market_tools.get_best_bid_ask(**arguments)
+
+        elif name == "create_order":
+            result = trading_tools.create_order(**arguments)
+
+        elif name == "cancel_order":
+            result = trading_tools.cancel_order(**arguments)
+
+        elif name == "cancel_all_orders":
+            result = trading_tools.cancel_all_orders(**arguments)
+
+        elif name == "fetch_open_orders":
+            result = trading_tools.fetch_open_orders(**arguments)
+
+        elif name == "fetch_balance":
+            result = account_tools.fetch_balance(**arguments)
+
+        elif name == "fetch_positions":
+            result = account_tools.fetch_positions(**arguments)
+
+        elif name == "calculate_nav":
+            result = account_tools.calculate_nav(**arguments)
+
+        elif name == "create_strategy_session":
+            result = strategy_tools.create_strategy_session(**arguments)
+
+        elif name == "get_strategy_status":
+            result = strategy_tools.get_strategy_status(**arguments)
+
+        elif name == "stop_strategy":
+            result = strategy_tools.stop_strategy(**arguments)
+
+        elif name == "list_strategy_sessions":
+            result = strategy_tools.list_strategy_sessions()
+
+        else:
+            raise ValueError(f"Unknown tool: {name}")
+
+        # Return result as text content
+        import json
+
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    except Exception as e:
+        # Translate error
+        mcp_error = translate_error(e, {"tool": name, "arguments": arguments})
+        error_response = {"error": mcp_error.to_dict()}
+
+        import json
+
+        return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
+
+
+def cleanup_handler(signum, frame):
+    """Handle cleanup on shutdown."""
+    logger.info("Shutting down MCP server...")
+
+    # Cleanup strategy sessions
+    strategy_manager.cleanup()
+
+    # Cleanup exchange sessions
+    exchange_manager.cleanup()
+
+    logger.info("Cleanup complete")
+    sys.exit(0)
+
+
+async def main():
+    """Main entry point."""
+    # Register signal handlers
+    signal.signal(signal.SIGINT, cleanup_handler)
+    signal.signal(signal.SIGTERM, cleanup_handler)
+
+    logger.info("Starting Dr. Manhattan MCP Server...")
+
+    # Run stdio server
+    async with stdio_server() as (read_stream, write_stream):
+        await app.run(read_stream, write_stream, app.create_initialization_options())
+
+
+def run():
+    """Run the server."""
+    asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()

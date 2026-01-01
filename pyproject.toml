@@ -1,7 +1,7 @@
 [project]
 name = "dr-manhattan"
-version = "0.0.1"
-description = "CCXT-style unified API for prediction markets"
+version = "0.0.2"
+description = "CCXT-style unified API for prediction markets with MCP server"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -66,9 +66,18 @@ exclude = [
 [tool.hatch.build.targets.wheel]
 packages = ["dr_manhattan"]
 
+[project.optional-dependencies]
+mcp = [
+    "mcp>=0.9.0",
+]
+
+[project.scripts]
+dr-manhattan-mcp = "dr_manhattan.mcp.server:run"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
+    "pytest-asyncio>=0.21.0",
     "black>=24.0.0",
     "ruff==0.14.2",
     "twine>=6.0.0",

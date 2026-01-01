@@ -1,0 +1,165 @@
+"""Trading operation tools."""
+
+from typing import Any, Dict, List, Optional
+
+from dr_manhattan.models.order import OrderSide
+
+from ..session import ExchangeSessionManager
+from ..utils import serialize_model, translate_error
+
+exchange_manager = ExchangeSessionManager()
+
+
+def create_order(
+    exchange: str,
+    market_id: str,
+    outcome: str,
+    side: str,
+    price: float,
+    size: float,
+    params: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Create a new order.
+
+    Mirrors: Exchange.create_order()
+
+    Args:
+        exchange: Exchange name
+        market_id: Market identifier
+        outcome: Outcome to bet on ("Yes", "No", etc.)
+        side: "buy" or "sell"
+        price: Price per share (0-1 range)
+        size: Number of shares
+        params: Additional exchange-specific parameters
+
+    Returns:
+        Order object as dict
+
+    Example:
+        >>> order = create_order(
+        ...     "polymarket",
+        ...     market_id="0x123...",
+        ...     outcome="Yes",
+        ...     side="buy",
+        ...     price=0.55,
+        ...     size=10
+        ... )
+    """
+    try:
+        client = exchange_manager.get_client(exchange)
+
+        # Convert side string to OrderSide enum
+        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+
+        order = client.create_order(
+            market_id=market_id,
+            outcome=outcome,
+            side=order_side,
+            price=price,
+            size=size,
+            params=params or {},
+        )
+
+        return serialize_model(order)
+
+    except Exception as e:
+        raise translate_error(
+            e, {"exchange": exchange, "market_id": market_id, "side": side}
+        )
+
+
+def cancel_order(
+    exchange: str, order_id: str, market_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Cancel an existing order.
+
+    Mirrors: Exchange.cancel_order()
+
+    Args:
+        exchange: Exchange name
+        order_id: Order identifier
+        market_id: Market identifier (required by some exchanges)
+
+    Returns:
+        Updated Order object
+    """
+    try:
+        client = exchange_manager.get_client(exchange)
+        order = client.cancel_order(order_id, market_id=market_id)
+        return serialize_model(order)
+
+    except Exception as e:
+        raise translate_error(e, {"exchange": exchange, "order_id": order_id})
+
+
+def cancel_all_orders(exchange: str, market_id: Optional[str] = None) -> int:
+    """
+    Cancel all open orders.
+
+    Mirrors: ExchangeClient.cancel_all_orders()
+
+    Args:
+        exchange: Exchange name
+        market_id: Optional market filter
+
+    Returns:
+        Number of orders cancelled
+    """
+    try:
+        client = exchange_manager.get_client(exchange)
+        count = client.cancel_all_orders(market_id=market_id)
+        return count
+
+    except Exception as e:
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id})
+
+
+def fetch_order(
+    exchange: str, order_id: str, market_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Fetch order details.
+
+    Mirrors: Exchange.fetch_order()
+
+    Args:
+        exchange: Exchange name
+        order_id: Order identifier
+        market_id: Market identifier (required by some exchanges)
+
+    Returns:
+        Order object with fill status
+    """
+    try:
+        exch = exchange_manager.get_exchange(exchange)
+        order = exch.fetch_order(order_id, market_id=market_id)
+        return serialize_model(order)
+
+    except Exception as e:
+        raise translate_error(e, {"exchange": exchange, "order_id": order_id})
+
+
+def fetch_open_orders(
+    exchange: str, market_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Fetch all open orders.
+
+    Mirrors: Exchange.fetch_open_orders()
+
+    Args:
+        exchange: Exchange name
+        market_id: Optional market filter
+
+    Returns:
+        List of Order objects
+    """
+    try:
+        client = exchange_manager.get_client(exchange)
+        orders = client.fetch_open_orders(market_id=market_id)
+        return [serialize_model(o) for o in orders]
+
+    except Exception as e:
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id})
