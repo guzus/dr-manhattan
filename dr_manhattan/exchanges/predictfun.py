@@ -788,10 +788,10 @@ class PredictFun(Exchange):
         # Calculate price and size from amounts
         if side == OrderSide.BUY and taker_amount > 0:
             size = taker_amount / 10**18
-            price = maker_amount / taker_amount if taker_amount else 0
+            price = maker_amount / taker_amount
         elif side == OrderSide.SELL and maker_amount > 0:
             size = maker_amount / 10**18
-            price = taker_amount / maker_amount if maker_amount else 0
+            price = taker_amount / maker_amount
         else:
             size = 0
             price = 0
@@ -874,11 +874,17 @@ class PredictFun(Exchange):
 
         # Parse size (balance)
         size_raw = data.get("size", data.get("balance", "0"))
-        size = int(size_raw) / 10**18 if size_raw else 0
+        try:
+            size = float(size_raw) / 10**18 if size_raw else 0
+        except (ValueError, TypeError):
+            size = 0
 
         # Parse average price
         avg_price_raw = data.get("avgPrice", data.get("averagePrice", "0"))
-        avg_price = int(avg_price_raw) / 10**18 if avg_price_raw else 0
+        try:
+            avg_price = float(avg_price_raw) / 10**18 if avg_price_raw else 0
+        except (ValueError, TypeError):
+            avg_price = 0
 
         return Position(
             market_id=market_id,
