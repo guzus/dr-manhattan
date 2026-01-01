@@ -490,8 +490,8 @@ class PredictFun(Exchange):
             if not token_id:
                 raise InvalidOrder(f"Could not find token_id for outcome '{outcome}'")
 
-        if price <= 0 or price >= 1:
-            raise InvalidOrder(f"Price must be between 0 and 1, got: {price}")
+        if price < 0 or price > 1:
+            raise InvalidOrder(f"Price must be between 0 and 1 (inclusive), got: {price}")
 
         # Get fee rate from market
         fee_rate_bps = market.metadata.get("feeRateBps", 0)
