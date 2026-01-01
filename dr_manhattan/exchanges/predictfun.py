@@ -485,7 +485,9 @@ class PredictFun(Exchange):
                 if outcome_index < len(token_ids):
                     token_id = token_ids[outcome_index]
             except (ValueError, IndexError):
-                pass
+                # If mapping the outcome to a token_id fails, leave token_id unset
+                # and fall through to the validation below, which will raise InvalidOrder.
+                token_id = None
 
             if not token_id:
                 raise InvalidOrder(f"Could not find token_id for outcome '{outcome}'")

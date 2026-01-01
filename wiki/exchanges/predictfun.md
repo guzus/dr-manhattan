@@ -345,18 +345,20 @@ except RateLimitError as e:
 ## Important Notes
 
 - **Orderbook Pricing**: The orderbook stores prices based on the Yes outcome. Calculate No price as `1 - Yes price`.
-- **NegRisk Markets**: Some markets use the NegRisk CTF Exchange contract. This is handled automatically.
+- **NegRisk Markets**: Some markets use the yield-bearing NegRisk CTF Exchange contract. This is handled automatically.
 - **Yield Bearing**: Some markets support yield bearing. Check `market.metadata['isYieldBearing']`.
 - **Decimal Precision**: Markets can have 2 or 3 decimal places. Check `market.tick_size`.
 - **Token IDs**: Each outcome has a unique `onChainId` used as the token ID for orders.
 
 ## Deployed Contracts (BNB Mainnet)
 
-| Contract | Address |
-|----------|---------|
-| CTFExchange | `0x6bEb5a40C032AFc305961162d8204CDA16DECFa5` |
-| NegRiskCtfExchange | `0x8A289d458f5a134bA40015085A8F50Ffb681B41d` |
+| Contract (yield-bearing) | Address |
+|--------------------------|---------|
+| Yield-Bearing CTFExchange | `0x6bEb5a40C032AFc305961162d8204CDA16DECFa5` |
+| Yield-Bearing NegRiskCtfExchange | `0x8A289d458f5a134bA40015085A8F50Ffb681B41d` |
 | Vault | `0x09F683d8a144c4ac296D770F839098c3377410c5` |
+
+> Note: The protocol also defines non-yield-bearing variants of the CTFExchange and NegRiskCtfExchange contracts. Those non-yield-bearing contract addresses are not listed here.
 
 ## References
 
