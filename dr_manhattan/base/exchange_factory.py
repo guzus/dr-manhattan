@@ -11,6 +11,7 @@ from .exchange_config import (
     LimitlessConfig,
     OpinionConfig,
     PolymarketConfig,
+    PredictFunConfig,
 )
 
 
@@ -31,11 +32,13 @@ def get_exchange_class(name: str) -> Type[Exchange]:
     from ..exchanges.limitless import Limitless
     from ..exchanges.opinion import Opinion
     from ..exchanges.polymarket import Polymarket
+    from ..exchanges.predictfun import PredictFun
 
     exchanges: Dict[str, Type[Exchange]] = {
         "polymarket": Polymarket,
         "opinion": Opinion,
         "limitless": Limitless,
+        "predictfun": PredictFun,
     }
 
     name_lower = name.lower()
@@ -105,6 +108,7 @@ def _get_empty_config(name: str) -> ExchangeConfig:
         "polymarket": PolymarketConfig,
         "opinion": OpinionConfig,
         "limitless": LimitlessConfig,
+        "predictfun": PredictFunConfig,
     }
     return configs[name]()
 
@@ -137,6 +141,12 @@ def _load_env_config(name: str) -> ExchangeConfig:
         return LimitlessConfig(
             private_key=os.getenv("LIMITLESS_PRIVATE_KEY", ""),
         )
+    elif name == "predictfun":
+        return PredictFunConfig(
+            api_key=os.getenv("PREDICTFUN_API_KEY", ""),
+            private_key=os.getenv("PREDICTFUN_PRIVATE_KEY", ""),
+            testnet=os.getenv("PREDICTFUN_TESTNET", "").lower() == "true",
+        )
     else:
         raise ValueError(f"Unknown exchange: {name}")
 
@@ -164,14 +174,14 @@ def _validate_private_key(key: str, name: str) -> bool:
     # Check length (64 hex chars = 32 bytes)
     if len(clean_key) != 64:
         raise ValueError(
-            f"Invalid private key length for {name}. " "Expected 64 hex characters (32 bytes)."
+            f"Invalid private key length for {name}. Expected 64 hex characters (32 bytes)."
         )
 
     # Check valid hex
     try:
         int(clean_key, 16)
     except ValueError:
-        raise ValueError(f"Invalid private key format for {name}. " "Must be valid hexadecimal.")
+        raise ValueError(f"Invalid private key format for {name}. Must be valid hexadecimal.")
 
     return True
 
@@ -182,6 +192,7 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
         "polymarket": ["private_key", "funder"],
         "opinion": ["api_key", "private_key", "multi_sig_addr"],
         "limitless": ["private_key"],
+        "predictfun": ["api_key", "private_key"],
     }
 
     missing = [key for key in required.get(name, []) if not getattr(config, key, None)]
@@ -199,4 +210,4 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
 
 def list_exchanges() -> list[str]:
     """Return list of available exchange names."""
-    return ["polymarket", "opinion", "limitless"]
+    return ["polymarket", "opinion", "limitless", "predictfun"]
