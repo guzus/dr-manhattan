@@ -186,9 +186,9 @@ When you check your balance via MCP, you'll see both wallets:
 ```json
 {
   "funder_balance": 20.82,      // ← Your trading balance (used for orders)
-  "funder_wallet": "0xbABC...",
+  "funder_wallet": "0x1234...abc",
   "proxy_balance": 8.86,         // ← Reference only (web balance)
-  "proxy_wallet": "0x821A...",
+  "proxy_wallet": "0x5678...def",
   "trading_wallet": "funder",
   "note": "Trading uses funder wallet balance. Ensure funder wallet has sufficient USDC."
 }
