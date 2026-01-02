@@ -38,7 +38,7 @@ Install Dr. Manhattan with MCP support:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/dr-manhattan.git
+git clone https://github.com/guzus/dr-manhattan.git
 cd dr-manhattan
 
 # Install with MCP dependencies
@@ -651,8 +651,8 @@ Error: Market not found
 ## Support
 
 For issues or questions:
-- GitHub Issues: [https://github.com/yourusername/dr-manhattan/issues](https://github.com/yourusername/dr-manhattan/issues)
-- Discussions: [https://github.com/yourusername/dr-manhattan/discussions](https://github.com/yourusername/dr-manhattan/discussions)
+- GitHub Issues: [https://github.com/guzus/dr-manhattan/issues](https://github.com/guzus/dr-manhattan/issues)
+- Discussions: [https://github.com/guzus/dr-manhattan/discussions](https://github.com/guzus/dr-manhattan/discussions)
 
 ---
 
