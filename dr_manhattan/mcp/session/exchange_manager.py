@@ -2,9 +2,9 @@
 
 import os
 import threading
-import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from typing import Any, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from typing import Any, Dict
 
 from dr_manhattan.base import Exchange, ExchangeClient, create_exchange
 from dr_manhattan.utils import setup_logger
@@ -37,26 +37,21 @@ class ExchangeSessionManager:
     _lock = threading.Lock()
 
     def __new__(cls):
-        """Ensure singleton instance."""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
+        """Ensure singleton instance with thread-safe initialization."""
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                # Initialize within the lock to prevent race condition
+                cls._instance._exchanges: Dict[str, Exchange] = {}
+                cls._instance._clients: Dict[str, ExchangeClient] = {}
+                cls._instance._instance_lock = threading.RLock()
+                cls._instance._initialized = True
+                logger.info("ExchangeSessionManager initialized")
         return cls._instance
 
     def __init__(self):
-        """Initialize session manager."""
-        if self._initialized:
-            return
-
-        self._exchanges: Dict[str, Exchange] = {}
-        self._clients: Dict[str, ExchangeClient] = {}
-        # Use RLock (reentrant lock) to allow nested locking
-        self._instance_lock = threading.RLock()
-        self._initialized = True
-
-        logger.info("ExchangeSessionManager initialized")
+        """No-op: initialization done in __new__ to prevent race conditions."""
+        pass
 
     def get_exchange(
         self, exchange_name: str, use_env: bool = True, validate: bool = True
@@ -84,9 +79,9 @@ class ExchangeSessionManager:
                 if config_dict:
                     logger.info(f"Using MCP credentials for {exchange_name}")
                     # Create exchange directly with dict config (MCP-specific)
-                    from ...exchanges.polymarket import Polymarket
-                    from ...exchanges.opinion import Opinion
                     from ...exchanges.limitless import Limitless
+                    from ...exchanges.opinion import Opinion
+                    from ...exchanges.polymarket import Polymarket
 
                     exchange_classes = {
                         "polymarket": Polymarket,

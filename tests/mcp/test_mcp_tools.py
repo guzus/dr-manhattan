@@ -4,7 +4,10 @@
 import asyncio
 import sys
 
+import pytest
 
+
+@pytest.mark.asyncio
 async def test_tool_registration():
     """Test that all tools are properly registered."""
     print("Testing tool registration...")
@@ -69,6 +72,7 @@ async def test_tool_registration():
     return True
 
 
+@pytest.mark.asyncio
 async def test_tool_execution():
     """Test actual tool execution."""
     print("\nTesting tool execution...")
@@ -111,6 +115,7 @@ async def test_tool_execution():
     return True
 
 
+@pytest.mark.asyncio
 async def test_error_handling():
     """Test error handling."""
     print("\nTesting error handling...")

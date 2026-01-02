@@ -47,6 +47,17 @@ def create_order(
         ... )
     """
     try:
+        # Validate price range (prediction markets use 0-1)
+        if not 0 < price < 1:
+            raise ValueError(
+                f"Price must be between 0 and 1 (exclusive), got {price}. "
+                "Prediction market prices represent probabilities."
+            )
+
+        # Validate size
+        if size <= 0:
+            raise ValueError(f"Size must be positive, got {size}")
+
         client = exchange_manager.get_client(exchange)
 
         # Convert side string to OrderSide enum

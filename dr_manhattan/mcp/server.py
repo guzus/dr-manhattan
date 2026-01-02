@@ -5,6 +5,7 @@ Main entry point for the Model Context Protocol server.
 """
 
 import asyncio
+import logging
 import signal
 import sys
 from pathlib import Path
@@ -15,12 +16,11 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-import logging
-
-# Monkey-patch setup_logger BEFORE any imports
-import dr_manhattan.utils.logger as logger_module
 import dr_manhattan.utils
+import dr_manhattan.utils.logger as logger_module
 
+
+# Monkey-patch setup_logger BEFORE importing modules that use it
 def mcp_setup_logger(name: str = None, level: int = logging.INFO):
     """MCP-compatible logger that outputs to stderr without colors."""
     logger = logging.getLogger(name)
@@ -75,16 +75,16 @@ def fix_all_loggers():
     root_logger.setLevel(logging.INFO)
 
 
-# Import modules (they will create loggers with stdout)
-from .session import ExchangeSessionManager, StrategySessionManager
-from .tools import (
+# Import modules after logger monkey-patching (they will create loggers with stderr)
+from .session import ExchangeSessionManager, StrategySessionManager  # noqa: E402
+from .tools import (  # noqa: E402
     account_tools,
     exchange_tools,
     market_tools,
     strategy_tools,
     trading_tools,
 )
-from .utils import translate_error
+from .utils import translate_error  # noqa: E402
 
 # Fix loggers immediately after imports
 fix_all_loggers()

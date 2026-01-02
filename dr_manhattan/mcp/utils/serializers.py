@@ -3,7 +3,7 @@
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any
 
 
 def serialize_model(obj: Any) -> Any:

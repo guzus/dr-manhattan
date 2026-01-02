@@ -1,8 +1,8 @@
 """Strategy session manager."""
 
 import threading
-import time
 import uuid
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from dr_manhattan.base import Exchange, Strategy
@@ -24,24 +24,20 @@ class StrategySessionManager:
     _lock = threading.Lock()
 
     def __new__(cls):
-        """Ensure singleton instance."""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
+        """Ensure singleton instance with thread-safe initialization."""
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                # Initialize within the lock to prevent race condition
+                cls._instance._sessions: Dict[str, StrategySession] = {}
+                cls._instance._instance_lock = threading.Lock()
+                cls._instance._initialized = True
+                logger.info("StrategySessionManager initialized")
         return cls._instance
 
     def __init__(self):
-        """Initialize strategy session manager."""
-        if self._initialized:
-            return
-
-        self._sessions: Dict[str, StrategySession] = {}
-        self._instance_lock = threading.Lock()
-        self._initialized = True
-
-        logger.info("StrategySessionManager initialized")
+        """No-op: initialization done in __new__ to prevent race conditions."""
+        pass
 
     def create_session(
         self,
@@ -80,11 +76,11 @@ class StrategySessionManager:
                 status=SessionStatus.RUNNING,
             )
 
-            # Start in background thread
+            # Start in background thread (daemon=True allows clean shutdown)
             thread = threading.Thread(
                 target=self._run_strategy,
                 args=(session_id, strategy, params.get("duration_minutes")),
-                daemon=False,
+                daemon=True,
             )
             thread.start()
             session.thread = thread
@@ -316,7 +312,3 @@ class StrategySessionManager:
             self._sessions.clear()
 
         logger.info("Strategy sessions cleaned up")
-
-
-# Fix circular import
-from datetime import datetime

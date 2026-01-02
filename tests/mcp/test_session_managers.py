@@ -28,6 +28,7 @@ class TestExchangeSessionManager:
     def test_has_exchange(self):
         """Test has_exchange method."""
         mgr = ExchangeSessionManager()
+        mgr.cleanup()  # Clear any existing exchanges from previous tests
         # Initially no exchanges loaded
         assert not mgr.has_exchange("polymarket")
 

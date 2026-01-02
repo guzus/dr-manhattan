@@ -1,19 +1,31 @@
 """Account management tools."""
 
-import requests
+import os
 from typing import Any, Dict, List, Optional
+
+import requests
+
+from dr_manhattan.utils import setup_logger
 
 from ..session import ExchangeSessionManager
 from ..utils import serialize_model, translate_error
+
+logger = setup_logger(__name__)
 
 exchange_manager = ExchangeSessionManager()
 
 # Polygon USDC contract address
 POLYGON_USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-POLYGON_RPC_URL = "https://polygon-rpc.com"
+
+# Configurable RPC endpoint with fallbacks
+POLYGON_RPC_URLS = [
+    os.getenv("POLYGON_RPC_URL", "https://polygon-rpc.com"),
+    "https://rpc-mainnet.matic.quiknode.pro",
+    "https://polygon.llamarpc.com",
+]
 
 
-def get_usdc_balance_polygon(address: str) -> float:
+def get_usdc_balance_polygon(address: str) -> Optional[float]:
     """
     Query USDC balance on Polygon for a specific address.
 
@@ -21,40 +33,60 @@ def get_usdc_balance_polygon(address: str) -> float:
         address: Ethereum address to query
 
     Returns:
-        USDC balance as float
+        USDC balance as float, or None if query failed
     """
-    try:
-        # ERC20 balanceOf function signature
-        # balanceOf(address) -> uint256
-        function_signature = "0x70a08231"  # balanceOf
-        padded_address = address[2:].zfill(64)  # Remove 0x and pad to 32 bytes
-        data = function_signature + padded_address
+    if not address or not address.startswith("0x"):
+        logger.warning(f"Invalid address format: {address}")
+        return None
 
-        payload = {
-            "jsonrpc": "2.0",
-            "method": "eth_call",
-            "params": [
-                {
-                    "to": POLYGON_USDC_ADDRESS,
-                    "data": data
-                },
-                "latest"
-            ],
-            "id": 1
-        }
+    # ERC20 balanceOf function signature
+    function_signature = "0x70a08231"  # balanceOf
+    padded_address = address[2:].zfill(64)  # Remove 0x and pad to 32 bytes
+    data = function_signature + padded_address
 
-        response = requests.post(POLYGON_RPC_URL, json=payload, timeout=10)
-        result = response.json()
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "eth_call",
+        "params": [
+            {
+                "to": POLYGON_USDC_ADDRESS,
+                "data": data,
+            },
+            "latest",
+        ],
+        "id": 1,
+    }
 
-        if "result" in result:
-            # Convert hex to int and divide by 1e6 (USDC has 6 decimals)
-            balance_wei = int(result["result"], 16)
-            return balance_wei / 1e6
-        else:
-            return 0.0
+    # Try each RPC endpoint until one succeeds
+    last_error = None
+    for rpc_url in POLYGON_RPC_URLS:
+        try:
+            response = requests.post(rpc_url, json=payload, timeout=10)
+            result = response.json()
 
-    except Exception:
-        return 0.0
+            if "result" in result and result["result"] != "0x":
+                # Convert hex to int and divide by 1e6 (USDC has 6 decimals)
+                balance_wei = int(result["result"], 16)
+                return balance_wei / 1e6
+            elif "error" in result:
+                last_error = result["error"]
+                logger.warning(f"RPC error from {rpc_url}: {last_error}")
+                continue
+            else:
+                return 0.0
+
+        except requests.RequestException as e:
+            last_error = str(e)
+            logger.warning(f"RPC request failed for {rpc_url}: {e}")
+            continue
+        except (ValueError, KeyError) as e:
+            last_error = str(e)
+            logger.warning(f"Failed to parse RPC response from {rpc_url}: {e}")
+            continue
+
+    # All RPCs failed
+    logger.error(f"All RPC endpoints failed for balance query. Last error: {last_error}")
+    return None
 
 
 def fetch_balance(exchange: str) -> Dict[str, Any]:
@@ -85,19 +117,25 @@ def fetch_balance(exchange: str) -> Dict[str, Any]:
             proxy_wallet = MCP_CREDENTIALS.get("polymarket", {}).get("proxy_wallet", "")
             funder_wallet = exch.funder if hasattr(exch, "funder") else ""
 
-            # Query both wallet balances
-            funder_balance = get_usdc_balance_polygon(funder_wallet) if funder_wallet else 0.0
-            proxy_balance = get_usdc_balance_polygon(proxy_wallet) if proxy_wallet else 0.0
+            # Query both wallet balances (None means query failed)
+            funder_balance = get_usdc_balance_polygon(funder_wallet) if funder_wallet else None
+            proxy_balance = get_usdc_balance_polygon(proxy_wallet) if proxy_wallet else None
 
             result = {
-                "funder_balance": funder_balance,
+                "funder_balance": funder_balance if funder_balance is not None else 0.0,
                 "funder_wallet": funder_wallet,
             }
 
+            # Add warning if balance query failed
+            if funder_balance is None:
+                result["funder_balance_warning"] = "Failed to query balance from RPC"
+
             # Add proxy wallet info if configured
             if proxy_wallet:
-                result["proxy_balance"] = proxy_balance
+                result["proxy_balance"] = proxy_balance if proxy_balance is not None else 0.0
                 result["proxy_wallet"] = proxy_wallet
+                if proxy_balance is None:
+                    result["proxy_balance_warning"] = "Failed to query balance from RPC"
 
             # Add clear message about which wallet is used for trading
             result["trading_wallet"] = "funder"
@@ -213,34 +251,44 @@ def calculate_nav(exchange: str, market_id: Optional[str] = None) -> Dict[str, A
             proxy_wallet = MCP_CREDENTIALS.get("polymarket", {}).get("proxy_wallet", "")
             funder_wallet = exch.funder if hasattr(exch, "funder") else ""
 
-            # Query both wallet balances
-            funder_balance = get_usdc_balance_polygon(funder_wallet) if funder_wallet else 0.0
-            proxy_balance = get_usdc_balance_polygon(proxy_wallet) if proxy_wallet else 0.0
+            # Query both wallet balances (None means query failed)
+            funder_balance = get_usdc_balance_polygon(funder_wallet) if funder_wallet else None
+            proxy_balance = get_usdc_balance_polygon(proxy_wallet) if proxy_wallet else None
 
             # Get positions (still use base client for this)
             client = exchange_manager.get_client(exchange)
             positions = client.fetch_positions(market_id=None if not market_id else market_id)
 
             # Calculate positions value
-            positions_value = sum(getattr(p, 'value', 0.0) for p in positions)
+            positions_value = sum(getattr(p, "value", 0.0) for p in positions)
+
+            # Handle None balance (use 0.0 for calculation but add warning)
+            funder_balance_value = funder_balance if funder_balance is not None else 0.0
+            proxy_balance_value = proxy_balance if proxy_balance is not None else 0.0
 
             # NAV is based on funder wallet (trading wallet)
-            nav = funder_balance + positions_value
+            nav = funder_balance_value + positions_value
 
             result = {
                 "nav": nav,
-                "funder_balance": funder_balance,
+                "funder_balance": funder_balance_value,
                 "funder_wallet": funder_wallet,
                 "positions_value": positions_value,
                 "positions": [serialize_model(p) for p in positions],
                 "trading_wallet": "funder",
-                "note": "NAV calculated using funder wallet balance (trading wallet)"
+                "note": "NAV calculated using funder wallet balance (trading wallet)",
             }
+
+            # Add warning if balance query failed
+            if funder_balance is None:
+                result["funder_balance_warning"] = "Failed to query balance from RPC"
 
             # Add proxy wallet info if configured
             if proxy_wallet:
-                result["proxy_balance"] = proxy_balance
+                result["proxy_balance"] = proxy_balance_value
                 result["proxy_wallet"] = proxy_wallet
+                if proxy_balance is None:
+                    result["proxy_balance_warning"] = "Failed to query balance from RPC"
 
             return result
 

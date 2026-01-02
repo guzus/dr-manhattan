@@ -2,8 +2,6 @@
 
 from typing import Any, Dict, Optional
 
-from dr_manhattan.base import Strategy
-
 from ..session import ExchangeSessionManager, StrategySessionManager
 from ..utils import serialize_model, translate_error
 
