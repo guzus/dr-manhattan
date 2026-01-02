@@ -11,6 +11,7 @@ from dr_manhattan.utils import setup_logger
 
 logger = setup_logger(__name__)
 
+
 def _get_polymarket_signature_type() -> int:
     """Get signature type with safe default."""
     sig_type = os.getenv("POLYMARKET_SIGNATURE_TYPE", "0")
@@ -138,9 +139,7 @@ class ExchangeSessionManager:
                                 "This may be due to network issues or API problems."
                             )
                 else:
-                    exchange = create_exchange(
-                        exchange_name, use_env=use_env, validate=validate
-                    )
+                    exchange = create_exchange(exchange_name, use_env=use_env, validate=validate)
 
                 self._exchanges[exchange_name] = exchange
             return self._exchanges[exchange_name]

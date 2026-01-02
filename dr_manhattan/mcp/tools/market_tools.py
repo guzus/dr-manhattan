@@ -113,9 +113,7 @@ def find_tradeable_market(
     """
     try:
         exch = exchange_manager.get_exchange(exchange)
-        market = exch.find_tradeable_market(
-            binary=binary, limit=limit, min_liquidity=min_liquidity
-        )
+        market = exch.find_tradeable_market(binary=binary, limit=limit, min_liquidity=min_liquidity)
 
         if market:
             return serialize_model(market)

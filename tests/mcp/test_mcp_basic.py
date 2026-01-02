@@ -16,10 +16,12 @@ def test_imports():
             StrategySession,
             StrategySessionManager,
         )
+
         print("✓ Session imports OK")
 
         # Test utils imports
         from dr_manhattan.mcp.utils import McpError, serialize_model, translate_error  # noqa: F401
+
         print("✓ Utils imports OK")
 
         # Test tool imports
@@ -30,6 +32,7 @@ def test_imports():
             strategy_tools,
             trading_tools,
         )
+
         print("✓ Tool imports OK")
 
         return True
@@ -69,6 +72,7 @@ def test_session_managers():
     except Exception as e:
         print(f"✗ Session manager test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -97,6 +101,7 @@ def test_tool_functions():
     except Exception as e:
         print(f"✗ Tool function test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -145,6 +150,7 @@ def test_serializer():
     except Exception as e:
         print(f"✗ Serializer test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -178,6 +184,7 @@ def test_error_translation():
     except Exception as e:
         print(f"✗ Error translation test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -204,6 +211,7 @@ def main():
         except Exception as e:
             print(f"\n✗ {name} crashed: {e}")
             import traceback
+
             traceback.print_exc()
             results.append((name, False))
 

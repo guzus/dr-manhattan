@@ -409,7 +409,7 @@ def main():
     passed = sum(1 for _, r in results if r)
     total = len(results)
 
-    print(f"\nTotal: {passed}/{total} tests passed ({passed/total*100:.1f}%)")
+    print(f"\nTotal: {passed}/{total} tests passed ({passed / total * 100:.1f}%)")
 
     if passed == total:
         print("\n🎉 All comprehensive tests passed!")

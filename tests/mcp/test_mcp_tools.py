@@ -6,6 +6,9 @@ import sys
 
 import pytest
 
+# Skip all tests in this module if mcp is not installed
+mcp = pytest.importorskip("mcp", reason="mcp package not installed")
+
 
 @pytest.mark.asyncio
 async def test_tool_registration():
@@ -91,8 +94,7 @@ async def test_tool_execution():
     # Test 2: fetch_markets with polymarket
     try:
         result = await server.call_tool(
-            name="fetch_markets",
-            arguments={"exchange": "polymarket", "params": {}}
+            name="fetch_markets", arguments={"exchange": "polymarket", "params": {}}
         )
         print("✓ fetch_markets executed successfully")
         print(f"  Result length: {len(result[0].text)} characters")
@@ -103,8 +105,7 @@ async def test_tool_execution():
     # Test 3: get_exchange_info
     try:
         result = await server.call_tool(
-            name="get_exchange_info",
-            arguments={"exchange": "polymarket"}
+            name="get_exchange_info", arguments={"exchange": "polymarket"}
         )
         print("✓ get_exchange_info executed successfully")
         print(f"  Result: {result[0].text[:100]}...")
@@ -125,8 +126,7 @@ async def test_error_handling():
     # Test 1: Invalid exchange name - should return error in result, not raise
     try:
         result = await server.call_tool(
-            name="get_exchange_info",
-            arguments={"exchange": "invalid_exchange"}
+            name="get_exchange_info", arguments={"exchange": "invalid_exchange"}
         )
         # Check if error is in the response
         result_text = result[0].text
@@ -142,10 +142,7 @@ async def test_error_handling():
 
     # Test 2: Invalid tool name - should return error in result
     try:
-        result = await server.call_tool(
-            name="nonexistent_tool",
-            arguments={}
-        )
+        result = await server.call_tool(name="nonexistent_tool", arguments={})
         # Check if error is in the response
         result_text = result[0].text
         if "error" in result_text.lower() or "unknown tool" in result_text.lower():
@@ -181,6 +178,7 @@ async def main():
         except Exception as e:
             print(f"\n✗ {name} crashed: {e}")
             import traceback
+
             traceback.print_exc()
             results.append((name, False))
 

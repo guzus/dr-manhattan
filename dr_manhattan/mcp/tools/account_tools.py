@@ -139,7 +139,9 @@ def fetch_balance(exchange: str) -> Dict[str, Any]:
 
             # Add clear message about which wallet is used for trading
             result["trading_wallet"] = "funder"
-            result["note"] = "Trading uses funder wallet balance. Ensure funder wallet has sufficient USDC."
+            result["note"] = (
+                "Trading uses funder wallet balance. Ensure funder wallet has sufficient USDC."
+            )
 
             return result
 
@@ -166,9 +168,7 @@ def fetch_balance(exchange: str) -> Dict[str, Any]:
         raise translate_error(e, {"exchange": exchange})
 
 
-def fetch_positions(
-    exchange: str, market_id: Optional[str] = None
-) -> List[Dict[str, Any]]:
+def fetch_positions(exchange: str, market_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Fetch current positions.
 

@@ -42,12 +42,13 @@ def test_tool_count():
             content = f.read()
 
         # Count Tool() instances
-        tool_count = content.count('Tool(')
+        tool_count = content.count("Tool(")
 
         print(f"✓ Found {tool_count} tool definitions")
 
         # List tool names
         import re
+
         tool_names = re.findall(r'name="([^"]+)"', content)
         print(f"  Tools: {', '.join(tool_names[:5])}... ({len(tool_names)} total)")
 

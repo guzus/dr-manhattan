@@ -25,9 +25,7 @@ def test_server_tools():
         print("✓ MCP handlers exist")
 
         # Check list_tools is async
-        assert inspect.iscoroutinefunction(
-            server.list_tools
-        ), "list_tools should be async"
+        assert inspect.iscoroutinefunction(server.list_tools), "list_tools should be async"
         print("✓ list_tools is async")
 
         # Check call_tool is async

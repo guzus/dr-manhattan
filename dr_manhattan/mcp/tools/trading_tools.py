@@ -75,14 +75,10 @@ def create_order(
         return serialize_model(order)
 
     except Exception as e:
-        raise translate_error(
-            e, {"exchange": exchange, "market_id": market_id, "side": side}
-        )
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id, "side": side})
 
 
-def cancel_order(
-    exchange: str, order_id: str, market_id: Optional[str] = None
-) -> Dict[str, Any]:
+def cancel_order(exchange: str, order_id: str, market_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Cancel an existing order.
 
@@ -127,9 +123,7 @@ def cancel_all_orders(exchange: str, market_id: Optional[str] = None) -> int:
         raise translate_error(e, {"exchange": exchange, "market_id": market_id})
 
 
-def fetch_order(
-    exchange: str, order_id: str, market_id: Optional[str] = None
-) -> Dict[str, Any]:
+def fetch_order(exchange: str, order_id: str, market_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Fetch order details.
 
@@ -152,9 +146,7 @@ def fetch_order(
         raise translate_error(e, {"exchange": exchange, "order_id": order_id})
 
 
-def fetch_open_orders(
-    exchange: str, market_id: Optional[str] = None
-) -> List[Dict[str, Any]]:
+def fetch_open_orders(exchange: str, market_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Fetch all open orders.
 

@@ -30,11 +30,12 @@ def mcp_setup_logger(name: str = None, level: int = logging.INFO):
 
     # Use stderr instead of stdout
     handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%H:%M:%S'))
+    handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S"))
     logger.addHandler(handler)
     logger.propagate = False
 
     return logger
+
 
 # Replace setup_logger in both locations
 logger_module.setup_logger = mcp_setup_logger
@@ -43,15 +44,16 @@ dr_manhattan.utils.setup_logger = mcp_setup_logger
 # Configure all logging to use stderr (MCP uses stdout for JSON-RPC)
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(asctime)s] %(message)s',
-    datefmt='%H:%M:%S',
+    format="[%(asctime)s] %(message)s",
+    datefmt="%H:%M:%S",
     stream=sys.stderr,
-    force=True
+    force=True,
 )
 
 # Load environment variables from .env file
 env_path = Path(__file__).parent.parent.parent / ".env"
 load_dotenv(env_path)
+
 
 def fix_all_loggers():
     """Remove ALL handlers and configure only root logger with stderr."""
@@ -71,7 +73,7 @@ def fix_all_loggers():
 
     # Add single stderr handler to root logger
     stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%H:%M:%S'))
+    stderr_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S"))
     root_logger.addHandler(stderr_handler)
     root_logger.setLevel(logging.INFO)
 

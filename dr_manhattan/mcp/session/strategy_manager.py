@@ -99,9 +99,7 @@ class StrategySessionManager:
             logger.error(f"Failed to create strategy session: {e}")
             raise
 
-    def _run_strategy(
-        self, session_id: str, strategy: Strategy, duration_minutes: Optional[int]
-    ):
+    def _run_strategy(self, session_id: str, strategy: Strategy, duration_minutes: Optional[int]):
         """Run strategy in background thread."""
         try:
             logger.info(f"Starting strategy execution: {session_id}")
