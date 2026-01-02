@@ -82,7 +82,7 @@ POLYMARKET_FUNDER=your_metamask_address_here
 Add the MCP server to your Claude Desktop configuration file:
 
 **Windows (WSL):**
-- File location: `C:\Users\YourName\AppData\Roaming\Claude\claude_desktop_config.json`
+- File location: `C:\Users\<username>\AppData\Roaming\Claude\claude_desktop_config.json`
 
 ```json
 {
@@ -90,11 +90,11 @@ Add the MCP server to your Claude Desktop configuration file:
     "dr-manhattan": {
       "command": "wsl",
       "args": [
-        "/home/youruser/dr-manhattan/.venv/bin/python3",
+        "/home/<username>/dr-manhattan/.venv/bin/python3",
         "-m",
         "dr_manhattan.mcp.server"
       ],
-      "cwd": "/home/youruser/dr-manhattan"
+      "cwd": "/home/<username>/dr-manhattan"
     }
   }
 }
@@ -107,9 +107,9 @@ Add the MCP server to your Claude Desktop configuration file:
 {
   "mcpServers": {
     "dr-manhattan": {
-      "command": "/home/youruser/dr-manhattan/.venv/bin/python3",
+      "command": "/home/<username>/dr-manhattan/.venv/bin/python3",
       "args": ["-m", "dr_manhattan.mcp.server"],
-      "cwd": "/home/youruser/dr-manhattan"
+      "cwd": "/home/<username>/dr-manhattan"
     }
   }
 }
@@ -122,16 +122,16 @@ Add the MCP server to your Claude Desktop configuration file:
 {
   "mcpServers": {
     "dr-manhattan": {
-      "command": "/Users/youruser/dr-manhattan/.venv/bin/python3",
+      "command": "/Users/<username>/dr-manhattan/.venv/bin/python3",
       "args": ["-m", "dr_manhattan.mcp.server"],
-      "cwd": "/Users/youruser/dr-manhattan"
+      "cwd": "/Users/<username>/dr-manhattan"
     }
   }
 }
 ```
 
 **Important:**
-- Replace `/home/youruser/dr-manhattan` with your actual project path
+- Replace `<username>` with your actual system username
 - Use absolute paths, not relative paths
 - Restart Claude Desktop after configuration changes
 
