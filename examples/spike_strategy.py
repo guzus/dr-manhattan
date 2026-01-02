@@ -179,9 +179,7 @@ class SpikeStrategy(Strategy):
         except Exception as e:
             logger.error(f"  Buy failed: {e}")
 
-    def _manage_position(
-        self, outcome: str, price: float, exchange_pos: float, token_id: str
-    ):
+    def _manage_position(self, outcome: str, price: float, exchange_pos: float, token_id: str):
         pos = self.entries.get(outcome)
         if not pos:
             return
