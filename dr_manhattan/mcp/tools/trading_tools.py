@@ -5,7 +5,16 @@ from typing import Any, Dict, List, Optional
 from dr_manhattan.models.order import OrderSide
 
 from ..session import ExchangeSessionManager
-from ..utils import serialize_model, translate_error
+from ..utils import (
+    serialize_model,
+    translate_error,
+    validate_exchange,
+    validate_market_id,
+    validate_optional_market_id,
+    validate_order_id,
+    validate_outcome,
+    validate_side,
+)
 
 exchange_manager = ExchangeSessionManager()
 
@@ -47,9 +56,17 @@ def create_order(
         ... )
     """
     try:
+        # Validate all inputs
+        exchange = validate_exchange(exchange)
+        market_id = validate_market_id(market_id)
+        outcome = validate_outcome(outcome)
+        side = validate_side(side)
+
         # Validate price range (prediction markets use 0-1, exclusive)
         # Note: 0.0 (0%) and 1.0 (100%) are not valid because no outcome is certain
         # and the counterparty would pay nothing (or receive shares for free)
+        if not isinstance(price, (int, float)):
+            raise ValueError("Price must be a number")
         if not 0 < price < 1:
             raise ValueError(
                 f"Price must be between 0 and 1 (exclusive), got {price}. "
@@ -57,13 +74,15 @@ def create_order(
             )
 
         # Validate size
+        if not isinstance(size, (int, float)):
+            raise ValueError("Size must be a number")
         if size <= 0:
             raise ValueError(f"Size must be positive, got {size}")
 
         client = exchange_manager.get_client(exchange)
 
         # Convert side string to OrderSide enum
-        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+        order_side = OrderSide.BUY if side == "buy" else OrderSide.SELL
 
         order = client.create_order(
             market_id=market_id,
@@ -97,6 +116,10 @@ def cancel_order(exchange: str, order_id: str, market_id: Optional[str] = None) 
         Updated Order object
     """
     try:
+        exchange = validate_exchange(exchange)
+        order_id = validate_order_id(order_id)
+        market_id = validate_optional_market_id(market_id)
+
         client = exchange_manager.get_client(exchange)
         order = client.cancel_order(order_id, market_id=market_id)
         return serialize_model(order)
@@ -119,6 +142,9 @@ def cancel_all_orders(exchange: str, market_id: Optional[str] = None) -> int:
         Number of orders cancelled
     """
     try:
+        exchange = validate_exchange(exchange)
+        market_id = validate_optional_market_id(market_id)
+
         client = exchange_manager.get_client(exchange)
         count = client.cancel_all_orders(market_id=market_id)
         return count
@@ -142,6 +168,10 @@ def fetch_order(exchange: str, order_id: str, market_id: Optional[str] = None) -
         Order object with fill status
     """
     try:
+        exchange = validate_exchange(exchange)
+        order_id = validate_order_id(order_id)
+        market_id = validate_optional_market_id(market_id)
+
         exch = exchange_manager.get_exchange(exchange)
         order = exch.fetch_order(order_id, market_id=market_id)
         return serialize_model(order)
@@ -164,6 +194,9 @@ def fetch_open_orders(exchange: str, market_id: Optional[str] = None) -> List[Di
         List of Order objects
     """
     try:
+        exchange = validate_exchange(exchange)
+        market_id = validate_optional_market_id(market_id)
+
         client = exchange_manager.get_client(exchange)
         orders = client.fetch_open_orders(market_id=market_id)
         return [serialize_model(o) for o in orders]

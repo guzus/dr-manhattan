@@ -106,13 +106,15 @@ class TestErrorTranslation:
         context = {
             "exchange": "polymarket",
             "market_id": "0x123",
-            "user": "test",
+            "user": "test",  # This should be filtered (not in allowlist)
         }
         mcp_error = translate_error(error, context)
 
+        # Only allowlisted fields should be included
         assert mcp_error.data["exchange"] == "polymarket"
         assert mcp_error.data["market_id"] == "0x123"
-        assert mcp_error.data["user"] == "test"
+        # "user" should NOT be in data (filtered for security)
+        assert "user" not in mcp_error.data
 
     def test_mcp_error_to_dict(self):
         """Test McpError.to_dict()."""

@@ -74,6 +74,39 @@ def _get_mcp_credentials() -> Dict[str, Dict[str, Any]]:
 MCP_CREDENTIALS: Dict[str, Dict[str, Any]] = _get_mcp_credentials()
 
 
+def _cleanup_rpc_session() -> None:
+    """
+    Cleanup global RPC session from account_tools.
+
+    Called during ExchangeSessionManager cleanup to release HTTP connections.
+    """
+    try:
+        from ..tools.account_tools import cleanup_rpc_session
+
+        cleanup_rpc_session()
+    except ImportError:
+        pass  # Module not loaded yet
+
+
+def _zeroize_credentials() -> None:
+    """
+    Clear sensitive credential data from memory.
+
+    This provides defense-in-depth by clearing credentials on shutdown.
+    Note: Python's garbage collection may not immediately free memory,
+    but this reduces the window of exposure.
+    """
+    global MCP_CREDENTIALS
+    for exchange_creds in MCP_CREDENTIALS.values():
+        if "private_key" in exchange_creds:
+            exchange_creds["private_key"] = ""
+        if "funder" in exchange_creds:
+            exchange_creds["funder"] = ""
+        if "proxy_wallet" in exchange_creds:
+            exchange_creds["proxy_wallet"] = ""
+    logger.info("Credentials zeroized")
+
+
 class ExchangeSessionManager:
     """
     Manages exchange instances and their state.
@@ -94,12 +127,19 @@ class ExchangeSessionManager:
                 cls._instance._exchanges: Dict[str, Exchange] = {}
                 cls._instance._clients: Dict[str, ExchangeClient] = {}
                 cls._instance._instance_lock = threading.RLock()
+                cls._instance._initialized = True
                 logger.info("ExchangeSessionManager initialized")
         return cls._instance
 
     def __init__(self):
-        """No-op: initialization done in __new__ to prevent race conditions."""
-        pass
+        """Ensure idempotent initialization."""
+        # Check if already initialized to prevent re-initialization
+        if not hasattr(self, "_initialized"):
+            # Should not reach here due to __new__, but defensive check
+            self._exchanges = {}
+            self._clients = {}
+            self._instance_lock = threading.RLock()
+            self._initialized = True
 
     def get_exchange(
         self, exchange_name: str, use_env: bool = True, validate: bool = True
@@ -215,8 +255,13 @@ class ExchangeSessionManager:
         """Check if exchange instance exists."""
         return exchange_name in self._exchanges
 
-    def cleanup(self):
-        """Cleanup all exchange sessions (WebSocket, threads)."""
+    def cleanup(self, zeroize: bool = True):
+        """
+        Cleanup all exchange sessions (WebSocket, threads, credentials).
+
+        Args:
+            zeroize: If True, also clear credential data from memory
+        """
         logger.info("Cleaning up exchange sessions...")
         with self._instance_lock:
             failed_clients = []
@@ -234,5 +279,12 @@ class ExchangeSessionManager:
                     del self._clients[name]
                     if name in self._exchanges:
                         del self._exchanges[name]
+
+        # Cleanup global RPC session (connection pooling)
+        _cleanup_rpc_session()
+
+        # Zeroize credentials on shutdown (defense in depth)
+        if zeroize:
+            _zeroize_credentials()
 
         logger.info("Exchange sessions cleaned up")

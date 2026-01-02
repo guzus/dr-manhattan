@@ -41,6 +41,24 @@ ERROR_MAP = {
 }
 
 
+# Allowlist of safe context fields to include in error responses.
+# Never include sensitive data like private_key, funder, password, token, secret.
+SAFE_CONTEXT_FIELDS = frozenset(
+    {
+        "exchange",
+        "market_id",
+        "order_id",
+        "session_id",
+        "token_id",
+        "side",
+        "outcome",
+        "slug",
+        "identifier",
+        "token_symbol",
+    }
+)
+
+
 def translate_error(e: Exception, context: Optional[Dict[str, Any]] = None) -> McpError:
     """
     Translate dr-manhattan exception to MCP error.
@@ -48,6 +66,7 @@ def translate_error(e: Exception, context: Optional[Dict[str, Any]] = None) -> M
     Args:
         e: Exception to translate
         context: Additional context (exchange, market_id, etc.)
+                 Only allowlisted fields are included in error response.
 
     Returns:
         McpError instance
@@ -62,9 +81,11 @@ def translate_error(e: Exception, context: Optional[Dict[str, Any]] = None) -> M
         "details": getattr(e, "details", None),
     }
 
-    # Add context
+    # Add only safe context fields (prevent leaking sensitive data)
     if context:
-        error_data.update(context)
+        for key, value in context.items():
+            if key in SAFE_CONTEXT_FIELDS and value is not None:
+                error_data[key] = value
 
     # Remove None values
     error_data = {k: v for k, v in error_data.items() if v is not None}

@@ -5,7 +5,7 @@ from typing import Any, Dict
 from dr_manhattan.base import list_exchanges as dr_list_exchanges
 
 from ..session import ExchangeSessionManager
-from ..utils import serialize_model, translate_error
+from ..utils import serialize_model, translate_error, validate_exchange
 
 # Get session manager
 exchange_manager = ExchangeSessionManager()
@@ -51,6 +51,8 @@ def get_exchange_info(exchange: str) -> Dict[str, Any]:
         }
     """
     try:
+        exchange = validate_exchange(exchange)
+
         exch = exchange_manager.get_exchange(exchange)
         info = exch.describe()
 
@@ -82,6 +84,8 @@ def validate_credentials(exchange: str) -> Dict[str, Any]:
         }
     """
     try:
+        exchange = validate_exchange(exchange)
+
         # Create exchange with validation
         exch = exchange_manager.get_exchange(exchange, validate=True)
 

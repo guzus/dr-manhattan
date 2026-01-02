@@ -7,7 +7,13 @@ import requests
 from dr_manhattan.utils import setup_logger
 
 from ..session import ExchangeSessionManager
-from ..utils import serialize_model, translate_error
+from ..utils import (
+    serialize_model,
+    translate_error,
+    validate_exchange,
+    validate_market_id,
+    validate_optional_market_id,
+)
 
 logger = setup_logger(__name__)
 
@@ -37,6 +43,23 @@ def _get_rpc_session() -> requests.Session:
     if _RPC_SESSION is None:
         _RPC_SESSION = requests.Session()
     return _RPC_SESSION
+
+
+def cleanup_rpc_session() -> None:
+    """
+    Cleanup global RPC session.
+
+    Called by ExchangeSessionManager.cleanup() to release HTTP connections.
+    """
+    global _RPC_SESSION
+    if _RPC_SESSION is not None:
+        try:
+            _RPC_SESSION.close()
+            logger.info("RPC session closed")
+        except Exception as e:
+            logger.warning(f"Error closing RPC session: {e}")
+        finally:
+            _RPC_SESSION = None
 
 
 def _validate_rpc_response(result: str, address: str) -> bool:
@@ -156,6 +179,7 @@ def fetch_balance(exchange: str) -> Dict[str, Any]:
         >>> print(f"Trading balance: ${balance['funder_balance']:.2f}")
     """
     try:
+        exchange = validate_exchange(exchange)
         exch = exchange_manager.get_exchange(exchange)
 
         # For Polymarket: Show both funder and proxy wallet balances
@@ -238,6 +262,8 @@ def fetch_positions(exchange: str, market_id: Optional[str] = None) -> List[Dict
         ...     print(f"{pos['outcome']}: {pos['size']} @ {pos['average_price']}")
     """
     try:
+        exchange = validate_exchange(exchange)
+        market_id = validate_optional_market_id(market_id)
         client = exchange_manager.get_client(exchange)
         positions = client.fetch_positions(market_id=market_id)
         return [serialize_model(p) for p in positions]
@@ -260,6 +286,8 @@ def fetch_positions_for_market(exchange: str, market_id: str) -> List[Dict[str, 
         List of Position objects for this market
     """
     try:
+        exchange = validate_exchange(exchange)
+        market_id = validate_market_id(market_id)
         client = exchange_manager.get_client(exchange)
 
         # Need market object
@@ -294,8 +322,11 @@ def calculate_nav(exchange: str, market_id: Optional[str] = None) -> Dict[str, A
         >>> print(f"Positions: ${nav['positions_value']:.2f}")
     """
     try:
+        exchange = validate_exchange(exchange)
+        market_id = validate_optional_market_id(market_id)
+
         # For Polymarket: Show both wallet balances and calculate NAV from funder wallet
-        if exchange.lower() == "polymarket":
+        if exchange == "polymarket":
             from ..session.exchange_manager import MCP_CREDENTIALS
 
             exch = exchange_manager.get_exchange(exchange)

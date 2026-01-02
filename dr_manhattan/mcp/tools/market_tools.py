@@ -3,7 +3,14 @@
 from typing import Any, Dict, List, Optional
 
 from ..session import ExchangeSessionManager
-from ..utils import serialize_model, translate_error
+from ..utils import (
+    serialize_model,
+    translate_error,
+    validate_exchange,
+    validate_market_id,
+    validate_slug,
+    validate_token_id,
+)
 
 exchange_manager = ExchangeSessionManager()
 
@@ -29,6 +36,7 @@ def fetch_markets(exchange: str, params: Optional[Dict[str, Any]] = None) -> Lis
         >>> markets = fetch_markets("polymarket", {"limit": 10})
     """
     try:
+        exchange = validate_exchange(exchange)
         exch = exchange_manager.get_exchange(exchange)
         markets = exch.fetch_markets(params or {})
         return [serialize_model(m) for m in markets]
@@ -51,6 +59,9 @@ def fetch_market(exchange: str, market_id: str) -> Dict[str, Any]:
         Market object as dict
     """
     try:
+        exchange = validate_exchange(exchange)
+        market_id = validate_market_id(market_id)
+
         exch = exchange_manager.get_exchange(exchange)
         market = exch.fetch_market(market_id)
         return serialize_model(market)
@@ -79,6 +90,9 @@ def fetch_markets_by_slug(exchange: str, slug: str) -> List[Dict]:
         ...     "https://polymarket.com/event/trump-2024")
     """
     try:
+        exchange = validate_exchange(exchange)
+        slug = validate_slug(slug)
+
         exch = exchange_manager.get_exchange(exchange)
 
         if not hasattr(exch, "fetch_markets_by_slug"):
@@ -112,6 +126,14 @@ def find_tradeable_market(
         Market object or None if no suitable market found
     """
     try:
+        exchange = validate_exchange(exchange)
+
+        # Validate limit and min_liquidity
+        if not isinstance(limit, int) or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        if not isinstance(min_liquidity, (int, float)) or min_liquidity < 0:
+            raise ValueError("min_liquidity must be a non-negative number")
+
         exch = exchange_manager.get_exchange(exchange)
         market = exch.find_tradeable_market(binary=binary, limit=limit, min_liquidity=min_liquidity)
 
@@ -151,6 +173,17 @@ def find_crypto_hourly_market(
         ...     crypto_info = result["crypto_hourly"]
     """
     try:
+        exchange = validate_exchange(exchange)
+
+        # Validate token_symbol if provided
+        if token_symbol is not None:
+            if not isinstance(token_symbol, str) or not token_symbol.strip():
+                raise ValueError("token_symbol must be a non-empty string")
+            token_symbol = token_symbol.strip().upper()
+
+        if not isinstance(min_liquidity, (int, float)) or min_liquidity < 0:
+            raise ValueError("min_liquidity must be a non-negative number")
+
         exch = exchange_manager.get_exchange(exchange)
         result = exch.find_crypto_hourly_market(
             token_symbol=token_symbol,
@@ -189,6 +222,8 @@ def parse_market_identifier(identifier: str) -> str:
         'trump-2024'
     """
     try:
+        identifier = validate_slug(identifier)
+
         from dr_manhattan.exchanges.polymarket import Polymarket
 
         return Polymarket.parse_market_identifier(identifier)
@@ -211,6 +246,8 @@ def get_tag_by_slug(slug: str) -> Dict[str, Any]:
         Tag object as dict
     """
     try:
+        slug = validate_slug(slug)
+
         exch = exchange_manager.get_exchange("polymarket")
 
         if not hasattr(exch, "get_tag_by_slug"):
@@ -237,6 +274,9 @@ def fetch_token_ids(exchange: str, market_id: str) -> List[str]:
         List of token IDs
     """
     try:
+        exchange = validate_exchange(exchange)
+        market_id = validate_market_id(market_id)
+
         exch = exchange_manager.get_exchange(exchange)
 
         if hasattr(exch, "fetch_token_ids"):
@@ -269,6 +309,9 @@ def get_orderbook(exchange: str, token_id: str) -> Dict[str, Any]:
         [0.52, 100]  # [price, size]
     """
     try:
+        exchange = validate_exchange(exchange)
+        token_id = validate_token_id(token_id)
+
         exch = exchange_manager.get_exchange(exchange)
         orderbook = exch.get_orderbook(token_id)
         return serialize_model(orderbook)
@@ -296,6 +339,9 @@ def get_best_bid_ask(exchange: str, token_id: str) -> Dict[str, Any]:
         >>> print(f"Spread: {result['best_ask'] - result['best_bid']}")
     """
     try:
+        exchange = validate_exchange(exchange)
+        token_id = validate_token_id(token_id)
+
         client = exchange_manager.get_client(exchange)
         best_bid, best_ask = client.get_best_bid_ask(token_id)
 

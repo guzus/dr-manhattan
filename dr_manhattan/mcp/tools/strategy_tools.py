@@ -3,7 +3,14 @@
 from typing import Any, Dict, Optional
 
 from ..session import ExchangeSessionManager, StrategySessionManager
-from ..utils import serialize_model, translate_error
+from ..utils import (
+    serialize_model,
+    translate_error,
+    validate_exchange,
+    validate_market_id,
+    validate_positive_float,
+    validate_session_id,
+)
 
 exchange_manager = ExchangeSessionManager()
 strategy_manager = StrategySessionManager()
@@ -47,6 +54,25 @@ def create_strategy_session(
         ... )
     """
     try:
+        # Validate inputs
+        exchange = validate_exchange(exchange)
+        market_id = validate_market_id(market_id)
+
+        # Validate strategy_type
+        if not strategy_type or not isinstance(strategy_type, str):
+            raise ValueError("strategy_type is required")
+        strategy_type = strategy_type.strip().lower()
+
+        # Validate numeric parameters
+        max_position = validate_positive_float(max_position, "max_position")
+        order_size = validate_positive_float(order_size, "order_size")
+        max_delta = validate_positive_float(max_delta, "max_delta")
+        check_interval = validate_positive_float(check_interval, "check_interval")
+
+        if duration_minutes is not None:
+            if not isinstance(duration_minutes, int) or duration_minutes <= 0:
+                raise ValueError("duration_minutes must be a positive integer")
+
         # Get exchange instance
         exch = exchange_manager.get_exchange(exchange)
 
@@ -101,6 +127,7 @@ def get_strategy_status(session_id: str) -> Dict[str, Any]:
         >>> print(f"Delta: {status['delta']:.1f}")
     """
     try:
+        session_id = validate_session_id(session_id)
         status = strategy_manager.get_status(session_id)
         return serialize_model(status)
 
@@ -119,6 +146,7 @@ def pause_strategy(session_id: str) -> bool:
         True if paused successfully
     """
     try:
+        session_id = validate_session_id(session_id)
         return strategy_manager.pause_strategy(session_id)
 
     except Exception as e:
@@ -136,6 +164,7 @@ def resume_strategy(session_id: str) -> bool:
         True if resumed successfully
     """
     try:
+        session_id = validate_session_id(session_id)
         return strategy_manager.resume_strategy(session_id)
 
     except Exception as e:
@@ -154,6 +183,7 @@ def stop_strategy(session_id: str, cleanup: bool = True) -> Dict[str, Any]:
         Final status and metrics
     """
     try:
+        session_id = validate_session_id(session_id)
         final_status = strategy_manager.stop_strategy(session_id, cleanup=cleanup)
         return serialize_model(final_status)
 
@@ -177,6 +207,7 @@ def get_strategy_metrics(session_id: str) -> Dict[str, Any]:
         >>> print(f"Current NAV: ${metrics['current_nav']:.2f}")
     """
     try:
+        session_id = validate_session_id(session_id)
         metrics = strategy_manager.get_metrics(session_id)
         return serialize_model(metrics)
 
