@@ -2,8 +2,8 @@
 """Code-level validation of MCP server without runtime dependencies."""
 
 import ast
-import sys
 import os
+import sys
 
 
 def test_all_files_parseable():

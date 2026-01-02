@@ -1,10 +1,10 @@
 """Test session managers."""
 
 import pytest
+
 from dr_manhattan.mcp.session import (
     ExchangeSessionManager,
     StrategySessionManager,
-    SessionStatus,
 )
 
 

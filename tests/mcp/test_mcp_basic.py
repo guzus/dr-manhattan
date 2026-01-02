@@ -10,25 +10,25 @@ def test_imports():
 
     try:
         # Test session imports
-        from dr_manhattan.mcp.session import (
+        from dr_manhattan.mcp.session import (  # noqa: F401
             ExchangeSessionManager,
-            StrategySessionManager,
-            StrategySession,
             SessionStatus,
+            StrategySession,
+            StrategySessionManager,
         )
         print("✓ Session imports OK")
 
         # Test utils imports
-        from dr_manhattan.mcp.utils import translate_error, McpError, serialize_model
+        from dr_manhattan.mcp.utils import McpError, serialize_model, translate_error  # noqa: F401
         print("✓ Utils imports OK")
 
         # Test tool imports
-        from dr_manhattan.mcp.tools import (
+        from dr_manhattan.mcp.tools import (  # noqa: F401
+            account_tools,
             exchange_tools,
             market_tools,
-            trading_tools,
-            account_tools,
             strategy_tools,
+            trading_tools,
         )
         print("✓ Tool imports OK")
 
@@ -106,14 +106,15 @@ def test_serializer():
     print("\nTesting serialization...")
 
     try:
-        from dr_manhattan.mcp.utils import serialize_model
         from datetime import datetime
         from enum import Enum
+
+        from dr_manhattan.mcp.utils import serialize_model
 
         # Test primitives
         assert serialize_model(123) == 123
         assert serialize_model("test") == "test"
-        assert serialize_model(True) == True
+        assert serialize_model(True) is True
         print("✓ Primitives OK")
 
         # Test datetime
@@ -153,8 +154,8 @@ def test_error_translation():
     print("\nTesting error translation...")
 
     try:
-        from dr_manhattan.mcp.utils import translate_error, McpError
         from dr_manhattan.base.errors import MarketNotFound, NetworkError
+        from dr_manhattan.mcp.utils import McpError, translate_error
 
         # Test MarketNotFound
         error = MarketNotFound("Market not found")

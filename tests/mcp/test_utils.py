@@ -1,16 +1,17 @@
 """Test MCP utilities."""
 
-import pytest
 from datetime import datetime
 from enum import Enum
 
-from dr_manhattan.mcp.utils import serialize_model, translate_error, McpError
+import pytest
+
 from dr_manhattan.base.errors import (
+    AuthenticationError,
     MarketNotFound,
     NetworkError,
     RateLimitError,
-    AuthenticationError,
 )
+from dr_manhattan.mcp.utils import McpError, serialize_model, translate_error
 
 
 class TestSerializeModel:

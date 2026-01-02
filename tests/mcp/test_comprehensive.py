@@ -6,8 +6,8 @@ Tests code structure, logic, and integration points.
 
 import ast
 import os
-import sys
 import re
+import sys
 
 
 def test_all_tool_files_exist():
@@ -120,7 +120,7 @@ def test_server_tool_registration():
             print(f"  ✗ Missing route for: {tool_name}")
             return False
 
-    print(f"  ✓ All critical tools have routes")
+    print("  ✓ All critical tools have routes")
     return True
 
 
@@ -317,7 +317,7 @@ def test_pyproject_configuration():
             print(f"  ✗ Missing: {description} ({config})")
             return False
 
-    print(f"  ✓ All required configurations present")
+    print("  ✓ All required configurations present")
     return True
 
 
@@ -335,7 +335,7 @@ def test_server_async_structure():
             print(f"  ✗ Missing async function: {func}")
             return False
 
-    print(f"  ✓ All async functions present")
+    print("  ✓ All async functions present")
 
     # Check MCP server creation
     if "Server(" not in content:

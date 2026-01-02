@@ -5,6 +5,7 @@ Main entry point for the Model Context Protocol server.
 """
 
 import asyncio
+import json
 import logging
 import signal
 import sys
@@ -409,17 +410,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             raise ValueError(f"Unknown tool: {name}")
 
         # Return result as text content
-        import json
-
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     except Exception as e:
         # Translate error
         mcp_error = translate_error(e, {"tool": name, "arguments": arguments})
         error_response = {"error": mcp_error.to_dict()}
-
-        import json
-
         return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
 
 

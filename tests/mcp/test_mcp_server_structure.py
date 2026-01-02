@@ -12,6 +12,7 @@ def test_server_tools():
         # Can't actually run async without installing MCP SDK,
         # but we can check the structure
         import inspect
+
         from dr_manhattan.mcp import server
 
         # Check server exists
@@ -102,11 +103,11 @@ def test_tool_routing():
 
         # Check tool functions exist
         from dr_manhattan.mcp.tools import (
+            account_tools,
             exchange_tools,
             market_tools,
-            trading_tools,
-            account_tools,
             strategy_tools,
+            trading_tools,
         )
 
         modules = {

@@ -233,6 +233,12 @@ class StrategySessionManager:
         # Wait for thread to finish (with timeout)
         if session.thread and session.thread.is_alive():
             session.thread.join(timeout=10.0)
+            # Check if thread is still alive after timeout
+            if session.thread.is_alive():
+                logger.warning(
+                    f"Strategy thread {session_id} did not stop within timeout. "
+                    "Thread may still be running in background."
+                )
 
         # Get final status
         final_status = self.get_status(session_id)
@@ -305,6 +311,10 @@ class StrategySessionManager:
                     # Wait for thread with timeout
                     if session.thread and session.thread.is_alive():
                         session.thread.join(timeout=5.0)
+                        if session.thread.is_alive():
+                            logger.warning(
+                                f"Strategy thread {session_id} did not stop within cleanup timeout"
+                            )
 
                 except Exception as e:
                     logger.error(f"Error stopping strategy {session_id}: {e}")

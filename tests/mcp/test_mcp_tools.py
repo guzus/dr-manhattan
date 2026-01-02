@@ -82,7 +82,7 @@ async def test_tool_execution():
     # Test 1: list_exchanges (no arguments needed)
     try:
         result = await server.call_tool(name="list_exchanges", arguments={})
-        print(f"✓ list_exchanges executed successfully")
+        print("✓ list_exchanges executed successfully")
         print(f"  Result: {result[0].text[:100]}...")
     except Exception as e:
         print(f"✗ list_exchanges failed: {e}")
@@ -94,7 +94,7 @@ async def test_tool_execution():
             name="fetch_markets",
             arguments={"exchange": "polymarket", "params": {}}
         )
-        print(f"✓ fetch_markets executed successfully")
+        print("✓ fetch_markets executed successfully")
         print(f"  Result length: {len(result[0].text)} characters")
     except Exception as e:
         print(f"✗ fetch_markets failed: {e}")
@@ -106,7 +106,7 @@ async def test_tool_execution():
             name="get_exchange_info",
             arguments={"exchange": "polymarket"}
         )
-        print(f"✓ get_exchange_info executed successfully")
+        print("✓ get_exchange_info executed successfully")
         print(f"  Result: {result[0].text[:100]}...")
     except Exception as e:
         print(f"✗ get_exchange_info failed: {e}")
@@ -131,9 +131,9 @@ async def test_error_handling():
         # Check if error is in the response
         result_text = result[0].text
         if "error" in result_text.lower() or "unknown exchange" in result_text.lower():
-            print(f"✓ Correctly returned error for invalid exchange")
+            print("✓ Correctly returned error for invalid exchange")
         else:
-            print(f"✗ Expected error in result for invalid exchange")
+            print("✗ Expected error in result for invalid exchange")
             print(f"  Got: {result_text[:200]}")
             return False
     except Exception as e:
@@ -149,9 +149,9 @@ async def test_error_handling():
         # Check if error is in the response
         result_text = result[0].text
         if "error" in result_text.lower() or "unknown tool" in result_text.lower():
-            print(f"✓ Correctly returned error for invalid tool")
+            print("✓ Correctly returned error for invalid tool")
         else:
-            print(f"✗ Expected error in result for invalid tool")
+            print("✗ Expected error in result for invalid tool")
             print(f"  Got: {result_text[:200]}")
             return False
     except Exception as e:

@@ -11,18 +11,37 @@ from dr_manhattan.utils import setup_logger
 
 logger = setup_logger(__name__)
 
-# MCP-specific credentials (Single Source of Truth as per CLAUDE.md)
-# Using dict format to include MCP-specific settings like signature_type
-# Read from environment variables for security
-MCP_CREDENTIALS: Dict[str, Dict[str, Any]] = {
-    "polymarket": {
-        "private_key": os.getenv("POLYMARKET_PRIVATE_KEY", ""),
-        "funder": os.getenv("POLYMARKET_FUNDER", ""),
-        "proxy_wallet": os.getenv("POLYMARKET_PROXY_WALLET", ""),
-        "signature_type": int(os.getenv("POLYMARKET_SIGNATURE_TYPE", "0")),
-        "verbose": True,
+def _get_polymarket_signature_type() -> int:
+    """Get signature type with safe default."""
+    sig_type = os.getenv("POLYMARKET_SIGNATURE_TYPE", "0")
+    try:
+        return int(sig_type)
+    except ValueError:
+        logger.warning(f"Invalid POLYMARKET_SIGNATURE_TYPE '{sig_type}', using default 0")
+        return 0
+
+
+def _get_mcp_credentials() -> Dict[str, Dict[str, Any]]:
+    """
+    Get MCP credentials from environment variables.
+
+    Returns credentials dict. Empty strings indicate missing credentials,
+    which will be validated when the exchange is actually used.
+    """
+    return {
+        "polymarket": {
+            "private_key": os.getenv("POLYMARKET_PRIVATE_KEY") or "",
+            "funder": os.getenv("POLYMARKET_FUNDER") or "",
+            "proxy_wallet": os.getenv("POLYMARKET_PROXY_WALLET") or "",
+            "signature_type": _get_polymarket_signature_type(),
+            "verbose": True,
+        }
     }
-}
+
+
+# MCP-specific credentials (Single Source of Truth as per CLAUDE.md)
+# Loaded lazily to allow environment changes
+MCP_CREDENTIALS: Dict[str, Dict[str, Any]] = _get_mcp_credentials()
 
 
 class ExchangeSessionManager:
@@ -77,6 +96,18 @@ class ExchangeSessionManager:
                 # Use MCP credentials if available (Single Source of Truth)
                 config_dict = MCP_CREDENTIALS.get(exchange_name.lower())
                 if config_dict:
+                    # Validate required credentials for Polymarket
+                    if exchange_name.lower() == "polymarket":
+                        if not config_dict.get("private_key"):
+                            raise ValueError(
+                                "POLYMARKET_PRIVATE_KEY environment variable is required. "
+                                "Please set it in your .env file or environment."
+                            )
+                        if not config_dict.get("funder"):
+                            raise ValueError(
+                                "POLYMARKET_FUNDER environment variable is required. "
+                                "Please set it in your .env file or environment."
+                            )
                     logger.info(f"Using MCP credentials for {exchange_name}")
                     # Create exchange directly with dict config (MCP-specific)
                     from ...exchanges.limitless import Limitless
