@@ -34,7 +34,7 @@ def fetch_markets(exchange: str, params: Optional[Dict[str, Any]] = None) -> Lis
         return [serialize_model(m) for m in markets]
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange})
+        raise translate_error(e, {"exchange": exchange}) from e
 
 
 def fetch_market(exchange: str, market_id: str) -> Dict[str, Any]:
@@ -56,7 +56,7 @@ def fetch_market(exchange: str, market_id: str) -> Dict[str, Any]:
         return serialize_model(market)
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "market_id": market_id})
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id}) from e
 
 
 def fetch_markets_by_slug(exchange: str, slug: str) -> List[Dict]:
@@ -88,7 +88,7 @@ def fetch_markets_by_slug(exchange: str, slug: str) -> List[Dict]:
         return [serialize_model(m) for m in markets]
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "slug": slug})
+        raise translate_error(e, {"exchange": exchange, "slug": slug}) from e
 
 
 def find_tradeable_market(
@@ -120,7 +120,7 @@ def find_tradeable_market(
         return None
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange})
+        raise translate_error(e, {"exchange": exchange}) from e
 
 
 def find_crypto_hourly_market(
@@ -167,7 +167,7 @@ def find_crypto_hourly_market(
         return None
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "token_symbol": token_symbol})
+        raise translate_error(e, {"exchange": exchange, "token_symbol": token_symbol}) from e
 
 
 def parse_market_identifier(identifier: str) -> str:
@@ -194,7 +194,7 @@ def parse_market_identifier(identifier: str) -> str:
         return Polymarket.parse_market_identifier(identifier)
 
     except Exception as e:
-        raise translate_error(e, {"identifier": identifier})
+        raise translate_error(e, {"identifier": identifier}) from e
 
 
 def get_tag_by_slug(slug: str) -> Dict[str, Any]:
@@ -220,7 +220,7 @@ def get_tag_by_slug(slug: str) -> Dict[str, Any]:
         return serialize_model(tag)
 
     except Exception as e:
-        raise translate_error(e, {"slug": slug})
+        raise translate_error(e, {"slug": slug}) from e
 
 
 def fetch_token_ids(exchange: str, market_id: str) -> List[str]:
@@ -247,7 +247,7 @@ def fetch_token_ids(exchange: str, market_id: str) -> List[str]:
             return market.metadata.get("clobTokenIds", [])
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "market_id": market_id})
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id}) from e
 
 
 def get_orderbook(exchange: str, token_id: str) -> Dict[str, Any]:
@@ -274,7 +274,7 @@ def get_orderbook(exchange: str, token_id: str) -> Dict[str, Any]:
         return serialize_model(orderbook)
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "token_id": token_id})
+        raise translate_error(e, {"exchange": exchange, "token_id": token_id}) from e
 
 
 def get_best_bid_ask(exchange: str, token_id: str) -> Dict[str, Any]:
@@ -302,4 +302,4 @@ def get_best_bid_ask(exchange: str, token_id: str) -> Dict[str, Any]:
         return {"best_bid": best_bid, "best_ask": best_ask}
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "token_id": token_id})
+        raise translate_error(e, {"exchange": exchange, "token_id": token_id}) from e

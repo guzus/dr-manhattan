@@ -165,7 +165,7 @@ def fetch_balance(exchange: str) -> Dict[str, Any]:
         return result
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange})
+        raise translate_error(e, {"exchange": exchange}) from e
 
 
 def fetch_positions(exchange: str, market_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -192,7 +192,7 @@ def fetch_positions(exchange: str, market_id: Optional[str] = None) -> List[Dict
         return [serialize_model(p) for p in positions]
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "market_id": market_id})
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id}) from e
 
 
 def fetch_positions_for_market(exchange: str, market_id: str) -> List[Dict[str, Any]]:
@@ -219,7 +219,7 @@ def fetch_positions_for_market(exchange: str, market_id: str) -> List[Dict[str, 
         return [serialize_model(p) for p in positions]
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "market_id": market_id})
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id}) from e
 
 
 def calculate_nav(exchange: str, market_id: Optional[str] = None) -> Dict[str, Any]:
@@ -305,4 +305,4 @@ def calculate_nav(exchange: str, market_id: Optional[str] = None) -> Dict[str, A
         return serialize_model(nav)
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "market_id": market_id})
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id}) from e

@@ -23,7 +23,7 @@ def list_exchanges() -> list[str]:
     try:
         return dr_list_exchanges()
     except Exception as e:
-        raise translate_error(e)
+        raise translate_error(e) from e
 
 
 def get_exchange_info(exchange: str) -> Dict[str, Any]:
@@ -60,7 +60,7 @@ def get_exchange_info(exchange: str) -> Dict[str, Any]:
         return serialize_model(info)
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange})
+        raise translate_error(e, {"exchange": exchange}) from e
 
 
 def validate_credentials(exchange: str) -> Dict[str, Any]:

@@ -82,7 +82,7 @@ def create_strategy_session(
         return session_id
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "market_id": market_id})
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id}) from e
 
 
 def get_strategy_status(session_id: str) -> Dict[str, Any]:
@@ -105,7 +105,7 @@ def get_strategy_status(session_id: str) -> Dict[str, Any]:
         return serialize_model(status)
 
     except Exception as e:
-        raise translate_error(e, {"session_id": session_id})
+        raise translate_error(e, {"session_id": session_id}) from e
 
 
 def pause_strategy(session_id: str) -> bool:
@@ -122,7 +122,7 @@ def pause_strategy(session_id: str) -> bool:
         return strategy_manager.pause_strategy(session_id)
 
     except Exception as e:
-        raise translate_error(e, {"session_id": session_id})
+        raise translate_error(e, {"session_id": session_id}) from e
 
 
 def resume_strategy(session_id: str) -> bool:
@@ -139,7 +139,7 @@ def resume_strategy(session_id: str) -> bool:
         return strategy_manager.resume_strategy(session_id)
 
     except Exception as e:
-        raise translate_error(e, {"session_id": session_id})
+        raise translate_error(e, {"session_id": session_id}) from e
 
 
 def stop_strategy(session_id: str, cleanup: bool = True) -> Dict[str, Any]:
@@ -158,7 +158,7 @@ def stop_strategy(session_id: str, cleanup: bool = True) -> Dict[str, Any]:
         return serialize_model(final_status)
 
     except Exception as e:
-        raise translate_error(e, {"session_id": session_id})
+        raise translate_error(e, {"session_id": session_id}) from e
 
 
 def get_strategy_metrics(session_id: str) -> Dict[str, Any]:
@@ -181,7 +181,7 @@ def get_strategy_metrics(session_id: str) -> Dict[str, Any]:
         return serialize_model(metrics)
 
     except Exception as e:
-        raise translate_error(e, {"session_id": session_id})
+        raise translate_error(e, {"session_id": session_id}) from e
 
 
 def list_strategy_sessions() -> Dict[str, Any]:
@@ -201,4 +201,4 @@ def list_strategy_sessions() -> Dict[str, Any]:
         return serialize_model(sessions)
 
     except Exception as e:
-        raise translate_error(e)
+        raise translate_error(e) from e

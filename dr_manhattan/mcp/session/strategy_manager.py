@@ -31,7 +31,6 @@ class StrategySessionManager:
                 # Initialize within the lock to prevent race condition
                 cls._instance._sessions: Dict[str, StrategySession] = {}
                 cls._instance._instance_lock = threading.Lock()
-                cls._instance._initialized = True
                 logger.info("StrategySessionManager initialized")
         return cls._instance
 
@@ -301,6 +300,7 @@ class StrategySessionManager:
         """Stop all strategies and cleanup."""
         logger.info("Cleaning up strategy sessions...")
         with self._instance_lock:
+            failed_sessions = []
             for session_id, session in list(self._sessions.items()):
                 try:
                     logger.info(f"Stopping strategy: {session_id}")
@@ -313,10 +313,15 @@ class StrategySessionManager:
                             logger.warning(
                                 f"Strategy thread {session_id} did not stop within cleanup timeout"
                             )
+                            failed_sessions.append(session_id)
 
                 except Exception as e:
                     logger.error(f"Error stopping strategy {session_id}: {e}")
+                    failed_sessions.append(session_id)
 
-            self._sessions.clear()
+            # Only remove successfully cleaned sessions
+            for session_id in list(self._sessions.keys()):
+                if session_id not in failed_sessions:
+                    del self._sessions[session_id]
 
         logger.info("Strategy sessions cleaned up")

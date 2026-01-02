@@ -69,7 +69,6 @@ class ExchangeSessionManager:
                 cls._instance._exchanges: Dict[str, Exchange] = {}
                 cls._instance._clients: Dict[str, ExchangeClient] = {}
                 cls._instance._instance_lock = threading.RLock()
-                cls._instance._initialized = True
                 logger.info("ExchangeSessionManager initialized")
         return cls._instance
 
@@ -188,14 +187,20 @@ class ExchangeSessionManager:
         """Cleanup all exchange sessions (WebSocket, threads)."""
         logger.info("Cleaning up exchange sessions...")
         with self._instance_lock:
-            for name, client in self._clients.items():
+            failed_clients = []
+            for name, client in list(self._clients.items()):
                 try:
                     logger.info(f"Stopping client: {name}")
                     client.stop()
                 except Exception as e:
                     logger.error(f"Error stopping client {name}: {e}")
+                    failed_clients.append(name)
 
-            self._exchanges.clear()
-            self._clients.clear()
+            # Only remove successfully cleaned items
+            for name in list(self._clients.keys()):
+                if name not in failed_clients:
+                    del self._clients[name]
+                    if name in self._exchanges:
+                        del self._exchanges[name]
 
         logger.info("Exchange sessions cleaned up")

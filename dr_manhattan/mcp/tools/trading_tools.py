@@ -75,7 +75,9 @@ def create_order(
         return serialize_model(order)
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "market_id": market_id, "side": side})
+        raise translate_error(
+            e, {"exchange": exchange, "market_id": market_id, "side": side}
+        ) from e
 
 
 def cancel_order(exchange: str, order_id: str, market_id: Optional[str] = None) -> Dict[str, Any]:
@@ -98,7 +100,7 @@ def cancel_order(exchange: str, order_id: str, market_id: Optional[str] = None) 
         return serialize_model(order)
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "order_id": order_id})
+        raise translate_error(e, {"exchange": exchange, "order_id": order_id}) from e
 
 
 def cancel_all_orders(exchange: str, market_id: Optional[str] = None) -> int:
@@ -120,7 +122,7 @@ def cancel_all_orders(exchange: str, market_id: Optional[str] = None) -> int:
         return count
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "market_id": market_id})
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id}) from e
 
 
 def fetch_order(exchange: str, order_id: str, market_id: Optional[str] = None) -> Dict[str, Any]:
@@ -143,7 +145,7 @@ def fetch_order(exchange: str, order_id: str, market_id: Optional[str] = None) -
         return serialize_model(order)
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "order_id": order_id})
+        raise translate_error(e, {"exchange": exchange, "order_id": order_id}) from e
 
 
 def fetch_open_orders(exchange: str, market_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -165,4 +167,4 @@ def fetch_open_orders(exchange: str, market_id: Optional[str] = None) -> List[Di
         return [serialize_model(o) for o in orders]
 
     except Exception as e:
-        raise translate_error(e, {"exchange": exchange, "market_id": market_id})
+        raise translate_error(e, {"exchange": exchange, "market_id": market_id}) from e

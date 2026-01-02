@@ -11,7 +11,7 @@ def test_all_files_parseable():
     print("Testing Python syntax...")
 
     files_to_check = []
-    for root, dirs, files in os.walk("mcp_server"):
+    for root, dirs, files in os.walk("dr_manhattan/mcp"):
         for file in files:
             if file.endswith(".py"):
                 files_to_check.append(os.path.join(root, file))
@@ -239,7 +239,7 @@ def test_directory_structure():
     print("\nValidating directory structure...")
 
     required_dirs = [
-        "mcp_server",
+        "dr_manhattan/mcp",
         "dr_manhattan/mcp/session",
         "dr_manhattan/mcp/tools",
         "dr_manhattan/mcp/utils",
