@@ -3,11 +3,32 @@
 Real-world examples and setup guide for using Dr. Manhattan MCP server with AI agents like Claude Desktop.
 
 ## Table of Contents
+- [Security Warning](#security-warning)
 - [Setup](#setup)
 - [Understanding Polymarket Wallets](#understanding-polymarket-wallets)
 - [Signature Types Explained](#signature-types-explained)
 - [Usage Examples](#usage-examples)
 - [Troubleshooting](#troubleshooting)
+
+## Security Warning
+
+**CRITICAL: Private Key Security**
+
+Your private key gives full control over your wallet funds. Follow these security practices:
+
+1. **Never commit `.env` to version control** - The `.gitignore` should exclude `.env`
+2. **Never share your private key** - Not with support, not in screenshots
+3. **Use a dedicated wallet** - Create a separate wallet for trading, not your main holdings
+4. **Limit funds** - Only deposit what you're willing to risk
+5. **Verify .gitignore** - Run `git status` to confirm `.env` is not tracked
+
+```bash
+# Verify .env is properly ignored
+git status --ignored | grep ".env"
+# Should show: .env
+```
+
+Consider using hardware wallets or encrypted keystore files for additional security. The MCP server loads credentials at startup, so restart after any credential changes.
 
 ## Setup
 
@@ -39,17 +60,21 @@ nano .env  # or use your preferred editor
 **Required environment variables for Polymarket:**
 
 ```bash
-# Your MetaMask wallet private key (for signing transactions)
+# REQUIRED: Your MetaMask wallet private key (for signing transactions)
 POLYMARKET_PRIVATE_KEY=your_private_key_here
 
-# Your MetaMask wallet address (THIS wallet is used for ALL trading)
+# REQUIRED: Your MetaMask wallet address (THIS wallet is used for ALL trading)
 POLYMARKET_FUNDER=your_metamask_address_here
+```
 
-# Your Polymarket proxy wallet address (OPTIONAL - for display only)
-POLYMARKET_PROXY_WALLET=your_polymarket_proxy_address_here
+**Optional environment variables (defaults are in code):**
 
-# Signature type: Use 0 for normal MetaMask accounts (REQUIRED)
-POLYMARKET_SIGNATURE_TYPE=0
+```bash
+# OPTIONAL: Your Polymarket proxy wallet address (for display only)
+# POLYMARKET_PROXY_WALLET=your_polymarket_proxy_address_here
+
+# OPTIONAL: Signature type (default: 0 for normal MetaMask accounts)
+# POLYMARKET_SIGNATURE_TYPE=0  # 0=EOA (default), 1=POLY_PROXY, 2=Gnosis Safe
 ```
 
 ### 3. Configure Claude Desktop

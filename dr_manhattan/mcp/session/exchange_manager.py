@@ -16,30 +16,44 @@ EXCHANGE_INIT_TIMEOUT = float(os.getenv("MCP_EXCHANGE_INIT_TIMEOUT", "10.0"))
 CLIENT_INIT_TIMEOUT = float(os.getenv("MCP_CLIENT_INIT_TIMEOUT", "5.0"))
 
 
+# Configuration defaults (per CLAUDE.md Rule #4: non-sensitive config in code)
+DEFAULT_SIGNATURE_TYPE = 0  # EOA (normal MetaMask accounts)
+DEFAULT_VERBOSE = True
+
+
 def _get_polymarket_signature_type() -> int:
-    """Get signature type with safe default."""
-    sig_type = os.getenv("POLYMARKET_SIGNATURE_TYPE", "0")
+    """Get signature type. Default 0 (EOA) is in code per CLAUDE.md Rule #4."""
+    sig_type = os.getenv("POLYMARKET_SIGNATURE_TYPE")
+    if sig_type is None:
+        return DEFAULT_SIGNATURE_TYPE
     try:
         return int(sig_type)
     except ValueError:
-        logger.warning(f"Invalid POLYMARKET_SIGNATURE_TYPE '{sig_type}', using default 0")
-        return 0
+        logger.warning(
+            f"Invalid POLYMARKET_SIGNATURE_TYPE '{sig_type}', using default {DEFAULT_SIGNATURE_TYPE}"
+        )
+        return DEFAULT_SIGNATURE_TYPE
 
 
 def _get_mcp_credentials() -> Dict[str, Dict[str, Any]]:
     """
     Get MCP credentials from environment variables.
 
-    Returns credentials dict. Empty strings indicate missing credentials,
-    which will be validated when the exchange is actually used.
+    Per CLAUDE.md Rule #4: Only sensitive data (private_key, funder) from .env.
+    Non-sensitive config (signature_type, verbose) use code defaults.
+
+    Returns credentials dict. Empty strings indicate missing required credentials.
     """
     return {
         "polymarket": {
+            # Required: Must be in .env (sensitive)
             "private_key": os.getenv("POLYMARKET_PRIVATE_KEY") or "",
             "funder": os.getenv("POLYMARKET_FUNDER") or "",
+            # Optional: For display only (not used for trading)
             "proxy_wallet": os.getenv("POLYMARKET_PROXY_WALLET") or "",
+            # Defaults in code per CLAUDE.md Rule #4
             "signature_type": _get_polymarket_signature_type(),
-            "verbose": True,
+            "verbose": os.getenv("MCP_VERBOSE", "").lower() != "false",
         }
     }
 

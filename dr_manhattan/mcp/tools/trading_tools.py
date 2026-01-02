@@ -47,11 +47,13 @@ def create_order(
         ... )
     """
     try:
-        # Validate price range (prediction markets use 0-1)
+        # Validate price range (prediction markets use 0-1, exclusive)
+        # Note: 0.0 (0%) and 1.0 (100%) are not valid because no outcome is certain
+        # and the counterparty would pay nothing (or receive shares for free)
         if not 0 < price < 1:
             raise ValueError(
                 f"Price must be between 0 and 1 (exclusive), got {price}. "
-                "Prediction market prices represent probabilities."
+                "Prediction market prices represent probabilities (0% < p < 100%)."
             )
 
         # Validate size
