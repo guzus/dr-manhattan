@@ -178,9 +178,9 @@ class TestExchangeFactory:
             exchange = dr_manhattan.exchanges[exchange_id]()
             exchanges.append(exchange)
 
-        assert len(exchanges) == 3
+        assert len(exchanges) == 4
         assert all(isinstance(e, Exchange) for e in exchanges)
 
     def test_exchange_count(self):
         """Test number of registered exchanges"""
-        assert len(dr_manhattan.exchanges) == 3
+        assert len(dr_manhattan.exchanges) == 4

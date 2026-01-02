@@ -43,5 +43,14 @@ class LimitlessConfig(BaseExchangeConfig):
     private_key: str = ""
 
 
+@dataclass
+class PredictFunConfig(BaseExchangeConfig):
+    """Configuration for Predict.fun exchange."""
+
+    api_key: str = ""
+    private_key: str = ""
+    testnet: bool = False
+
+
 # Union type for any exchange config
-ExchangeConfig = PolymarketConfig | OpinionConfig | LimitlessConfig
+ExchangeConfig = PolymarketConfig | OpinionConfig | LimitlessConfig | PredictFunConfig

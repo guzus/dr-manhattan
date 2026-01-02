@@ -27,6 +27,7 @@ from .base.strategy import Strategy
 from .exchanges.limitless import Limitless
 from .exchanges.opinion import Opinion
 from .exchanges.polymarket import Polymarket
+from .exchanges.predictfun import PredictFun
 from .models.market import Market
 from .models.order import Order, OrderSide, OrderStatus
 from .models.position import Position
@@ -58,6 +59,7 @@ __all__ = [
     "Polymarket",
     "Limitless",
     "Opinion",
+    "PredictFun",
     "StrategyState",
     "DeltaInfo",
     "calculate_delta",
@@ -70,4 +72,5 @@ exchanges = {
     "polymarket": Polymarket,
     "limitless": Limitless,
     "opinion": Opinion,
+    "predictfun": PredictFun,
 }
