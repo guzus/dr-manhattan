@@ -59,6 +59,7 @@ dr_manhattan/
 - Order tracking and event logging
 - Standardized error handling
 - Exchange-agnostic code
+- **MCP server for Claude Desktop integration**
 
 ## Installation
 
@@ -150,6 +151,40 @@ print(list_exchanges())  # ['polymarket', 'limitless', 'opinion']
 exchange = create_exchange('polymarket', {'timeout': 30})
 ```
 
+### MCP Server (Claude Desktop)
+
+Trade prediction markets directly from Claude Desktop using the Model Context Protocol (MCP).
+
+```bash
+# Install with MCP dependencies
+uv pip install -e ".[mcp]"
+
+# Configure credentials
+cp .env.example .env
+# Edit .env with your POLYMARKET_PRIVATE_KEY and POLYMARKET_FUNDER
+```
+
+Add to Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "dr-manhattan": {
+      "command": "/path/to/dr-manhattan/.venv/bin/python3",
+      "args": ["-m", "dr_manhattan.mcp.server"],
+      "cwd": "/path/to/dr-manhattan"
+    }
+  }
+}
+```
+
+After restarting Claude Desktop, you can:
+- "Show my Polymarket balance"
+- "Find active prediction markets"
+- "Buy 10 USDC of Yes on market X at 0.55"
+
+See [examples/mcp_usage_example.md](examples/mcp_usage_example.md) for the complete setup guide.
+
 ## Adding New Exchanges
 
 To add a new exchange, create a class that inherits from `Exchange`:
@@ -222,6 +257,7 @@ All errors inherit from `DrManhattanError`:
 
 Check out the [examples/](examples/) directory for working examples:
 
+- **mcp_usage_example.md** - Complete MCP server setup and usage guide for Claude Desktop
 - **list_all_markets.py** - List markets from any exchange
 - **spread_strategy.py** - Exchange-agnostic BBO market making strategy
 
