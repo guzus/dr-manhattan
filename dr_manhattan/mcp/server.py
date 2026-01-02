@@ -2,6 +2,18 @@
 Dr. Manhattan MCP Server
 
 Main entry point for the Model Context Protocol server.
+
+Logging Architecture:
+    MCP uses stdout for JSON-RPC communication, so all logging MUST go to stderr.
+    This module patches the dr_manhattan logging system before any other imports
+    to ensure all log output is redirected to stderr. The patching strategy:
+
+    1. Replace setup_logger in dr_manhattan.utils before importing other modules
+    2. Configure root logger with stderr handler
+    3. After imports, fix_all_loggers() cleans up any handlers that slipped through
+
+    This approach is necessary because dr_manhattan modules create loggers at
+    import time. Any stdout output would corrupt the JSON-RPC protocol.
 """
 
 import asyncio
@@ -21,7 +33,9 @@ import dr_manhattan.utils
 import dr_manhattan.utils.logger as logger_module
 
 
-# Monkey-patch setup_logger BEFORE importing modules that use it
+# Monkey-patch setup_logger BEFORE importing modules that use it.
+# This MUST happen before any dr_manhattan module imports to ensure
+# all loggers created at import time use stderr instead of stdout.
 def mcp_setup_logger(name: str = None, level: int = logging.INFO):
     """MCP-compatible logger that outputs to stderr without colors."""
     logger = logging.getLogger(name)

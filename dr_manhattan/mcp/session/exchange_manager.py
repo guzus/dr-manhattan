@@ -11,6 +11,10 @@ from dr_manhattan.utils import setup_logger
 
 logger = setup_logger(__name__)
 
+# Configurable timeout values (in seconds)
+EXCHANGE_INIT_TIMEOUT = float(os.getenv("MCP_EXCHANGE_INIT_TIMEOUT", "10.0"))
+CLIENT_INIT_TIMEOUT = float(os.getenv("MCP_CLIENT_INIT_TIMEOUT", "5.0"))
+
 
 def _get_polymarket_signature_type() -> int:
     """Get signature type with safe default."""
@@ -41,7 +45,7 @@ def _get_mcp_credentials() -> Dict[str, Dict[str, Any]]:
 
 
 # MCP-specific credentials (Single Source of Truth as per CLAUDE.md)
-# Loaded lazily to allow environment changes
+# Note: Loaded at module import time. Restart server if environment changes.
 MCP_CREDENTIALS: Dict[str, Dict[str, Any]] = _get_mcp_credentials()
 
 
@@ -130,10 +134,13 @@ class ExchangeSessionManager:
                     with ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(exchange_class, config_dict)
                         try:
-                            exchange = future.result(timeout=10.0)  # 10 second timeout
-                            logger.info(f"✓ {exchange_name} initialized successfully")
+                            exchange = future.result(timeout=EXCHANGE_INIT_TIMEOUT)
+                            logger.info(f"{exchange_name} initialized successfully")
                         except FutureTimeoutError:
-                            logger.error(f"✗ {exchange_name} initialization timed out (>10s)")
+                            logger.error(
+                                f"{exchange_name} initialization timed out "
+                                f"(>{EXCHANGE_INIT_TIMEOUT}s)"
+                            )
                             raise TimeoutError(
                                 f"{exchange_name} initialization timed out. "
                                 "This may be due to network issues or API problems."
@@ -164,11 +171,11 @@ class ExchangeSessionManager:
                 with ThreadPoolExecutor(max_workers=1) as executor:
                     future = executor.submit(ExchangeClient, exchange, 2.0, False)
                     try:
-                        client = future.result(timeout=5.0)
-                        logger.info(f"✓ Client created for {exchange_name}")
+                        client = future.result(timeout=CLIENT_INIT_TIMEOUT)
+                        logger.info(f"Client created for {exchange_name}")
                         self._clients[exchange_name] = client
                     except FutureTimeoutError:
-                        logger.error(f"✗ Client creation timed out for {exchange_name}")
+                        logger.error(f"Client creation timed out for {exchange_name}")
                         raise TimeoutError(f"Client creation timed out for {exchange_name}")
 
             return self._clients[exchange_name]
