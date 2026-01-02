@@ -1,6 +1,5 @@
 """Account management tools."""
 
-import os
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -14,12 +13,16 @@ logger = setup_logger(__name__)
 
 exchange_manager = ExchangeSessionManager()
 
-# Polygon USDC contract address
+# Polygon USDC contract address (bridged USDC on Polygon PoS)
 POLYGON_USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 
-# Configurable RPC endpoint with fallbacks
+# ERC20 balanceOf(address) function selector (keccak256("balanceOf(address)")[:4])
+ERC20_BALANCE_OF_SELECTOR = "0x70a08231"
+
+# Polygon RPC endpoints for balance queries (per CLAUDE.md Rule #4: config in code)
+# Primary endpoint first, fallbacks follow. All are public endpoints.
 POLYGON_RPC_URLS = [
-    os.getenv("POLYGON_RPC_URL", "https://polygon-rpc.com"),
+    "https://polygon-rpc.com",
     "https://rpc-mainnet.matic.quiknode.pro",
     "https://polygon.llamarpc.com",
 ]
@@ -39,10 +42,9 @@ def get_usdc_balance_polygon(address: str) -> Optional[float]:
         logger.warning(f"Invalid address format: {address}")
         return None
 
-    # ERC20 balanceOf function signature
-    function_signature = "0x70a08231"  # balanceOf
+    # Build ERC20 balanceOf call data
     padded_address = address[2:].zfill(64)  # Remove 0x and pad to 32 bytes
-    data = function_signature + padded_address
+    data = ERC20_BALANCE_OF_SELECTOR + padded_address
 
     payload = {
         "jsonrpc": "2.0",
@@ -121,21 +123,24 @@ def fetch_balance(exchange: str) -> Dict[str, Any]:
             funder_balance = get_usdc_balance_polygon(funder_wallet) if funder_wallet else None
             proxy_balance = get_usdc_balance_polygon(proxy_wallet) if proxy_wallet else None
 
+            # Fail fast: if funder balance query failed, raise error
+            if funder_balance is None:
+                raise ValueError(
+                    f"Failed to query funder wallet balance from all RPC endpoints. "
+                    f"Wallet: {funder_wallet}. Check network connectivity."
+                )
+
             result = {
-                "funder_balance": funder_balance if funder_balance is not None else 0.0,
+                "funder_balance": funder_balance,
                 "funder_wallet": funder_wallet,
             }
 
-            # Add warning if balance query failed
-            if funder_balance is None:
-                result["funder_balance_warning"] = "Failed to query balance from RPC"
-
-            # Add proxy wallet info if configured
+            # Add proxy wallet info if configured (proxy failure is non-fatal)
             if proxy_wallet:
-                result["proxy_balance"] = proxy_balance if proxy_balance is not None else 0.0
+                result["proxy_balance"] = proxy_balance
                 result["proxy_wallet"] = proxy_wallet
                 if proxy_balance is None:
-                    result["proxy_balance_warning"] = "Failed to query balance from RPC"
+                    result["proxy_balance_error"] = "Failed to query proxy balance from RPC"
 
             # Add clear message about which wallet is used for trading
             result["trading_wallet"] = "funder"
@@ -262,16 +267,19 @@ def calculate_nav(exchange: str, market_id: Optional[str] = None) -> Dict[str, A
             # Calculate positions value
             positions_value = sum(getattr(p, "value", 0.0) for p in positions)
 
-            # Handle None balance (use 0.0 for calculation but add warning)
-            funder_balance_value = funder_balance if funder_balance is not None else 0.0
-            proxy_balance_value = proxy_balance if proxy_balance is not None else 0.0
+            # Fail fast: if funder balance query failed, raise error
+            if funder_balance is None:
+                raise ValueError(
+                    f"Failed to query funder wallet balance from all RPC endpoints. "
+                    f"Wallet: {funder_wallet}. Cannot calculate NAV."
+                )
 
             # NAV is based on funder wallet (trading wallet)
-            nav = funder_balance_value + positions_value
+            nav = funder_balance + positions_value
 
             result = {
                 "nav": nav,
-                "funder_balance": funder_balance_value,
+                "funder_balance": funder_balance,
                 "funder_wallet": funder_wallet,
                 "positions_value": positions_value,
                 "positions": [serialize_model(p) for p in positions],
@@ -279,16 +287,12 @@ def calculate_nav(exchange: str, market_id: Optional[str] = None) -> Dict[str, A
                 "note": "NAV calculated using funder wallet balance (trading wallet)",
             }
 
-            # Add warning if balance query failed
-            if funder_balance is None:
-                result["funder_balance_warning"] = "Failed to query balance from RPC"
-
-            # Add proxy wallet info if configured
+            # Add proxy wallet info if configured (proxy failure is non-fatal)
             if proxy_wallet:
-                result["proxy_balance"] = proxy_balance_value
+                result["proxy_balance"] = proxy_balance
                 result["proxy_wallet"] = proxy_wallet
                 if proxy_balance is None:
-                    result["proxy_balance_warning"] = "Failed to query balance from RPC"
+                    result["proxy_balance_error"] = "Failed to query proxy balance from RPC"
 
             return result
 

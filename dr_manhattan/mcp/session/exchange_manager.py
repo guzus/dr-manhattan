@@ -11,12 +11,9 @@ from dr_manhattan.utils import setup_logger
 
 logger = setup_logger(__name__)
 
-# Configurable timeout values (in seconds)
-EXCHANGE_INIT_TIMEOUT = float(os.getenv("MCP_EXCHANGE_INIT_TIMEOUT", "10.0"))
-CLIENT_INIT_TIMEOUT = float(os.getenv("MCP_CLIENT_INIT_TIMEOUT", "5.0"))
-
-
-# Configuration defaults (per CLAUDE.md Rule #4: non-sensitive config in code)
+# Configuration constants (per CLAUDE.md Rule #4: non-sensitive config in code, not .env)
+EXCHANGE_INIT_TIMEOUT = 10.0  # seconds - timeout for exchange initialization
+CLIENT_INIT_TIMEOUT = 5.0  # seconds - timeout for client wrapper creation
 DEFAULT_SIGNATURE_TYPE = 0  # EOA (normal MetaMask accounts)
 DEFAULT_VERBOSE = True
 
@@ -42,6 +39,10 @@ def _get_mcp_credentials() -> Dict[str, Dict[str, Any]]:
     Per CLAUDE.md Rule #4: Only sensitive data (private_key, funder) from .env.
     Non-sensitive config (signature_type, verbose) use code defaults.
 
+    Note: Only Polymarket credentials are currently supported via MCP.
+    Opinion and Limitless use the base project's environment variable loading
+    via create_exchange() when MCP credentials are not configured.
+
     Returns credentials dict. Empty strings indicate missing required credentials.
     """
     return {
@@ -53,8 +54,11 @@ def _get_mcp_credentials() -> Dict[str, Dict[str, Any]]:
             "proxy_wallet": os.getenv("POLYMARKET_PROXY_WALLET") or "",
             # Defaults in code per CLAUDE.md Rule #4
             "signature_type": _get_polymarket_signature_type(),
-            "verbose": os.getenv("MCP_VERBOSE", "").lower() != "false",
+            "verbose": DEFAULT_VERBOSE,
         }
+        # Note: Opinion and Limitless are supported but use the base project's
+        # credential loading (create_exchange with use_env=True) since they
+        # have different credential requirements. See get_exchange() fallback.
     }
 
 
