@@ -275,15 +275,14 @@ def test_documentation_complete():
     """Test documentation is complete."""
     print("\n8. Testing documentation...")
 
+    # Per CLAUDE.md Rule #2: Minimize new documents
     docs = {
-        "docs/mcp/README.md": ["Installation", "Tools", "Example"],
-        "MCP_SERVER.md": ["Quick Start", "Installation"],
-        "examples/mcp_usage_example.md": ["Example", "Usage"],
+        "examples/mcp_usage_example.md": ["Setup", "Usage"],
     }
 
     for doc_path, required_sections in docs.items():
         if not os.path.exists(doc_path):
-            print(f"  ✗ Missing: {doc_path}")
+            print(f"  Missing: {doc_path}")
             return False
 
         with open(doc_path, "r") as f:
@@ -291,10 +290,10 @@ def test_documentation_complete():
 
         for section in required_sections:
             if section not in content:
-                print(f"  ✗ {doc_path} missing section: {section}")
+                print(f"  {doc_path} missing section: {section}")
                 return False
 
-    print(f"  ✓ All {len(docs)} documentation files complete")
+    print(f"  All {len(docs)} documentation files complete")
     return True
 
 

@@ -27,6 +27,43 @@ POLYGON_RPC_URLS = [
     "https://polygon.llamarpc.com",
 ]
 
+# Reusable session for connection pooling (improves performance)
+_RPC_SESSION: Optional[requests.Session] = None
+
+
+def _get_rpc_session() -> requests.Session:
+    """Get or create reusable HTTP session for RPC requests."""
+    global _RPC_SESSION
+    if _RPC_SESSION is None:
+        _RPC_SESSION = requests.Session()
+    return _RPC_SESSION
+
+
+def _validate_rpc_response(result: str, address: str) -> bool:
+    """
+    Validate RPC response is a valid hex balance.
+
+    Args:
+        result: Hex string from RPC (e.g., "0x1234...")
+        address: Original address for context in error messages
+
+    Returns:
+        True if valid, False otherwise
+    """
+    if not result or not isinstance(result, str):
+        return False
+    # Must be hex string starting with 0x
+    if not result.startswith("0x"):
+        logger.warning(f"Invalid RPC response format for {address}: {result[:50]}")
+        return False
+    # Must contain only valid hex characters after 0x
+    try:
+        int(result, 16)
+        return True
+    except ValueError:
+        logger.warning(f"Invalid hex in RPC response for {address}: {result[:50]}")
+        return False
+
 
 def get_usdc_balance_polygon(address: str) -> Optional[float]:
     """
@@ -59,23 +96,32 @@ def get_usdc_balance_polygon(address: str) -> Optional[float]:
         "id": 1,
     }
 
-    # Try each RPC endpoint until one succeeds
+    # Try each RPC endpoint until one succeeds (with connection pooling)
+    session = _get_rpc_session()
     last_error = None
     for rpc_url in POLYGON_RPC_URLS:
         try:
-            response = requests.post(rpc_url, json=payload, timeout=10)
+            response = session.post(rpc_url, json=payload, timeout=10)
             result = response.json()
 
-            if "result" in result and result["result"] != "0x":
+            if "result" in result:
+                rpc_result = result["result"]
+                # Validate RPC response format
+                if rpc_result == "0x" or rpc_result == "0x0":
+                    return 0.0
+                if not _validate_rpc_response(rpc_result, address):
+                    last_error = f"Invalid response format: {rpc_result[:50]}"
+                    continue
                 # Convert hex to int and divide by 1e6 (USDC has 6 decimals)
-                balance_wei = int(result["result"], 16)
+                balance_wei = int(rpc_result, 16)
                 return balance_wei / 1e6
             elif "error" in result:
                 last_error = result["error"]
                 logger.warning(f"RPC error from {rpc_url}: {last_error}")
                 continue
             else:
-                return 0.0
+                last_error = f"Unexpected response format: {result}"
+                continue
 
         except requests.RequestException as e:
             last_error = str(e)

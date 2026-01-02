@@ -204,32 +204,31 @@ def test_documentation_exists():
     """Test documentation files exist."""
     print("\nValidating documentation...")
 
+    # Per CLAUDE.md Rule #2: Minimize new documents. Only examples/mcp_usage_example.md
     docs = [
-        "docs/mcp/README.md",
         "examples/mcp_usage_example.md",
-        "MCP_SERVER.md",
     ]
 
     for doc in docs:
         if not os.path.exists(doc):
-            print(f"✗ Missing: {doc}")
+            print(f"Missing: {doc}")
             return False
 
-    print(f"✓ All {len(docs)} documentation files exist")
+    print(f"All {len(docs)} documentation files exist")
 
     # Check doc content
-    with open("docs/mcp/README.md", "r") as f:
+    with open("examples/mcp_usage_example.md", "r") as f:
         content = f.read()
 
-    if "Dr. Manhattan MCP Server" not in content:
-        print("✗ README missing title")
+    if "Dr. Manhattan" not in content:
+        print("Usage example missing title")
         return False
 
-    if "Installation" not in content:
-        print("✗ README missing Installation section")
+    if "Setup" not in content:
+        print("Usage example missing Setup section")
         return False
 
-    print("✓ Documentation has required sections")
+    print("Documentation has required sections")
 
     return True
 

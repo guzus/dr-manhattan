@@ -64,6 +64,13 @@ def _get_mcp_credentials() -> Dict[str, Dict[str, Any]]:
 
 # MCP-specific credentials (Single Source of Truth as per CLAUDE.md)
 # Note: Loaded at module import time. Restart server if environment changes.
+#
+# SECURITY WARNING: Private keys are stored in memory for the application lifetime.
+# Best practices:
+# - Use a dedicated wallet with limited funds for trading
+# - Never share private keys or commit .env files
+# - Consider using hardware wallets for large amounts
+# - The cleanup() method should be called on shutdown to clear exchange instances
 MCP_CREDENTIALS: Dict[str, Dict[str, Any]] = _get_mcp_credentials()
 
 
@@ -148,20 +155,23 @@ class ExchangeSessionManager:
 
                     # Initialize with timeout to avoid blocking
                     logger.info(f"Initializing {exchange_name} (this may take a moment)...")
-                    with ThreadPoolExecutor(max_workers=1) as executor:
+                    executor = ThreadPoolExecutor(max_workers=1)
+                    try:
                         future = executor.submit(exchange_class, config_dict)
-                        try:
-                            exchange = future.result(timeout=EXCHANGE_INIT_TIMEOUT)
-                            logger.info(f"{exchange_name} initialized successfully")
-                        except FutureTimeoutError:
-                            logger.error(
-                                f"{exchange_name} initialization timed out "
-                                f"(>{EXCHANGE_INIT_TIMEOUT}s)"
-                            )
-                            raise TimeoutError(
-                                f"{exchange_name} initialization timed out. "
-                                "This may be due to network issues or API problems."
-                            )
+                        exchange = future.result(timeout=EXCHANGE_INIT_TIMEOUT)
+                        logger.info(f"{exchange_name} initialized successfully")
+                    except FutureTimeoutError:
+                        # Cleanup executor to prevent hanging threads
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        logger.error(
+                            f"{exchange_name} initialization timed out (>{EXCHANGE_INIT_TIMEOUT}s)"
+                        )
+                        raise TimeoutError(
+                            f"{exchange_name} initialization timed out. "
+                            "This may be due to network issues or API problems."
+                        )
+                    finally:
+                        executor.shutdown(wait=False)
                 else:
                     exchange = create_exchange(exchange_name, use_env=use_env, validate=validate)
 
@@ -185,15 +195,19 @@ class ExchangeSessionManager:
                 logger.info(f"Creating client wrapper for {exchange_name}...")
 
                 # Create client with timeout
-                with ThreadPoolExecutor(max_workers=1) as executor:
+                executor = ThreadPoolExecutor(max_workers=1)
+                try:
                     future = executor.submit(ExchangeClient, exchange, 2.0, False)
-                    try:
-                        client = future.result(timeout=CLIENT_INIT_TIMEOUT)
-                        logger.info(f"Client created for {exchange_name}")
-                        self._clients[exchange_name] = client
-                    except FutureTimeoutError:
-                        logger.error(f"Client creation timed out for {exchange_name}")
-                        raise TimeoutError(f"Client creation timed out for {exchange_name}")
+                    client = future.result(timeout=CLIENT_INIT_TIMEOUT)
+                    logger.info(f"Client created for {exchange_name}")
+                    self._clients[exchange_name] = client
+                except FutureTimeoutError:
+                    # Cleanup executor to prevent hanging threads
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    logger.error(f"Client creation timed out for {exchange_name}")
+                    raise TimeoutError(f"Client creation timed out for {exchange_name}")
+                finally:
+                    executor.shutdown(wait=False)
 
             return self._clients[exchange_name]
 
