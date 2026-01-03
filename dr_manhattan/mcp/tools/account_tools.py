@@ -85,8 +85,7 @@ def _get_rpc_session() -> requests.Session:
                 session.mount("https://", adapter)
                 session.mount("http://", adapter)
                 logger.info(
-                    f"RPC session created: pool_size={RPC_POOL_MAXSIZE}, "
-                    f"retries={RPC_RETRY_COUNT}"
+                    f"RPC session created: pool_size={RPC_POOL_MAXSIZE}, retries={RPC_RETRY_COUNT}"
                 )
                 _RPC_SESSION = session
 

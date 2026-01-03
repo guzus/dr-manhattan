@@ -163,7 +163,8 @@ class StrategySessionManager:
         """
         # Remove expired entries first
         expired = [
-            sid for sid, (cached_time, _) in self._status_cache.items()
+            sid
+            for sid, (cached_time, _) in self._status_cache.items()
             if now - cached_time >= STATUS_CACHE_TTL
         ]
         for sid in expired:
@@ -174,7 +175,7 @@ class StrategySessionManager:
             # Sort by timestamp and remove oldest
             sorted_entries = sorted(
                 self._status_cache.items(),
-                key=lambda x: x[1][0]  # Sort by cached_time
+                key=lambda x: x[1][0],  # Sort by cached_time
             )
             entries_to_remove = len(self._status_cache) - STATUS_CACHE_MAX_SIZE
             for sid, _ in sorted_entries[:entries_to_remove]:

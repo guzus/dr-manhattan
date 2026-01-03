@@ -3,13 +3,16 @@
 
 import sys
 
+import pytest
+
 
 def test_server_tools():
     """Test server tool registration."""
+    # Skip if mcp is not installed (optional dependency)
+    pytest.importorskip("mcp")
+
     print("Testing MCP server tool registration...")
 
-    # Can't actually run async without installing MCP SDK,
-    # but we can check the structure
     import inspect
 
     from dr_manhattan.mcp import server
