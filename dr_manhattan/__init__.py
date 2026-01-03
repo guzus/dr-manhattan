@@ -24,6 +24,7 @@ from .base.exchange_client import (
 from .base.exchange_factory import create_exchange, list_exchanges
 from .base.order_tracker import OrderEvent, OrderTracker, create_fill_logger
 from .base.strategy import Strategy
+from .exchanges.kalshi import Kalshi
 from .exchanges.limitless import Limitless
 from .exchanges.opinion import Opinion
 from .exchanges.polymarket import Polymarket
@@ -58,6 +59,7 @@ __all__ = [
     "Polymarket",
     "Limitless",
     "Opinion",
+    "Kalshi",
     "StrategyState",
     "DeltaInfo",
     "calculate_delta",
@@ -70,4 +72,5 @@ exchanges = {
     "polymarket": Polymarket,
     "limitless": Limitless,
     "opinion": Opinion,
+    "kalshi": Kalshi,
 }
