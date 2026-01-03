@@ -77,7 +77,11 @@ class StrategySessionManager:
         session_id = str(uuid.uuid4())
 
         try:
-            # Create strategy instance
+            # Extract duration_minutes before passing to strategy constructor
+            # (duration_minutes is passed to run(), not __init__)
+            duration_minutes = params.pop("duration_minutes", None)
+
+            # Create strategy instance (without duration_minutes)
             strategy = strategy_class(exchange=exchange, market_id=market_id, **params)
 
             # Create session
@@ -93,7 +97,7 @@ class StrategySessionManager:
             # Start in background thread (daemon=True allows clean shutdown)
             thread = threading.Thread(
                 target=self._run_strategy,
-                args=(session_id, strategy, params.get("duration_minutes")),
+                args=(session_id, strategy, duration_minutes),
                 daemon=True,
             )
             thread.start()
