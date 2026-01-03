@@ -131,7 +131,9 @@ def test_tool_schemas():
     tool_pattern = r'Tool\s*\(\s*name="([^"]+)"'
     tools_in_code = re.findall(tool_pattern, server_code)
 
-    assert len(tools_in_code) >= 20, f"Only found {len(tools_in_code)} tool definitions (expected 20+)"
+    assert len(tools_in_code) >= 20, (
+        f"Only found {len(tools_in_code)} tool definitions (expected 20+)"
+    )
     print(f"[PASS] Found {len(tools_in_code)} tool schema definitions")
 
     # Check required fields in schemas

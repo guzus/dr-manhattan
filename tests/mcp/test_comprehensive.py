@@ -94,7 +94,9 @@ def test_server_tool_registration():
     tool_pattern = r'Tool\s*\(\s*name="([^"]+)"'
     registered_tools = re.findall(tool_pattern, content)
 
-    assert len(registered_tools) >= 15, f"Only {len(registered_tools)} tools registered (expected 15+)"
+    assert len(registered_tools) >= 15, (
+        f"Only {len(registered_tools)} tools registered (expected 15+)"
+    )
     print(f"  [PASS] {len(registered_tools)} tools registered in server")
 
     # Check tool routing in TOOL_DISPATCH
