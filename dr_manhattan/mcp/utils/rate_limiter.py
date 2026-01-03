@@ -1,5 +1,6 @@
 """Rate limiter for MCP tool calls."""
 
+import random
 import threading
 import time
 from typing import Optional
@@ -87,8 +88,10 @@ class RateLimiter:
                 wait_time = min(wait_time, max(0, remaining))
 
             # Sleep for calculated duration (outside lock)
+            # Add small random jitter (0-10ms) to prevent thundering herd
             if wait_time > 0:
-                time.sleep(wait_time)
+                jitter = random.uniform(0, 0.01)
+                time.sleep(wait_time + jitter)
 
     def try_acquire(self) -> bool:
         """
@@ -121,11 +124,13 @@ class RateLimiter:
         """
         with self._lock:
             self._refill()
+            # Calculate wait_time inline to avoid acquiring lock twice
+            wait_time = 0.0 if self.tokens >= 1 else (1 - self.tokens) / self.rate
             return {
                 "tokens_available": self.tokens,
                 "rate_per_second": self.rate,
                 "burst_size": self.burst_size,
-                "wait_time": self.get_wait_time() if self.tokens < 1 else 0.0,
+                "wait_time": wait_time,
             }
 
 

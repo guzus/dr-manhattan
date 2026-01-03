@@ -19,7 +19,8 @@ THREAD_FORCE_KILL_TIMEOUT = 5.0  # seconds - timeout for force-kill attempt
 THREAD_CLEANUP_TIMEOUT = 5.0  # seconds - timeout during cleanup()
 
 # Status caching configuration (reduces refresh_state() calls)
-STATUS_CACHE_TTL = 1.0  # seconds - cache lifetime for get_status()
+# 3 seconds provides good balance between freshness and performance
+STATUS_CACHE_TTL = 3.0  # seconds - cache lifetime for get_status()
 STATUS_CACHE_MAX_SIZE = 100  # Maximum cache entries (prevents memory leak)
 
 

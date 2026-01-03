@@ -25,7 +25,9 @@ exchange_manager = ExchangeSessionManager()
 # Lock for RPC session creation (prevents race condition)
 _RPC_SESSION_LOCK = threading.Lock()
 
-# Polygon USDC contract address (bridged USDC on Polygon PoS)
+# Polygon USDC contract address (bridged USDC.e on Polygon PoS)
+# WARNING: This is the bridged USDC address. If Polygon upgrades to native USDC,
+# this address will need to be updated. Last verified: 2024-01
 POLYGON_USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 
 # ERC20 balanceOf(address) function selector (keccak256("balanceOf(address)")[:4])

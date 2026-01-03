@@ -22,7 +22,7 @@ import logging
 import signal
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, List
 
 from dotenv import load_dotenv
 from mcp.server import Server
@@ -119,7 +119,7 @@ strategy_manager = StrategySessionManager()
 
 # Tool registration
 @app.list_tools()
-async def list_tools() -> list[Tool]:
+async def list_tools() -> List[Tool]:
     """List all available MCP tools."""
     return [
         # Exchange tools (3)
@@ -278,7 +278,20 @@ async def list_tools() -> list[Tool]:
                 "required": ["exchange"],
             },
         ),
-        # Account tools (4)
+        Tool(
+            name="fetch_order",
+            description="Fetch order details by ID",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "order_id": {"type": "string"},
+                    "market_id": {"type": "string"},
+                },
+                "required": ["exchange", "order_id"],
+            },
+        ),
+        # Account tools (5)
         Tool(
             name="fetch_balance",
             description="Fetch account balance",
@@ -312,7 +325,19 @@ async def list_tools() -> list[Tool]:
                 "required": ["exchange"],
             },
         ),
-        # Strategy tools (6)
+        Tool(
+            name="fetch_positions_for_market",
+            description="Fetch positions for a specific market with token IDs",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "market_id": {"type": "string"},
+                },
+                "required": ["exchange", "market_id"],
+            },
+        ),
+        # Strategy tools (9)
         Tool(
             name="create_strategy_session",
             description="Start market making strategy in background",
@@ -357,41 +382,137 @@ async def list_tools() -> list[Tool]:
             description="List all active strategy sessions",
             inputSchema={"type": "object", "properties": {}},
         ),
+        Tool(
+            name="pause_strategy",
+            description="Pause strategy execution",
+            inputSchema={
+                "type": "object",
+                "properties": {"session_id": {"type": "string"}},
+                "required": ["session_id"],
+            },
+        ),
+        Tool(
+            name="resume_strategy",
+            description="Resume paused strategy",
+            inputSchema={
+                "type": "object",
+                "properties": {"session_id": {"type": "string"}},
+                "required": ["session_id"],
+            },
+        ),
+        Tool(
+            name="get_strategy_metrics",
+            description="Get strategy performance metrics",
+            inputSchema={
+                "type": "object",
+                "properties": {"session_id": {"type": "string"}},
+                "required": ["session_id"],
+            },
+        ),
+        # Market discovery tools (6)
+        Tool(
+            name="fetch_token_ids",
+            description="Fetch token IDs for a market",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "market_id": {"type": "string"},
+                },
+                "required": ["exchange", "market_id"],
+            },
+        ),
+        Tool(
+            name="find_tradeable_market",
+            description="Find a suitable market for trading",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "binary": {"type": "boolean", "default": True},
+                    "limit": {"type": "integer", "default": 100},
+                    "min_liquidity": {"type": "number", "default": 0.0},
+                },
+                "required": ["exchange"],
+            },
+        ),
+        Tool(
+            name="find_crypto_hourly_market",
+            description="Find crypto hourly price market (Polymarket)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "token_symbol": {"type": "string"},
+                    "min_liquidity": {"type": "number", "default": 0.0},
+                    "is_active": {"type": "boolean", "default": True},
+                },
+                "required": ["exchange"],
+            },
+        ),
+        Tool(
+            name="parse_market_identifier",
+            description="Parse market slug from URL",
+            inputSchema={
+                "type": "object",
+                "properties": {"identifier": {"type": "string"}},
+                "required": ["identifier"],
+            },
+        ),
+        Tool(
+            name="get_tag_by_slug",
+            description="Get Polymarket tag information",
+            inputSchema={
+                "type": "object",
+                "properties": {"slug": {"type": "string"}},
+                "required": ["slug"],
+            },
+        ),
     ]
 
 
 # Tool dispatch table (replaces long if-elif chain)
 # Format: tool_name -> (handler_function, requires_arguments)
 TOOL_DISPATCH = {
-    # Exchange tools
+    # Exchange tools (3)
     "list_exchanges": (exchange_tools.list_exchanges, False),
     "get_exchange_info": (exchange_tools.get_exchange_info, True),
     "validate_credentials": (exchange_tools.validate_credentials, True),
-    # Market tools
+    # Market tools (10)
     "fetch_markets": (market_tools.fetch_markets, True),
     "fetch_market": (market_tools.fetch_market, True),
     "fetch_markets_by_slug": (market_tools.fetch_markets_by_slug, True),
     "get_orderbook": (market_tools.get_orderbook, True),
     "get_best_bid_ask": (market_tools.get_best_bid_ask, True),
-    # Trading tools
+    "fetch_token_ids": (market_tools.fetch_token_ids, True),
+    "find_tradeable_market": (market_tools.find_tradeable_market, True),
+    "find_crypto_hourly_market": (market_tools.find_crypto_hourly_market, True),
+    "parse_market_identifier": (market_tools.parse_market_identifier, True),
+    "get_tag_by_slug": (market_tools.get_tag_by_slug, True),
+    # Trading tools (5)
     "create_order": (trading_tools.create_order, True),
     "cancel_order": (trading_tools.cancel_order, True),
     "cancel_all_orders": (trading_tools.cancel_all_orders, True),
     "fetch_open_orders": (trading_tools.fetch_open_orders, True),
-    # Account tools
+    "fetch_order": (trading_tools.fetch_order, True),
+    # Account tools (4)
     "fetch_balance": (account_tools.fetch_balance, True),
     "fetch_positions": (account_tools.fetch_positions, True),
     "calculate_nav": (account_tools.calculate_nav, True),
-    # Strategy tools
+    "fetch_positions_for_market": (account_tools.fetch_positions_for_market, True),
+    # Strategy tools (7)
     "create_strategy_session": (strategy_tools.create_strategy_session, True),
     "get_strategy_status": (strategy_tools.get_strategy_status, True),
     "stop_strategy": (strategy_tools.stop_strategy, True),
     "list_strategy_sessions": (strategy_tools.list_strategy_sessions, False),
+    "pause_strategy": (strategy_tools.pause_strategy, True),
+    "resume_strategy": (strategy_tools.resume_strategy, True),
+    "get_strategy_metrics": (strategy_tools.get_strategy_metrics, True),
 }
 
 
 @app.call_tool()
-async def call_tool(name: str, arguments: Any) -> list[TextContent]:
+async def call_tool(name: str, arguments: Any) -> List[TextContent]:
     """Handle tool execution with rate limiting."""
     try:
         # Check rate limit before processing
@@ -437,15 +558,18 @@ def cleanup_handler(signum, frame):
     sys.stderr.flush()
 
 
-def _do_cleanup():
-    """Perform actual cleanup (called from main context, not signal handler)."""
+async def _do_cleanup():
+    """
+    Perform actual cleanup (called from main context, not signal handler).
+
+    Async-aware: runs blocking cleanup operations in thread pool
+    to avoid blocking the event loop during shutdown.
+    """
     logger.info("Shutting down MCP server...")
 
-    # Cleanup strategy sessions
-    strategy_manager.cleanup()
-
-    # Cleanup exchange sessions
-    exchange_manager.cleanup()
+    # Run blocking cleanup operations in thread pool
+    await asyncio.to_thread(strategy_manager.cleanup)
+    await asyncio.to_thread(exchange_manager.cleanup)
 
     logger.info("Cleanup complete")
 
@@ -463,8 +587,8 @@ async def main():
         async with stdio_server() as (read_stream, write_stream):
             await app.run(read_stream, write_stream, app.create_initialization_options())
     finally:
-        # Cleanup in main context (safe from deadlock)
-        _do_cleanup()
+        # Cleanup in main context (safe from deadlock, async-aware)
+        await _do_cleanup()
 
 
 def run():

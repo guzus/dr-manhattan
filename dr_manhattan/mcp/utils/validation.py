@@ -3,6 +3,10 @@
 import re
 from typing import List, Optional
 
+from dr_manhattan.utils import setup_logger
+
+logger = setup_logger(__name__)
+
 # Supported exchanges (validated against this list)
 SUPPORTED_EXCHANGES = ["polymarket", "opinion", "limitless"]
 
@@ -68,8 +72,10 @@ def validate_market_id(market_id: str) -> str:
         or UUID_PATTERN.match(market_id)
         or MARKET_ID_PATTERN.match(market_id)
     ):
+        # Log full ID to stderr for debugging, truncate in user-facing message
+        logger.warning(f"Invalid market ID format: {market_id}")
         raise ValueError(
-            f"Invalid market ID format: {market_id[:50]}. "
+            f"Invalid market ID format: {market_id[:50]}... "
             "Expected hex (0x...), UUID, or alphanumeric identifier."
         )
     return market_id
@@ -97,8 +103,11 @@ def validate_token_id(token_id: str) -> str:
 
     # Token IDs are typically large integers or hex strings
     if not (token_id.isdigit() or HEX_ID_PATTERN.match(token_id)):
+        # Log full ID to stderr for debugging, truncate in user-facing message
+        logger.warning(f"Invalid token ID format: {token_id}")
         raise ValueError(
-            f"Invalid token ID format: {token_id[:50]}. Expected numeric or hex (0x...) identifier."
+            f"Invalid token ID format: {token_id[:50]}... "
+            "Expected numeric or hex (0x...) identifier."
         )
     return token_id
 
@@ -129,8 +138,10 @@ def validate_order_id(order_id: str) -> str:
         or UUID_PATTERN.match(order_id)
         or MARKET_ID_PATTERN.match(order_id)
     ):
+        # Log full ID to stderr for debugging, truncate in user-facing message
+        logger.warning(f"Invalid order ID format: {order_id}")
         raise ValueError(
-            f"Invalid order ID format: {order_id[:50]}. "
+            f"Invalid order ID format: {order_id[:50]}... "
             "Expected hex (0x...), UUID, or alphanumeric identifier."
         )
     return order_id
@@ -154,7 +165,9 @@ def validate_session_id(session_id: str) -> str:
 
     session_id = session_id.strip()
     if not UUID_PATTERN.match(session_id):
-        raise ValueError(f"Invalid session ID format: {session_id[:50]}. Expected UUID format.")
+        # Log full ID to stderr for debugging, truncate in user-facing message
+        logger.warning(f"Invalid session ID format: {session_id}")
+        raise ValueError(f"Invalid session ID format: {session_id[:50]}... Expected UUID format.")
     return session_id
 
 

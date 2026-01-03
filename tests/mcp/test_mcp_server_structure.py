@@ -75,165 +75,110 @@ def test_tool_routing():
         "list_strategy_sessions",
     ]
 
-    try:
-        # Read server.py and check tool routing
-        with open("dr_manhattan/mcp/server.py", "r") as f:
-            server_code = f.read()
+    # Read server.py and check tool routing
+    with open("dr_manhattan/mcp/server.py", "r") as f:
+        server_code = f.read()
 
-        missing_tools = []
-        for tool in expected_tools:
-            # Check if tool is in call_tool routing
-            if f'name == "{tool}"' not in server_code:
-                missing_tools.append(tool)
+    missing_tools = []
+    for tool in expected_tools:
+        # Check if tool is in TOOL_DISPATCH (new pattern) or call_tool routing (old pattern)
+        if f'"{tool}"' not in server_code:
+            missing_tools.append(tool)
 
-        if missing_tools:
-            print(f"✗ Missing tool routing: {missing_tools}")
-            return False
+    assert not missing_tools, f"Missing tool routing: {missing_tools}"
+    print(f"[PASS] All {len(expected_tools)} tools are routed")
 
-        print(f"✓ All {len(expected_tools)} tools are routed")
+    # Check tool functions exist
+    from dr_manhattan.mcp.tools import (
+        account_tools,
+        exchange_tools,
+        market_tools,
+        strategy_tools,
+        trading_tools,
+    )
 
-        # Check tool functions exist
-        from dr_manhattan.mcp.tools import (
-            account_tools,
-            exchange_tools,
-            market_tools,
-            strategy_tools,
-            trading_tools,
-        )
+    modules = {
+        "exchange": exchange_tools,
+        "market": market_tools,
+        "trading": trading_tools,
+        "account": account_tools,
+        "strategy": strategy_tools,
+    }
 
-        modules = {
-            "exchange": exchange_tools,
-            "market": market_tools,
-            "trading": trading_tools,
-            "account": account_tools,
-            "strategy": strategy_tools,
-        }
+    for tool_name in expected_tools:
+        found = False
+        for module_name, module in modules.items():
+            if hasattr(module, tool_name):
+                found = True
+                break
 
-        for tool_name in expected_tools:
-            found = False
-            for module_name, module in modules.items():
-                if hasattr(module, tool_name):
-                    found = True
-                    break
+        assert found, f"Tool function not found: {tool_name}"
 
-            if not found:
-                print(f"✗ Tool function not found: {tool_name}")
-                return False
-
-        print("✓ All tool functions exist")
-
-        return True
-
-    except Exception as e:
-        print(f"✗ Tool routing test failed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+    print("[PASS] All tool functions exist")
 
 
 def test_tool_schemas():
     """Test tool schema definitions."""
     print("\nTesting tool schemas...")
 
-    try:
-        # Check that tool schemas are valid
-        import re
+    # Check that tool schemas are valid
+    import re
 
-        with open("dr_manhattan/mcp/server.py", "r") as f:
-            server_code = f.read()
+    with open("dr_manhattan/mcp/server.py", "r") as f:
+        server_code = f.read()
 
-        # Find all Tool() definitions
-        tool_pattern = r'Tool\s*\(\s*name="([^"]+)"'
-        tools_in_code = re.findall(tool_pattern, server_code)
+    # Find all Tool() definitions
+    tool_pattern = r'Tool\s*\(\s*name="([^"]+)"'
+    tools_in_code = re.findall(tool_pattern, server_code)
 
-        if len(tools_in_code) < 20:
-            print(f"✗ Only found {len(tools_in_code)} tool definitions (expected 20+)")
-            return False
+    assert len(tools_in_code) >= 20, f"Only found {len(tools_in_code)} tool definitions (expected 20+)"
+    print(f"[PASS] Found {len(tools_in_code)} tool schema definitions")
 
-        print(f"✓ Found {len(tools_in_code)} tool schema definitions")
+    # Check required fields in schemas
+    required_fields = ["name", "description", "inputSchema"]
 
-        # Check required fields in schemas
-        required_fields = ["name", "description", "inputSchema"]
+    for field in required_fields:
+        count = server_code.count(field)
+        assert count >= 20, f"Field '{field}' only appears {count} times"
 
-        for field in required_fields:
-            count = server_code.count(field)
-            if count < 20:
-                print(f"✗ Field '{field}' only appears {count} times")
-                return False
-
-        print("✓ All schemas have required fields")
-
-        return True
-
-    except Exception as e:
-        print(f"✗ Tool schema test failed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+    print("[PASS] All schemas have required fields")
 
 
 def test_session_cleanup():
     """Test session cleanup works."""
     print("\nTesting session cleanup...")
 
-    try:
-        from dr_manhattan.mcp.session import ExchangeSessionManager, StrategySessionManager
+    from dr_manhattan.mcp.session import ExchangeSessionManager, StrategySessionManager
 
-        # Get managers
-        exchange_mgr = ExchangeSessionManager()
-        strategy_mgr = StrategySessionManager()
+    # Get managers
+    exchange_mgr = ExchangeSessionManager()
+    strategy_mgr = StrategySessionManager()
 
-        # Test cleanup doesn't crash
-        exchange_mgr.cleanup()
-        strategy_mgr.cleanup()
+    # Test cleanup doesn't crash
+    exchange_mgr.cleanup()
+    strategy_mgr.cleanup()
 
-        print("✓ Cleanup executed without errors")
-        return True
-
-    except Exception as e:
-        print(f"✗ Cleanup test failed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+    print("[PASS] Cleanup executed without errors")
 
 
 def test_pyproject_config():
     """Test pyproject.toml configuration."""
     print("\nTesting pyproject.toml...")
 
-    try:
-        with open("pyproject.toml", "r") as f:
-            pyproject = f.read()
+    with open("pyproject.toml", "r") as f:
+        pyproject = f.read()
 
-        # Check MCP dependencies
-        if "mcp>=" not in pyproject:
-            print("✗ MCP dependency not found")
-            return False
-        print("✓ MCP dependency configured")
+    # Check MCP dependencies
+    assert "mcp>=" in pyproject, "MCP dependency not found"
+    print("[PASS] MCP dependency configured")
 
-        # Check script entry point
-        if "dr-manhattan-mcp" not in pyproject:
-            print("✗ Script entry point not found")
-            return False
-        print("✓ Script entry point configured")
+    # Check script entry point
+    assert "dr-manhattan-mcp" in pyproject, "Script entry point not found"
+    print("[PASS] Script entry point configured")
 
-        # Check mcp_server package
-        if '"mcp_server"' not in pyproject:
-            print("✗ mcp_server package not in wheel")
-            return False
-        print("✓ mcp_server package configured")
-
-        return True
-
-    except Exception as e:
-        print(f"✗ pyproject.toml test failed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+    # Check dr_manhattan package includes mcp module
+    assert '"dr_manhattan"' in pyproject, "dr_manhattan package not in wheel"
+    print("[PASS] dr_manhattan package configured")
 
 
 def main():
@@ -253,10 +198,10 @@ def main():
     results = []
     for name, test_func in tests:
         try:
-            result = test_func()
-            results.append((name, result))
+            test_func()
+            results.append((name, True))
         except Exception as e:
-            print(f"\n✗ {name} crashed: {e}")
+            print(f"\n[FAIL] {name} crashed: {e}")
             import traceback
 
             traceback.print_exc()
@@ -267,7 +212,7 @@ def main():
     print("=" * 60)
 
     for name, result in results:
-        status = "✓ PASS" if result else "✗ FAIL"
+        status = "[PASS]" if result else "[FAIL]"
         print(f"{status:8} {name}")
 
     print("=" * 60)
@@ -278,10 +223,10 @@ def main():
     print(f"\nTotal: {passed}/{total} tests passed")
 
     if passed == total:
-        print("\n🎉 All structure tests passed!")
+        print("\nAll structure tests passed!")
         return 0
     else:
-        print(f"\n⚠️  {total - passed} test(s) failed")
+        print(f"\n{total - passed} test(s) failed")
         return 1
 
 

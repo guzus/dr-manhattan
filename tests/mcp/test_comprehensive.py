@@ -23,12 +23,9 @@ def test_all_tool_files_exist():
     ]
 
     for filepath in required_files:
-        if not os.path.exists(filepath):
-            print(f"  ✗ Missing: {filepath}")
-            return False
+        assert os.path.exists(filepath), f"Missing: {filepath}"
 
-    print(f"  ✓ All {len(required_files)} tool files exist")
-    return True
+    print(f"  [PASS] All {len(required_files)} tool files exist")
 
 
 def test_tool_function_signatures():
@@ -79,14 +76,11 @@ def test_tool_function_signatures():
 
         # Check required functions exist
         for func_name in functions:
-            if func_name not in found_functions:
-                print(f"  ✗ Missing function: {func_name} in {filename}")
-                return False
+            assert func_name in found_functions, f"Missing function: {func_name} in {filename}"
 
         total_functions += len(found_functions)
 
-    print(f"  ✓ All tool functions present ({total_functions} total)")
-    return True
+    print(f"  [PASS] All tool functions present ({total_functions} total)")
 
 
 def test_server_tool_registration():
@@ -100,13 +94,10 @@ def test_server_tool_registration():
     tool_pattern = r'Tool\s*\(\s*name="([^"]+)"'
     registered_tools = re.findall(tool_pattern, content)
 
-    if len(registered_tools) < 15:
-        print(f"  ✗ Only {len(registered_tools)} tools registered (expected 15+)")
-        return False
+    assert len(registered_tools) >= 15, f"Only {len(registered_tools)} tools registered (expected 15+)"
+    print(f"  [PASS] {len(registered_tools)} tools registered in server")
 
-    print(f"  ✓ {len(registered_tools)} tools registered in server")
-
-    # Check tool routing in call_tool
+    # Check tool routing in TOOL_DISPATCH
     required_routes = [
         "list_exchanges",
         "fetch_markets",
@@ -116,12 +107,9 @@ def test_server_tool_registration():
     ]
 
     for tool_name in required_routes:
-        if f'name == "{tool_name}"' not in content:
-            print(f"  ✗ Missing route for: {tool_name}")
-            return False
+        assert f'"{tool_name}"' in content, f"Missing route for: {tool_name}"
 
-    print("  ✓ All critical tools have routes")
-    return True
+    print("  [PASS] All critical tools have routes")
 
 
 def test_error_handling_implementation():
@@ -132,32 +120,21 @@ def test_error_handling_implementation():
         content = f.read()
 
     # Check ERROR_MAP exists
-    if "ERROR_MAP" not in content:
-        print("  ✗ ERROR_MAP not defined")
-        return False
+    assert "ERROR_MAP" in content, "ERROR_MAP not defined"
 
     # Check error codes
     error_codes = re.findall(r"(-\d+)", content)
-    if len(error_codes) < 7:
-        print(f"  ✗ Only {len(error_codes)} error codes (expected 7+)")
-        return False
+    assert len(error_codes) >= 7, f"Only {len(error_codes)} error codes (expected 7+)"
 
-    print(f"  ✓ Error mapping with {len(set(error_codes))} unique codes")
+    print(f"  [PASS] Error mapping with {len(set(error_codes))} unique codes")
 
     # Check translate_error function
-    if "def translate_error" not in content:
-        print("  ✗ translate_error function not found")
-        return False
-
-    print("  ✓ translate_error function exists")
+    assert "def translate_error" in content, "translate_error function not found"
+    print("  [PASS] translate_error function exists")
 
     # Check McpError class
-    if "class McpError" not in content:
-        print("  ✗ McpError class not found")
-        return False
-
-    print("  ✓ McpError class defined")
-    return True
+    assert "class McpError" in content, "McpError class not found"
+    print("  [PASS] McpError class defined")
 
 
 def test_session_managers_implementation():
@@ -176,18 +153,13 @@ def test_session_managers_implementation():
     }
 
     for method, description in required_methods.items():
-        if f"def {method}" not in content:
-            print(f"  ✗ ExchangeSessionManager missing: {method}")
-            return False
+        assert f"def {method}" in content, f"ExchangeSessionManager missing: {method}"
 
-    print("  ✓ ExchangeSessionManager has all methods")
+    print("  [PASS] ExchangeSessionManager has all methods")
 
     # Check singleton pattern
-    if "__new__" not in content or "_instance" not in content:
-        print("  ✗ Singleton pattern not implemented")
-        return False
-
-    print("  ✓ Singleton pattern implemented")
+    assert "__new__" in content and "_instance" in content, "Singleton pattern not implemented"
+    print("  [PASS] Singleton pattern implemented")
 
     # Test StrategySessionManager
     with open("dr_manhattan/mcp/session/strategy_manager.py", "r") as f:
@@ -201,12 +173,9 @@ def test_session_managers_implementation():
     }
 
     for method, description in required_methods.items():
-        if f"def {method}" not in content:
-            print(f"  ✗ StrategySessionManager missing: {method}")
-            return False
+        assert f"def {method}" in content, f"StrategySessionManager missing: {method}"
 
-    print("  ✓ StrategySessionManager has all methods")
-    return True
+    print("  [PASS] StrategySessionManager has all methods")
 
 
 def test_serializer_implementation():
@@ -217,19 +186,14 @@ def test_serializer_implementation():
         content = f.read()
 
     # Check serialize_model function
-    if "def serialize_model" not in content:
-        print("  ✗ serialize_model function not found")
-        return False
+    assert "def serialize_model" in content, "serialize_model function not found"
 
     # Check type handling
     type_checks = ["datetime", "Enum", "dataclass", "dict", "list"]
     for type_check in type_checks:
-        if type_check.lower() not in content.lower():
-            print(f"  ✗ No handling for: {type_check}")
-            return False
+        assert type_check.lower() in content.lower(), f"No handling for: {type_check}"
 
-    print(f"  ✓ Handles all required types: {', '.join(type_checks)}")
-    return True
+    print(f"  [PASS] Handles all required types: {', '.join(type_checks)}")
 
 
 def test_tool_execution_logic():
@@ -241,34 +205,23 @@ def test_tool_execution_logic():
         content = f.read()
 
     # Check imports
-    if "ExchangeSessionManager" not in content:
-        print("  ✗ exchange_tools doesn't use ExchangeSessionManager")
-        return False
+    assert "ExchangeSessionManager" in content, "exchange_tools doesn't use ExchangeSessionManager"
+    assert "translate_error" in content, "exchange_tools doesn't use translate_error"
 
-    if "translate_error" not in content:
-        print("  ✗ exchange_tools doesn't use translate_error")
-        return False
-
-    print("  ✓ exchange_tools has proper imports")
+    print("  [PASS] exchange_tools has proper imports")
 
     # Check error handling in functions
-    if "try:" not in content or "except" not in content:
-        print("  ✗ exchange_tools missing error handling")
-        return False
+    assert "try:" in content and "except" in content, "exchange_tools missing error handling"
 
-    print("  ✓ exchange_tools has error handling")
+    print("  [PASS] exchange_tools has error handling")
 
     # Test market_tools
     with open("dr_manhattan/mcp/tools/market_tools.py", "r") as f:
         content = f.read()
 
-    if "serialize_model" not in content:
-        print("  ✗ market_tools doesn't serialize results")
-        return False
+    assert "serialize_model" in content, "market_tools doesn't serialize results"
 
-    print("  ✓ market_tools serializes results")
-
-    return True
+    print("  [PASS] market_tools serializes results")
 
 
 def test_documentation_complete():
@@ -281,20 +234,15 @@ def test_documentation_complete():
     }
 
     for doc_path, required_sections in docs.items():
-        if not os.path.exists(doc_path):
-            print(f"  Missing: {doc_path}")
-            return False
+        assert os.path.exists(doc_path), f"Missing: {doc_path}"
 
         with open(doc_path, "r") as f:
             content = f.read()
 
         for section in required_sections:
-            if section not in content:
-                print(f"  {doc_path} missing section: {section}")
-                return False
+            assert section in content, f"{doc_path} missing section: {section}"
 
-    print(f"  All {len(docs)} documentation files complete")
-    return True
+    print(f"  [PASS] All {len(docs)} documentation files complete")
 
 
 def test_pyproject_configuration():
@@ -312,12 +260,9 @@ def test_pyproject_configuration():
     }
 
     for config, description in required_config.items():
-        if config not in content:
-            print(f"  ✗ Missing: {description} ({config})")
-            return False
+        assert config in content, f"Missing: {description} ({config})"
 
-    print("  ✓ All required configurations present")
-    return True
+    print("  [PASS] All required configurations present")
 
 
 def test_server_async_structure():
@@ -330,38 +275,22 @@ def test_server_async_structure():
     # Check async functions
     async_functions = ["list_tools", "call_tool", "main"]
     for func in async_functions:
-        if f"async def {func}" not in content:
-            print(f"  ✗ Missing async function: {func}")
-            return False
+        assert f"async def {func}" in content, f"Missing async function: {func}"
 
-    print("  ✓ All async functions present")
+    print("  [PASS] All async functions present")
 
     # Check MCP server creation
-    if "Server(" not in content:
-        print("  ✗ Server not created")
-        return False
+    assert "Server(" in content, "Server not created"
+    assert "@app.list_tools()" in content, "list_tools decorator missing"
+    assert "@app.call_tool()" in content, "call_tool decorator missing"
 
-    if "@app.list_tools()" not in content:
-        print("  ✗ list_tools decorator missing")
-        return False
-
-    if "@app.call_tool()" not in content:
-        print("  ✗ call_tool decorator missing")
-        return False
-
-    print("  ✓ MCP decorators properly used")
+    print("  [PASS] MCP decorators properly used")
 
     # Check cleanup
-    if "cleanup_handler" not in content:
-        print("  ✗ cleanup_handler missing")
-        return False
+    assert "cleanup_handler" in content, "cleanup_handler missing"
+    assert "signal.signal" in content, "Signal handling missing"
 
-    if "signal.signal" not in content:
-        print("  ✗ Signal handling missing")
-        return False
-
-    print("  ✓ Cleanup and signal handling present")
-    return True
+    print("  [PASS] Cleanup and signal handling present")
 
 
 def main():
@@ -386,10 +315,10 @@ def main():
     results = []
     for name, test_func in tests:
         try:
-            result = test_func()
-            results.append((name, result))
+            test_func()
+            results.append((name, True))
         except Exception as e:
-            print(f"\n  ✗ {name} crashed: {e}")
+            print(f"\n  [FAIL] {name} crashed: {e}")
             import traceback
 
             traceback.print_exc()
@@ -400,7 +329,7 @@ def main():
     print("=" * 60)
 
     for name, result in results:
-        status = "✓ PASS" if result else "✗ FAIL"
+        status = "[PASS]" if result else "[FAIL]"
         print(f"{status:8} {name}")
 
     print("=" * 60)
@@ -411,21 +340,21 @@ def main():
     print(f"\nTotal: {passed}/{total} tests passed ({passed / total * 100:.1f}%)")
 
     if passed == total:
-        print("\n🎉 All comprehensive tests passed!")
+        print("\nAll comprehensive tests passed!")
         print("\nThe MCP server is correctly implemented:")
-        print("  ✓ All tool files present")
-        print("  ✓ Tool functions properly defined")
-        print("  ✓ Server registration complete")
-        print("  ✓ Error handling implemented")
-        print("  ✓ Session management working")
-        print("  ✓ Data serialization ready")
-        print("  ✓ Documentation complete")
-        print("  ✓ Configuration correct")
-        print("  ✓ Async structure proper")
+        print("  - All tool files present")
+        print("  - Tool functions properly defined")
+        print("  - Server registration complete")
+        print("  - Error handling implemented")
+        print("  - Session management working")
+        print("  - Data serialization ready")
+        print("  - Documentation complete")
+        print("  - Configuration correct")
+        print("  - Async structure proper")
         print("\nReady for production use!")
         return 0
     else:
-        print(f"\n⚠️  {total - passed} test(s) failed")
+        print(f"\n{total - passed} test(s) failed")
         print("\nPlease fix the failing tests before deployment.")
         return 1
 
