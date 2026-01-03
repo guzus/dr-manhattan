@@ -365,10 +365,11 @@ class Opinion(Exchange):
 
     def fetch_markets(self, params: Optional[Dict[str, Any]] = None) -> List[Market]:
         """
-        Fetch all markets from Opinion.
+        Fetch markets from Opinion.
 
         Args:
             params: Optional parameters:
+                - all: If True, fetch all markets with pagination (default False)
                 - topic_type: TopicType (ALL, BINARY, CATEGORICAL)
                 - status: TopicStatusFilter (ALL, ACTIVATED, RESOLVED)
                 - page: Page number (default 1)
@@ -377,10 +378,13 @@ class Opinion(Exchange):
                 - closed: If True, include closed markets
         """
         self._ensure_client()
+        query_params = params or {}
+
+        if query_params.get("all"):
+            return self._fetch_all_markets(query_params)
 
         @self._retry_on_failure
         def _fetch():
-            query_params = params or {}
             topic_type = query_params.get("topic_type", TopicType.ALL)
             status = query_params.get("status", TopicStatusFilter.ACTIVATED)
 
@@ -409,6 +413,23 @@ class Opinion(Exchange):
             return markets
 
         return _fetch()
+
+    def _fetch_all_markets(self, params: Dict[str, Any]) -> List[Market]:
+        """Fetch all markets with automatic pagination."""
+        all_markets: List[Market] = []
+        page = 1
+        max_pages = 100
+
+        while page <= max_pages:
+            page_params = {**params, "page": page, "limit": 20}
+            page_params.pop("all", None)
+            batch = self.fetch_markets(page_params)
+            if not batch:
+                break
+            all_markets.extend(batch)
+            page += 1
+
+        return all_markets
 
     def fetch_market(self, market_id: str) -> Market:
         """

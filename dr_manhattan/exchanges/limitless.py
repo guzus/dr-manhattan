@@ -284,10 +284,11 @@ class Limitless(Exchange):
 
     def fetch_markets(self, params: Optional[Dict[str, Any]] = None) -> List[Market]:
         """
-        Fetch all active markets from Limitless.
+        Fetch active markets from Limitless.
 
         Args:
             params: Optional parameters:
+                - all: If True, fetch all markets with pagination (default False)
                 - page: Page number (default 1)
                 - limit: Items per page (default 25, max 25)
                 - category: Filter by category ID
@@ -296,10 +297,13 @@ class Limitless(Exchange):
         Returns:
             List of Market objects
         """
+        query_params = params or {}
+
+        if query_params.get("all"):
+            return self._fetch_all_markets(query_params)
 
         @self._retry_on_failure
         def _fetch():
-            query_params = params or {}
             page = query_params.get("page", 1)
             limit = min(query_params.get("limit", 25), 25)  # API max is 25
 
@@ -319,6 +323,23 @@ class Limitless(Exchange):
             return markets
 
         return _fetch()
+
+    def _fetch_all_markets(self, params: Dict[str, Any]) -> List[Market]:
+        """Fetch all markets with automatic pagination."""
+        all_markets: List[Market] = []
+        page = 1
+        max_pages = 100
+
+        while page <= max_pages:
+            page_params = {**params, "page": page, "limit": 25}
+            page_params.pop("all", None)
+            batch = self.fetch_markets(page_params)
+            if not batch:
+                break
+            all_markets.extend(batch)
+            page += 1
+
+        return all_markets
 
     def fetch_market(self, market_id: str) -> Market:
         """
@@ -343,19 +364,87 @@ class Limitless(Exchange):
 
     def fetch_markets_by_slug(self, slug: str) -> List[Market]:
         """
-        Fetch market(s) by slug.
+        Fetch market(s) by slug, expanding nested markets if present.
+
+        For multi-outcome events (e.g., Fed decision markets with multiple
+        outcomes like "No change", "25 bps decrease"), this returns each
+        nested market as a separate Market object.
 
         Args:
             slug: Market slug
 
         Returns:
-            List of Market objects (usually just one for Limitless)
+            List of Market objects
         """
         try:
             market = self.fetch_market(slug)
-            return [market]
         except MarketNotFound:
             return []
+
+        # Check if this is a multi-market event with nested markets
+        nested_markets = market.metadata.get("markets", [])
+        if not nested_markets:
+            return [market]
+
+        # Expand nested markets
+        result = []
+        for nested_data in nested_markets:
+            nested_market = self._parse_nested_market(nested_data, slug)
+            result.append(nested_market)
+
+        return result
+
+    def _parse_nested_market(self, data: Dict[str, Any], parent_slug: str) -> Market:
+        """Parse a nested market from a multi-outcome event."""
+        title = data.get("title", data.get("question", ""))
+
+        # Extract prices (nested markets use [yes, no] format)
+        prices = {}
+        price_data = data.get("prices", [])
+        if isinstance(price_data, list) and len(price_data) >= 2:
+            yes_price = float(price_data[0])
+            no_price = float(price_data[1])
+            prices["Yes"] = yes_price / 100 if yes_price > 1 else yes_price
+            prices["No"] = no_price / 100 if no_price > 1 else no_price
+
+        # Extract tokens
+        tokens = data.get("tokens", {})
+        yes_token = str(tokens.get("yes", "")) if tokens else ""
+        no_token = str(tokens.get("no", "")) if tokens else ""
+        token_ids = [yes_token, no_token] if yes_token and no_token else []
+
+        # Parse close time
+        close_time = None
+        deadline = data.get("deadline") or data.get("expirationDate")
+        if deadline:
+            close_time = self._parse_datetime(deadline)
+
+        # Volume
+        volume = float(data.get("volumeFormatted") or data.get("volume") or 0)
+
+        # Build metadata with match_id for cross-exchange matching
+        metadata = {
+            **data,
+            "readable_id": [parent_slug, title],
+            "match_id": title,
+            "tokens": {"Yes": yes_token, "No": no_token},
+            "token_ids": token_ids,
+            "clobTokenIds": token_ids,
+            "minimum_tick_size": 0.001,
+            "closed": data.get("status", "").lower() in ("resolved", "closed"),
+        }
+
+        return Market(
+            id=title,
+            question=title,
+            outcomes=["Yes", "No"],
+            close_time=close_time,
+            volume=volume,
+            liquidity=0,
+            prices=prices,
+            metadata=metadata,
+            tick_size=0.001,
+        )
 
     def _parse_market(self, data: Dict[str, Any]) -> Market:
         """Parse market data from Limitless API response."""

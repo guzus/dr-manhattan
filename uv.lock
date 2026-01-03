@@ -823,6 +823,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "python-socketio", extra = ["asyncio-client"] },
     { name = "requests" },
+    { name = "rich" },
     { name = "websockets" },
 ]
 
@@ -847,6 +848,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-socketio", extras = ["asyncio-client"], specifier = ">=5.11.0" },
     { name = "requests", specifier = ">=2.31.0" },
+    { name = "rich", specifier = ">=14.2.0" },
     { name = "websockets", specifier = ">=15.0.1" },
 ]
 
