@@ -24,13 +24,8 @@ def test_all_files_parseable():
         except SyntaxError as e:
             errors.append(f"{filepath}: {e}")
 
-    if errors:
-        for error in errors:
-            print(f"✗ {error}")
-        return False
-
-    print(f"✓ All {len(files_to_check)} Python files have valid syntax")
-    return True
+    assert not errors, f"Syntax errors found: {errors}"
+    print(f"[PASS] All {len(files_to_check)} Python files have valid syntax")
 
 
 def test_tool_count():
@@ -44,7 +39,7 @@ def test_tool_count():
         # Count Tool() instances
         tool_count = content.count("Tool(")
 
-        print(f"✓ Found {tool_count} tool definitions")
+        print(f"[PASS] Found {tool_count} tool definitions")
 
         # List tool names
         import re
@@ -52,15 +47,10 @@ def test_tool_count():
         tool_names = re.findall(r'name="([^"]+)"', content)
         print(f"  Tools: {', '.join(tool_names[:5])}... ({len(tool_names)} total)")
 
-        if tool_count < 15:
-            print(f"✗ Expected at least 15 tools, found {tool_count}")
-            return False
-
-        return True
+        assert tool_count >= 15, f"Expected at least 15 tools, found {tool_count}"
 
     except Exception as e:
-        print(f"✗ Failed: {e}")
-        return False
+        raise AssertionError(f"Failed: {e}") from e
 
 
 def test_function_signatures():
@@ -89,16 +79,11 @@ def test_function_signatures():
             total_functions += len(public_functions)
 
         except Exception as e:
-            print(f"✗ Failed to parse {filepath}: {e}")
-            return False
+            raise AssertionError(f"Failed to parse {filepath}: {e}") from e
 
-    print(f"✓ Found {total_functions} public tool functions")
+    print(f"[PASS] Found {total_functions} public tool functions")
 
-    if total_functions < 20:
-        print(f"✗ Expected at least 20 functions, found {total_functions}")
-        return False
-
-    return True
+    assert total_functions >= 20, f"Expected at least 20 functions, found {total_functions}"
 
 
 def test_session_manager_implementation():
@@ -118,11 +103,9 @@ def test_session_manager_implementation():
         ]
 
         for method in required_methods:
-            if f"def {method}" not in content:
-                print(f"✗ ExchangeSessionManager missing method: {method}")
-                return False
+            assert f"def {method}" in content, f"ExchangeSessionManager missing method: {method}"
 
-        print("✓ ExchangeSessionManager has all required methods")
+        print("[PASS] ExchangeSessionManager has all required methods")
 
         # Check StrategySessionManager
         with open("dr_manhattan/mcp/session/strategy_manager.py", "r") as f:
@@ -141,17 +124,12 @@ def test_session_manager_implementation():
         ]
 
         for method in required_methods:
-            if f"def {method}" not in content:
-                print(f"✗ StrategySessionManager missing method: {method}")
-                return False
+            assert f"def {method}" in content, f"StrategySessionManager missing method: {method}"
 
-        print("✓ StrategySessionManager has all required methods")
-
-        return True
+        print("[PASS] StrategySessionManager has all required methods")
 
     except Exception as e:
-        print(f"✗ Failed: {e}")
-        return False
+        raise AssertionError(f"Failed: {e}") from e
 
 
 def test_error_handling():
@@ -163,9 +141,7 @@ def test_error_handling():
             content = f.read()
 
         # Check error mapping exists
-        if "ERROR_MAP" not in content:
-            print("✗ ERROR_MAP not found")
-            return False
+        assert "ERROR_MAP" in content, "ERROR_MAP not found"
 
         # Check all dr-manhattan errors are mapped
         dr_errors = [
@@ -180,24 +156,17 @@ def test_error_handling():
         ]
 
         for error in dr_errors:
-            if error not in content:
-                print(f"✗ Error not mapped: {error}")
-                return False
+            assert error in content, f"Error not mapped: {error}"
 
-        print(f"✓ All {len(dr_errors)} error types are mapped")
+        print(f"[PASS] All {len(dr_errors)} error types are mapped")
 
         # Check translate_error function exists
-        if "def translate_error" not in content:
-            print("✗ translate_error function not found")
-            return False
+        assert "def translate_error" in content, "translate_error function not found"
 
-        print("✓ translate_error function exists")
-
-        return True
+        print("[PASS] translate_error function exists")
 
     except Exception as e:
-        print(f"✗ Failed: {e}")
-        return False
+        raise AssertionError(f"Failed: {e}") from e
 
 
 def test_documentation_exists():
@@ -210,27 +179,18 @@ def test_documentation_exists():
     ]
 
     for doc in docs:
-        if not os.path.exists(doc):
-            print(f"Missing: {doc}")
-            return False
+        assert os.path.exists(doc), f"Missing: {doc}"
 
-    print(f"All {len(docs)} documentation files exist")
+    print(f"[PASS] All {len(docs)} documentation files exist")
 
     # Check doc content
     with open("examples/mcp_usage_example.md", "r") as f:
         content = f.read()
 
-    if "Dr. Manhattan" not in content:
-        print("Usage example missing title")
-        return False
+    assert "Dr. Manhattan" in content, "Usage example missing title"
+    assert "Setup" in content, "Usage example missing Setup section"
 
-    if "Setup" not in content:
-        print("Usage example missing Setup section")
-        return False
-
-    print("Documentation has required sections")
-
-    return True
+    print("[PASS] Documentation has required sections")
 
 
 def test_directory_structure():
@@ -245,11 +205,9 @@ def test_directory_structure():
     ]
 
     for dir_path in required_dirs:
-        if not os.path.isdir(dir_path):
-            print(f"✗ Missing directory: {dir_path}")
-            return False
+        assert os.path.isdir(dir_path), f"Missing directory: {dir_path}"
 
-    print(f"✓ All {len(required_dirs)} required directories exist")
+    print(f"[PASS] All {len(required_dirs)} required directories exist")
 
     # Check __init__.py files
     init_files = [
@@ -260,13 +218,9 @@ def test_directory_structure():
     ]
 
     for init_file in init_files:
-        if not os.path.exists(init_file):
-            print(f"✗ Missing: {init_file}")
-            return False
+        assert os.path.exists(init_file), f"Missing: {init_file}"
 
-    print(f"✓ All {len(init_files)} __init__.py files exist")
-
-    return True
+    print(f"[PASS] All {len(init_files)} __init__.py files exist")
 
 
 def test_server_entrypoint():
@@ -287,31 +241,22 @@ def test_server_entrypoint():
         ]
 
         for component in required_components:
-            if component not in content:
-                print(f"✗ Missing component: {component}")
-                return False
+            assert component in content, f"Missing component: {component}"
 
-        print("✓ Server has all required components")
+        print("[PASS] Server has all required components")
 
         # Check signal handling
-        if "signal.signal" not in content:
-            print("✗ Missing signal handling")
-            return False
+        assert "signal.signal" in content, "Missing signal handling"
 
-        print("✓ Signal handling configured")
+        print("[PASS] Signal handling configured")
 
         # Check cleanup
-        if "def cleanup_handler" not in content:
-            print("✗ Missing cleanup handler")
-            return False
+        assert "def cleanup_handler" in content, "Missing cleanup handler"
 
-        print("✓ Cleanup handler exists")
-
-        return True
+        print("[PASS] Cleanup handler exists")
 
     except Exception as e:
-        print(f"✗ Failed: {e}")
-        return False
+        raise AssertionError(f"Failed: {e}") from e
 
 
 def main():
@@ -334,10 +279,10 @@ def main():
     results = []
     for name, test_func in tests:
         try:
-            result = test_func()
-            results.append((name, result))
+            test_func()
+            results.append((name, True))
         except Exception as e:
-            print(f"\n✗ {name} crashed: {e}")
+            print(f"\n[FAIL] {name} crashed: {e}")
             import traceback
 
             traceback.print_exc()
@@ -348,7 +293,7 @@ def main():
     print("=" * 60)
 
     for name, result in results:
-        status = "✓ PASS" if result else "✗ FAIL"
+        status = "[PASS]" if result else "[FAIL]"
         print(f"{status:8} {name}")
 
     print("=" * 60)
@@ -359,7 +304,7 @@ def main():
     print(f"\nTotal: {passed}/{total} tests passed")
 
     if passed == total:
-        print("\n🎉 All code validation tests passed!")
+        print("\nAll code validation tests passed!")
         print("\nMCP Server is ready to use!")
         print("\nNext steps:")
         print("  1. Install dependencies: pip install -e '.[mcp]'")
@@ -368,7 +313,7 @@ def main():
         print("  4. Restart Claude Desktop")
         return 0
     else:
-        print(f"\n⚠️  {total - passed} test(s) failed")
+        print(f"\n{total - passed} test(s) failed")
         return 1
 
 

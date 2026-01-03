@@ -75,8 +75,16 @@ class RateLimiter:
                 if not blocking or time.time() >= deadline:
                     return False
 
-            # Wait a bit before retrying (outside lock)
-            time.sleep(0.01)
+                # Calculate exact wait time for next token (avoids busy-wait)
+                tokens_needed = 1 - self.tokens
+                wait_time = tokens_needed / self.rate
+                # Clamp to remaining time until deadline
+                remaining = deadline - time.time()
+                wait_time = min(wait_time, max(0, remaining))
+
+            # Sleep for calculated duration (outside lock)
+            if wait_time > 0:
+                time.sleep(wait_time)
 
     def try_acquire(self) -> bool:
         """

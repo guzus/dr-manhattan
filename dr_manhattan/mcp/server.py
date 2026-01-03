@@ -360,6 +360,36 @@ async def list_tools() -> list[Tool]:
     ]
 
 
+# Tool dispatch table (replaces long if-elif chain)
+# Format: tool_name -> (handler_function, requires_arguments)
+TOOL_DISPATCH = {
+    # Exchange tools
+    "list_exchanges": (exchange_tools.list_exchanges, False),
+    "get_exchange_info": (exchange_tools.get_exchange_info, True),
+    "validate_credentials": (exchange_tools.validate_credentials, True),
+    # Market tools
+    "fetch_markets": (market_tools.fetch_markets, True),
+    "fetch_market": (market_tools.fetch_market, True),
+    "fetch_markets_by_slug": (market_tools.fetch_markets_by_slug, True),
+    "get_orderbook": (market_tools.get_orderbook, True),
+    "get_best_bid_ask": (market_tools.get_best_bid_ask, True),
+    # Trading tools
+    "create_order": (trading_tools.create_order, True),
+    "cancel_order": (trading_tools.cancel_order, True),
+    "cancel_all_orders": (trading_tools.cancel_all_orders, True),
+    "fetch_open_orders": (trading_tools.fetch_open_orders, True),
+    # Account tools
+    "fetch_balance": (account_tools.fetch_balance, True),
+    "fetch_positions": (account_tools.fetch_positions, True),
+    "calculate_nav": (account_tools.calculate_nav, True),
+    # Strategy tools
+    "create_strategy_session": (strategy_tools.create_strategy_session, True),
+    "get_strategy_status": (strategy_tools.get_strategy_status, True),
+    "stop_strategy": (strategy_tools.stop_strategy, True),
+    "list_strategy_sessions": (strategy_tools.list_strategy_sessions, False),
+}
+
+
 @app.call_tool()
 async def call_tool(name: str, arguments: Any) -> list[TextContent]:
     """Handle tool execution with rate limiting."""
@@ -371,66 +401,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 "The MCP server limits requests to prevent overload."
             )
 
-        # Route to appropriate tool function
-        if name == "list_exchanges":
-            result = exchange_tools.list_exchanges()
-
-        elif name == "get_exchange_info":
-            result = exchange_tools.get_exchange_info(**arguments)
-
-        elif name == "validate_credentials":
-            result = exchange_tools.validate_credentials(**arguments)
-
-        elif name == "fetch_markets":
-            result = market_tools.fetch_markets(**arguments)
-
-        elif name == "fetch_market":
-            result = market_tools.fetch_market(**arguments)
-
-        elif name == "fetch_markets_by_slug":
-            result = market_tools.fetch_markets_by_slug(**arguments)
-
-        elif name == "get_orderbook":
-            result = market_tools.get_orderbook(**arguments)
-
-        elif name == "get_best_bid_ask":
-            result = market_tools.get_best_bid_ask(**arguments)
-
-        elif name == "create_order":
-            result = trading_tools.create_order(**arguments)
-
-        elif name == "cancel_order":
-            result = trading_tools.cancel_order(**arguments)
-
-        elif name == "cancel_all_orders":
-            result = trading_tools.cancel_all_orders(**arguments)
-
-        elif name == "fetch_open_orders":
-            result = trading_tools.fetch_open_orders(**arguments)
-
-        elif name == "fetch_balance":
-            result = account_tools.fetch_balance(**arguments)
-
-        elif name == "fetch_positions":
-            result = account_tools.fetch_positions(**arguments)
-
-        elif name == "calculate_nav":
-            result = account_tools.calculate_nav(**arguments)
-
-        elif name == "create_strategy_session":
-            result = strategy_tools.create_strategy_session(**arguments)
-
-        elif name == "get_strategy_status":
-            result = strategy_tools.get_strategy_status(**arguments)
-
-        elif name == "stop_strategy":
-            result = strategy_tools.stop_strategy(**arguments)
-
-        elif name == "list_strategy_sessions":
-            result = strategy_tools.list_strategy_sessions()
-
-        else:
+        # Route to appropriate tool function using dispatch table
+        if name not in TOOL_DISPATCH:
             raise ValueError(f"Unknown tool: {name}")
+
+        handler, requires_args = TOOL_DISPATCH[name]
+        result = handler(**arguments) if requires_args else handler()
 
         # Return result as text content
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
@@ -442,8 +418,26 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
 
 
+# Shutdown flag for signal handler (avoids complex operations in signal context)
+_shutdown_requested = False
+
+
 def cleanup_handler(signum, frame):
-    """Handle cleanup on shutdown."""
+    """
+    Handle shutdown signal.
+
+    IMPORTANT: Signal handlers must be minimal to avoid deadlock.
+    Only sets a flag here; actual cleanup done in main loop.
+    """
+    global _shutdown_requested
+    _shutdown_requested = True
+    # Log to stderr directly (avoid any locking in logger)
+    sys.stderr.write("[SIGNAL] Shutdown requested, cleaning up...\n")
+    sys.stderr.flush()
+
+
+def _do_cleanup():
+    """Perform actual cleanup (called from main context, not signal handler)."""
     logger.info("Shutting down MCP server...")
 
     # Cleanup strategy sessions
@@ -453,20 +447,23 @@ def cleanup_handler(signum, frame):
     exchange_manager.cleanup()
 
     logger.info("Cleanup complete")
-    sys.exit(0)
 
 
 async def main():
     """Main entry point."""
-    # Register signal handlers
+    # Register signal handlers (only set flag, no complex operations)
     signal.signal(signal.SIGINT, cleanup_handler)
     signal.signal(signal.SIGTERM, cleanup_handler)
 
     logger.info("Starting Dr. Manhattan MCP Server...")
 
-    # Run stdio server
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+    try:
+        # Run stdio server
+        async with stdio_server() as (read_stream, write_stream):
+            await app.run(read_stream, write_stream, app.create_initialization_options())
+    finally:
+        # Cleanup in main context (safe from deadlock)
+        _do_cleanup()
 
 
 def run():

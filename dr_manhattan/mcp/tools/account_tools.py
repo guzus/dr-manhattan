@@ -1,5 +1,6 @@
 """Account management tools."""
 
+import threading
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -20,6 +21,9 @@ from ..utils import (
 logger = setup_logger(__name__)
 
 exchange_manager = ExchangeSessionManager()
+
+# Lock for RPC session creation (prevents race condition)
+_RPC_SESSION_LOCK = threading.Lock()
 
 # Polygon USDC contract address (bridged USDC on Polygon PoS)
 POLYGON_USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
@@ -53,31 +57,38 @@ def _get_rpc_session() -> requests.Session:
     - Connection pooling for better performance
     - Automatic retry on transient failures
     - Exponential backoff between retries
+    Thread-safe: protected by _RPC_SESSION_LOCK.
     """
     global _RPC_SESSION
+    # Double-checked locking pattern for thread safety
     if _RPC_SESSION is None:
-        _RPC_SESSION = requests.Session()
+        with _RPC_SESSION_LOCK:
+            # Re-check inside lock (another thread may have created it)
+            if _RPC_SESSION is None:
+                session = requests.Session()
 
-        # Configure retry strategy
-        retry_strategy = Retry(
-            total=RPC_RETRY_COUNT,
-            backoff_factor=RPC_RETRY_BACKOFF,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["POST"],  # RPC uses POST
-        )
+                # Configure retry strategy
+                retry_strategy = Retry(
+                    total=RPC_RETRY_COUNT,
+                    backoff_factor=RPC_RETRY_BACKOFF,
+                    status_forcelist=[429, 500, 502, 503, 504],
+                    allowed_methods=["POST"],  # RPC uses POST
+                )
 
-        # Configure adapter with connection pooling
-        adapter = HTTPAdapter(
-            pool_connections=RPC_POOL_CONNECTIONS,
-            pool_maxsize=RPC_POOL_MAXSIZE,
-            max_retries=retry_strategy,
-        )
+                # Configure adapter with connection pooling
+                adapter = HTTPAdapter(
+                    pool_connections=RPC_POOL_CONNECTIONS,
+                    pool_maxsize=RPC_POOL_MAXSIZE,
+                    max_retries=retry_strategy,
+                )
 
-        _RPC_SESSION.mount("https://", adapter)
-        _RPC_SESSION.mount("http://", adapter)
-        logger.info(
-            f"RPC session created with pool_size={RPC_POOL_MAXSIZE}, retries={RPC_RETRY_COUNT}"
-        )
+                session.mount("https://", adapter)
+                session.mount("http://", adapter)
+                logger.info(
+                    f"RPC session created: pool_size={RPC_POOL_MAXSIZE}, "
+                    f"retries={RPC_RETRY_COUNT}"
+                )
+                _RPC_SESSION = session
 
     return _RPC_SESSION
 
@@ -87,16 +98,18 @@ def cleanup_rpc_session() -> None:
     Cleanup global RPC session.
 
     Called by ExchangeSessionManager.cleanup() to release HTTP connections.
+    Thread-safe: protected by _RPC_SESSION_LOCK.
     """
     global _RPC_SESSION
-    if _RPC_SESSION is not None:
-        try:
-            _RPC_SESSION.close()
-            logger.info("RPC session closed")
-        except Exception as e:
-            logger.warning(f"Error closing RPC session: {e}")
-        finally:
-            _RPC_SESSION = None
+    with _RPC_SESSION_LOCK:
+        if _RPC_SESSION is not None:
+            try:
+                _RPC_SESSION.close()
+                logger.info("RPC session closed")
+            except Exception as e:
+                logger.warning(f"Error closing RPC session: {e}")
+            finally:
+                _RPC_SESSION = None
 
 
 def _validate_rpc_response(result: str, address: str) -> bool:

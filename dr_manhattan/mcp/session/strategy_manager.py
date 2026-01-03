@@ -20,6 +20,7 @@ THREAD_CLEANUP_TIMEOUT = 5.0  # seconds - timeout during cleanup()
 
 # Status caching configuration (reduces refresh_state() calls)
 STATUS_CACHE_TTL = 1.0  # seconds - cache lifetime for get_status()
+STATUS_CACHE_MAX_SIZE = 100  # Maximum cache entries (prevents memory leak)
 
 
 class StrategySessionManager:
@@ -117,10 +118,13 @@ class StrategySessionManager:
             logger.info(f"Starting strategy execution: {session_id}")
             strategy.run(duration_minutes=duration_minutes)
 
-            # Update status when done
+            # Update status when done and clear cache
             with self._instance_lock:
                 if session_id in self._sessions:
                     self._sessions[session_id].status = SessionStatus.STOPPED
+                # Clear cache for completed session (prevents memory leak)
+                if session_id in self._status_cache:
+                    del self._status_cache[session_id]
 
         except Exception as e:
             logger.error(f"Strategy execution failed: {e}")
@@ -128,6 +132,9 @@ class StrategySessionManager:
                 if session_id in self._sessions:
                     self._sessions[session_id].status = SessionStatus.ERROR
                     self._sessions[session_id].error = str(e)
+                # Clear cache for failed session (prevents memory leak)
+                if session_id in self._status_cache:
+                    del self._status_cache[session_id]
 
     def get_session(self, session_id: str) -> StrategySession:
         """
@@ -147,12 +154,39 @@ class StrategySessionManager:
             raise ValueError(f"Session not found: {session_id}")
         return session
 
+    def _evict_stale_cache_entries(self, now: float) -> None:
+        """
+        Remove stale cache entries to prevent memory leak.
+
+        Must be called while holding _instance_lock.
+        Removes entries older than TTL or exceeding max size.
+        """
+        # Remove expired entries first
+        expired = [
+            sid for sid, (cached_time, _) in self._status_cache.items()
+            if now - cached_time >= STATUS_CACHE_TTL
+        ]
+        for sid in expired:
+            del self._status_cache[sid]
+
+        # If still over limit, remove oldest entries
+        if len(self._status_cache) > STATUS_CACHE_MAX_SIZE:
+            # Sort by timestamp and remove oldest
+            sorted_entries = sorted(
+                self._status_cache.items(),
+                key=lambda x: x[1][0]  # Sort by cached_time
+            )
+            entries_to_remove = len(self._status_cache) - STATUS_CACHE_MAX_SIZE
+            for sid, _ in sorted_entries[:entries_to_remove]:
+                del self._status_cache[sid]
+
     def get_status(self, session_id: str) -> Dict[str, Any]:
         """
         Get real-time strategy status with caching.
 
         Uses TTL-based caching to reduce expensive refresh_state() calls.
         Cache TTL is configured by STATUS_CACHE_TTL constant.
+        Thread-safe: cache access protected by _instance_lock.
 
         Args:
             session_id: Session ID
@@ -162,17 +196,21 @@ class StrategySessionManager:
         """
         now = time.time()
 
-        # Check cache first
-        if session_id in self._status_cache:
-            cached_time, cached_status = self._status_cache[session_id]
-            if now - cached_time < STATUS_CACHE_TTL:
-                return cached_status
+        # Check cache first (thread-safe read)
+        with self._instance_lock:
+            if session_id in self._status_cache:
+                cached_time, cached_status = self._status_cache[session_id]
+                if now - cached_time < STATUS_CACHE_TTL:
+                    return cached_status
 
-        # Cache miss - compute fresh status
+        # Cache miss - compute fresh status (outside lock to avoid blocking)
         status = self._compute_status(session_id)
 
-        # Update cache
-        self._status_cache[session_id] = (now, status)
+        # Update cache (thread-safe write) with eviction
+        with self._instance_lock:
+            self._status_cache[session_id] = (now, status)
+            # Periodic eviction to prevent memory leak
+            self._evict_stale_cache_entries(now)
 
         return status
 
@@ -276,8 +314,9 @@ class StrategySessionManager:
 
             if session.thread.is_alive():
                 # Thread is orphaned - mark it and log
+                total_timeout = THREAD_GRACE_PERIOD + THREAD_FORCE_KILL_TIMEOUT
                 self._orphaned_sessions[session_id] = (
-                    f"Thread did not terminate after {THREAD_GRACE_PERIOD + THREAD_FORCE_KILL_TIMEOUT}s"
+                    f"Thread did not terminate after {total_timeout}s"
                 )
                 logger.error(
                     f"Strategy thread {session_id} is orphaned. "
@@ -325,9 +364,10 @@ class StrategySessionManager:
                 # Phase 2: Force-kill
                 thread_stopped = self._force_stop_thread(session_id, session)
 
-        # Clear status cache for this session
-        if session_id in self._status_cache:
-            del self._status_cache[session_id]
+        # Clear status cache for this session (thread-safe)
+        with self._instance_lock:
+            if session_id in self._status_cache:
+                del self._status_cache[session_id]
 
         # Get final status
         final_status = self._compute_status(session_id)
@@ -426,8 +466,8 @@ class StrategySessionManager:
                         # Phase 2: Force-stop if still alive
                         if session.thread.is_alive():
                             logger.warning(
-                                f"Strategy thread {session_id} did not stop within cleanup timeout. "
-                                "Attempting force-stop..."
+                                f"Strategy thread {session_id} did not stop "
+                                "within cleanup timeout. Attempting force-stop..."
                             )
                             session.strategy.is_running = False
                             session.thread.join(timeout=THREAD_FORCE_KILL_TIMEOUT)

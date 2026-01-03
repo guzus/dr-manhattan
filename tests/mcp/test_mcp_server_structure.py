@@ -8,47 +8,37 @@ def test_server_tools():
     """Test server tool registration."""
     print("Testing MCP server tool registration...")
 
-    try:
-        # Can't actually run async without installing MCP SDK,
-        # but we can check the structure
-        import inspect
+    # Can't actually run async without installing MCP SDK,
+    # but we can check the structure
+    import inspect
 
-        from dr_manhattan.mcp import server
+    from dr_manhattan.mcp import server
 
-        # Check server exists
-        assert hasattr(server, "app"), "Server app not found"
-        print("✓ Server app exists")
+    # Check server exists
+    assert hasattr(server, "app"), "Server app not found"
+    print("[PASS] Server app exists")
 
-        # Check handlers exist
-        assert hasattr(server, "list_tools"), "list_tools handler not found"
-        assert hasattr(server, "call_tool"), "call_tool handler not found"
-        print("✓ MCP handlers exist")
+    # Check handlers exist
+    assert hasattr(server, "list_tools"), "list_tools handler not found"
+    assert hasattr(server, "call_tool"), "call_tool handler not found"
+    print("[PASS] MCP handlers exist")
 
-        # Check list_tools is async
-        assert inspect.iscoroutinefunction(server.list_tools), "list_tools should be async"
-        print("✓ list_tools is async")
+    # Check list_tools is async
+    assert inspect.iscoroutinefunction(server.list_tools), "list_tools should be async"
+    print("[PASS] list_tools is async")
 
-        # Check call_tool is async
-        assert inspect.iscoroutinefunction(server.call_tool), "call_tool should be async"
-        print("✓ call_tool is async")
+    # Check call_tool is async
+    assert inspect.iscoroutinefunction(server.call_tool), "call_tool should be async"
+    print("[PASS] call_tool is async")
 
-        # Check cleanup handler
-        assert hasattr(server, "cleanup_handler"), "cleanup_handler not found"
-        print("✓ cleanup_handler exists")
+    # Check cleanup handler
+    assert hasattr(server, "cleanup_handler"), "cleanup_handler not found"
+    print("[PASS] cleanup_handler exists")
 
-        # Check main and run functions
-        assert hasattr(server, "main"), "main function not found"
-        assert hasattr(server, "run"), "run function not found"
-        print("✓ main and run functions exist")
-
-        return True
-
-    except Exception as e:
-        print(f"✗ Server structure test failed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+    # Check main and run functions
+    assert hasattr(server, "main"), "main function not found"
+    assert hasattr(server, "run"), "run function not found"
+    print("[PASS] main and run functions exist")
 
 
 def test_tool_routing():

@@ -11,11 +11,48 @@ from dr_manhattan.utils import setup_logger
 
 logger = setup_logger(__name__)
 
+# Lock for credential operations (thread-safe access to MCP_CREDENTIALS)
+_CREDENTIALS_LOCK = threading.Lock()
+
 # Configuration constants (per CLAUDE.md Rule #4: non-sensitive config in code, not .env)
 EXCHANGE_INIT_TIMEOUT = 10.0  # seconds - timeout for exchange initialization
 CLIENT_INIT_TIMEOUT = 5.0  # seconds - timeout for client wrapper creation
 DEFAULT_SIGNATURE_TYPE = 0  # EOA (normal MetaMask accounts)
 DEFAULT_VERBOSE = True
+
+
+def _run_with_timeout(func, args=(), kwargs=None, timeout=10.0, description="operation"):
+    """
+    Run a function with timeout using ThreadPoolExecutor.
+
+    Provides consistent timeout handling with proper cleanup.
+
+    Args:
+        func: Function to execute
+        args: Positional arguments
+        kwargs: Keyword arguments
+        timeout: Timeout in seconds
+        description: Description for error messages
+
+    Returns:
+        Function result
+
+    Raises:
+        TimeoutError: If timeout exceeded
+    """
+    if kwargs is None:
+        kwargs = {}
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(func, *args, **kwargs)
+        return future.result(timeout=timeout)
+    except FutureTimeoutError:
+        logger.error(f"{description} timed out (>{timeout}s)")
+        raise TimeoutError(f"{description} timed out. This may be due to network issues.")
+    finally:
+        # Always shutdown executor (wait=False for quick cleanup)
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _get_polymarket_signature_type() -> int:
@@ -27,7 +64,8 @@ def _get_polymarket_signature_type() -> int:
         return int(sig_type)
     except ValueError:
         logger.warning(
-            f"Invalid POLYMARKET_SIGNATURE_TYPE '{sig_type}', using default {DEFAULT_SIGNATURE_TYPE}"
+            f"Invalid POLYMARKET_SIGNATURE_TYPE '{sig_type}', "
+            f"using default {DEFAULT_SIGNATURE_TYPE}"
         )
         return DEFAULT_SIGNATURE_TYPE
 
@@ -95,16 +133,18 @@ def _zeroize_credentials() -> None:
     This provides defense-in-depth by clearing credentials on shutdown.
     Note: Python's garbage collection may not immediately free memory,
     but this reduces the window of exposure.
+    Thread-safe: protected by _CREDENTIALS_LOCK.
     """
     global MCP_CREDENTIALS
-    for exchange_creds in MCP_CREDENTIALS.values():
-        if "private_key" in exchange_creds:
-            exchange_creds["private_key"] = ""
-        if "funder" in exchange_creds:
-            exchange_creds["funder"] = ""
-        if "proxy_wallet" in exchange_creds:
-            exchange_creds["proxy_wallet"] = ""
-    logger.info("Credentials zeroized")
+    with _CREDENTIALS_LOCK:
+        for exchange_creds in MCP_CREDENTIALS.values():
+            if "private_key" in exchange_creds:
+                exchange_creds["private_key"] = ""
+            if "funder" in exchange_creds:
+                exchange_creds["funder"] = ""
+            if "proxy_wallet" in exchange_creds:
+                exchange_creds["proxy_wallet"] = ""
+        logger.info("Credentials zeroized")
 
 
 def reload_credentials() -> Dict[str, Dict[str, Any]]:
@@ -113,17 +153,25 @@ def reload_credentials() -> Dict[str, Dict[str, Any]]:
 
     This allows credential refresh without server restart.
     Note: Existing exchange instances must be recreated to use new credentials.
+    Thread-safe: protected by _CREDENTIALS_LOCK.
 
     Returns:
         Updated credentials dictionary
     """
     global MCP_CREDENTIALS
-    # Zeroize old credentials first
-    _zeroize_credentials()
-    # Load fresh credentials
-    MCP_CREDENTIALS = _get_mcp_credentials()
-    logger.info("Credentials reloaded from environment")
-    return MCP_CREDENTIALS
+    with _CREDENTIALS_LOCK:
+        # Zeroize old credentials first (inline to avoid nested lock)
+        for exchange_creds in MCP_CREDENTIALS.values():
+            if "private_key" in exchange_creds:
+                exchange_creds["private_key"] = ""
+            if "funder" in exchange_creds:
+                exchange_creds["funder"] = ""
+            if "proxy_wallet" in exchange_creds:
+                exchange_creds["proxy_wallet"] = ""
+        # Load fresh credentials
+        MCP_CREDENTIALS = _get_mcp_credentials()
+        logger.info("Credentials reloaded from environment")
+        return MCP_CREDENTIALS
 
 
 class ExchangeSessionManager:
@@ -146,19 +194,12 @@ class ExchangeSessionManager:
                 cls._instance._exchanges: Dict[str, Exchange] = {}
                 cls._instance._clients: Dict[str, ExchangeClient] = {}
                 cls._instance._instance_lock = threading.RLock()
-                cls._instance._initialized = True
                 logger.info("ExchangeSessionManager initialized")
         return cls._instance
 
     def __init__(self):
-        """Ensure idempotent initialization."""
-        # Check if already initialized to prevent re-initialization
-        if not hasattr(self, "_initialized"):
-            # Should not reach here due to __new__, but defensive check
-            self._exchanges = {}
-            self._clients = {}
-            self._instance_lock = threading.RLock()
-            self._initialized = True
+        """No-op: initialization done in __new__ to prevent race conditions."""
+        pass
 
     def get_exchange(
         self, exchange_name: str, use_env: bool = True, validate: bool = True
@@ -214,23 +255,13 @@ class ExchangeSessionManager:
 
                     # Initialize with timeout to avoid blocking
                     logger.info(f"Initializing {exchange_name} (this may take a moment)...")
-                    executor = ThreadPoolExecutor(max_workers=1)
-                    try:
-                        future = executor.submit(exchange_class, config_dict)
-                        exchange = future.result(timeout=EXCHANGE_INIT_TIMEOUT)
-                        logger.info(f"{exchange_name} initialized successfully")
-                    except FutureTimeoutError:
-                        # Cleanup executor to prevent hanging threads
-                        executor.shutdown(wait=False, cancel_futures=True)
-                        logger.error(
-                            f"{exchange_name} initialization timed out (>{EXCHANGE_INIT_TIMEOUT}s)"
-                        )
-                        raise TimeoutError(
-                            f"{exchange_name} initialization timed out. "
-                            "This may be due to network issues or API problems."
-                        )
-                    finally:
-                        executor.shutdown(wait=False)
+                    exchange = _run_with_timeout(
+                        exchange_class,
+                        args=(config_dict,),
+                        timeout=EXCHANGE_INIT_TIMEOUT,
+                        description=f"{exchange_name} initialization",
+                    )
+                    logger.info(f"{exchange_name} initialized successfully")
                 else:
                     exchange = create_exchange(exchange_name, use_env=use_env, validate=validate)
 
@@ -253,20 +284,15 @@ class ExchangeSessionManager:
                 exchange = self.get_exchange(exchange_name)
                 logger.info(f"Creating client wrapper for {exchange_name}...")
 
-                # Create client with timeout
-                executor = ThreadPoolExecutor(max_workers=1)
-                try:
-                    future = executor.submit(ExchangeClient, exchange, 2.0, False)
-                    client = future.result(timeout=CLIENT_INIT_TIMEOUT)
-                    logger.info(f"Client created for {exchange_name}")
-                    self._clients[exchange_name] = client
-                except FutureTimeoutError:
-                    # Cleanup executor to prevent hanging threads
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    logger.error(f"Client creation timed out for {exchange_name}")
-                    raise TimeoutError(f"Client creation timed out for {exchange_name}")
-                finally:
-                    executor.shutdown(wait=False)
+                # Create client with timeout using helper
+                client = _run_with_timeout(
+                    ExchangeClient,
+                    args=(exchange, 2.0, False),
+                    timeout=CLIENT_INIT_TIMEOUT,
+                    description=f"Client creation for {exchange_name}",
+                )
+                logger.info(f"Client created for {exchange_name}")
+                self._clients[exchange_name] = client
 
             return self._clients[exchange_name]
 
