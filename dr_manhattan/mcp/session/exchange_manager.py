@@ -18,7 +18,10 @@ _CREDENTIALS_LOCK = threading.Lock()
 EXCHANGE_INIT_TIMEOUT = 10.0  # seconds - timeout for exchange initialization
 CLIENT_INIT_TIMEOUT = 5.0  # seconds - timeout for client wrapper creation
 DEFAULT_SIGNATURE_TYPE = 0  # EOA (normal MetaMask accounts)
-DEFAULT_VERBOSE = True
+# MCP requires verbose=False because verbose mode uses print() to stdout,
+# which corrupts the JSON-RPC protocol. The checkmarks (✓) and debug info
+# from polymarket.py would break Claude Desktop's message parsing.
+DEFAULT_VERBOSE = False
 
 
 def _run_with_timeout(func, args=(), kwargs=None, timeout=10.0, description="operation"):

@@ -24,25 +24,27 @@ import sys
 from pathlib import Path
 from typing import Any, List
 
-from dotenv import load_dotenv
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+# =============================================================================
+# CRITICAL: Logger patching MUST happen BEFORE importing dr_manhattan modules
+# =============================================================================
+# MCP uses stdout exclusively for JSON-RPC communication. Any text output to
+# stdout (logs, debug prints, ANSI colors) corrupts the protocol and causes
+# parsing errors like "Unexpected token '✓'" or "Unexpected token '←[90m'".
+#
+# The dr_manhattan base project uses stdout for logging (with ANSI colors).
+# We must patch the logging system BEFORE any module imports to ensure:
+# 1. All loggers use stderr instead of stdout
+# 2. No ANSI color codes are used (they appear as garbage in JSON)
+# =============================================================================
 
-import dr_manhattan.utils
-import dr_manhattan.utils.logger as logger_module
 
-
-# Monkey-patch setup_logger BEFORE importing modules that use it.
-# This MUST happen before any dr_manhattan module imports to ensure
-# all loggers created at import time use stderr instead of stdout.
-def mcp_setup_logger(name: str = None, level: int = logging.INFO):
+def _mcp_setup_logger(name: str = None, level: int = logging.INFO):
     """MCP-compatible logger that outputs to stderr without colors."""
     logger = logging.getLogger(name)
     logger.setLevel(level)
     logger.handlers = []
 
-    # Use stderr instead of stdout
+    # Use stderr instead of stdout, no ANSI colors
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S"))
     logger.addHandler(handler)
@@ -51,11 +53,7 @@ def mcp_setup_logger(name: str = None, level: int = logging.INFO):
     return logger
 
 
-# Replace setup_logger in both locations
-logger_module.setup_logger = mcp_setup_logger
-dr_manhattan.utils.setup_logger = mcp_setup_logger
-
-# Configure all logging to use stderr (MCP uses stdout for JSON-RPC)
+# Configure root logging to use stderr BEFORE any imports
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] %(message)s",
@@ -63,6 +61,25 @@ logging.basicConfig(
     stream=sys.stderr,
     force=True,
 )
+
+# Patch the logger module BEFORE importing dr_manhattan.utils
+# This prevents default_logger from being created with stdout handler
+import dr_manhattan.utils.logger as logger_module  # noqa: E402
+
+logger_module.setup_logger = _mcp_setup_logger
+# Also recreate default_logger with the patched function
+logger_module.default_logger = _mcp_setup_logger("dr_manhattan")
+
+# Now we can safely import dr_manhattan.utils (it will use the patched logger)
+import dr_manhattan.utils  # noqa: E402
+
+dr_manhattan.utils.setup_logger = _mcp_setup_logger
+
+# Third-party imports after patching
+from dotenv import load_dotenv  # noqa: E402
+from mcp.server import Server  # noqa: E402
+from mcp.server.stdio import stdio_server  # noqa: E402
+from mcp.types import TextContent, Tool  # noqa: E402
 
 # Load environment variables from .env file
 env_path = Path(__file__).parent.parent.parent / ".env"
