@@ -1,12 +1,39 @@
 """Types for cross-exchange operations."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
-from ..models.market import ExchangeOutcomeRef, Market
+from ..models.market import ExchangeOutcomeRef, Market, ReadableMarketId
 
 # slug -> outcome_key -> {exchange_id: ExchangeOutcomeRef}
 OutcomeMapping = Dict[str, Dict[str, Dict[str, ExchangeOutcomeRef]]]
+
+
+def _market_matches(market: Market, ref: ExchangeOutcomeRef) -> bool:
+    """Check if a market matches the reference (last element is match_id or market.id)."""
+    ref_id = ref.market_id[-1]
+    market_id = market.metadata.get("match_id", market.id)
+    return str(market_id).lower() == ref_id.lower()
+
+
+def _get_fetch_slug(market_id: ReadableMarketId) -> str:
+    """Extract the fetch slug from a market ID (first element)."""
+    return market_id[0]
+
+
+def _extract_fetch_slugs(mapping: OutcomeMapping, slug: str) -> Dict[str, Set[str]]:
+    """Extract unique fetch slugs per exchange from outcome mapping."""
+    result: Dict[str, Set[str]] = {}
+    if slug not in mapping:
+        return result
+
+    for exchange_refs in mapping[slug].values():
+        for exchange_id, ref in exchange_refs.items():
+            if exchange_id not in result:
+                result[exchange_id] = set()
+            result[exchange_id].add(_get_fetch_slug(ref.market_id))
+
+    return result
 
 
 @dataclass
@@ -77,7 +104,7 @@ class FetchedMarkets:
             for exchange_id, ref in exchange_refs.items():
                 markets = self.get(exchange_id)
                 for market in markets:
-                    if market.id == ref.market_id and ref.outcome in market.prices:
+                    if _market_matches(market, ref) and ref.outcome in market.prices:
                         token_id = market.metadata.get("tokens", {}).get(ref.outcome)
                         prices[exchange_id] = TokenPrice(
                             ref=ref,

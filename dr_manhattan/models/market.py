@@ -2,6 +2,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+# Readable market ID as a path-like list:
+# - ["61"] for simple ID (Opinion)
+# - ["fed-decision-in-january", "No change"] for hierarchical (Polymarket)
+ReadableMarketId = List[str]
+
 
 @dataclass
 class OutcomeRef:
@@ -20,14 +25,19 @@ class OutcomeToken(OutcomeRef):
 
 @dataclass
 class ExchangeOutcomeRef:
-    """Full cross-exchange reference: exchange + market + outcome."""
+    """Full cross-exchange reference: exchange + market + outcome.
+
+    market_id is a path-like list:
+    - ["61"] for simple ID
+    - ["event-slug", "match-id"] for hierarchical
+    """
 
     exchange_id: str
-    market_id: str
+    market_id: ReadableMarketId
     outcome: str
 
     def to_outcome_ref(self) -> OutcomeRef:
-        return OutcomeRef(market_id=self.market_id, outcome=self.outcome)
+        return OutcomeRef(market_id=self.market_id[0], outcome=self.outcome)
 
 
 @dataclass
@@ -49,6 +59,15 @@ class Market:
         for outcome, price in self.prices.items():
             if not (0 <= price <= 1):
                 raise ValueError(f"Price for '{outcome}' must be between 0 and 1, got {price}")
+
+    @property
+    def readable_id(self) -> ReadableMarketId:
+        """Get readable market ID as a path-like list.
+
+        Returns metadata["readable_id"] if set by exchange,
+        otherwise falls back to [self.id].
+        """
+        return self.metadata.get("readable_id", [self.id])
 
     @property
     def is_binary(self) -> bool:

@@ -28,7 +28,7 @@ from .cross_exchange import CrossExchangeManager, OutcomeMapping
 from .exchanges.limitless import Limitless
 from .exchanges.opinion import Opinion
 from .exchanges.polymarket import Polymarket
-from .models.market import ExchangeOutcomeRef, Market, OutcomeRef
+from .models.market import ExchangeOutcomeRef, Market, OutcomeRef, ReadableMarketId
 from .models.order import Order, OrderSide, OrderStatus
 from .models.position import Position
 
@@ -68,6 +68,7 @@ __all__ = [
     "ExchangeOutcomeRef",
     "OutcomeMapping",
     "OutcomeRef",
+    "ReadableMarketId",
     "POLYMARKET",
     "OPINION",
     "LIMITLESS",

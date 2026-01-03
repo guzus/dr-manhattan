@@ -359,6 +359,9 @@ class Polymarket(Exchange):
         for market_data in markets_data:
             market = self._parse_market(market_data)
 
+            # Compose readable_id: [event_slug, id]
+            market.metadata["readable_id"] = [slug, market.id]
+
             # Get token IDs from market data
             clob_token_ids = market_data.get("clobTokenIds", [])
             if isinstance(clob_token_ids, str):
@@ -588,6 +591,11 @@ class Polymarket(Exchange):
         # Try to extract token IDs from various possible fields
         # Gamma API sometimes includes these in the response
         metadata = dict(data)
+
+        # Set match_id from groupItemTitle for cross-exchange matching
+        if "groupItemTitle" in data:
+            metadata["match_id"] = data["groupItemTitle"]
+
         if "tokens" in data and data["tokens"]:
             metadata["clobTokenIds"] = data["tokens"]
         elif "clobTokenIds" not in metadata and "tokenID" in data:
