@@ -54,6 +54,9 @@ Thumbs.db
 *.log
 .cache/
 
+# Development/Testing files (not for commit)
+.dev/
+
 .references/
 
 .claude/
