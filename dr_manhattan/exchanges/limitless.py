@@ -284,10 +284,11 @@ class Limitless(Exchange):
 
     def fetch_markets(self, params: Optional[Dict[str, Any]] = None) -> List[Market]:
         """
-        Fetch all active markets from Limitless.
+        Fetch active markets from Limitless.
 
         Args:
             params: Optional parameters:
+                - all: If True, fetch all markets with pagination (default False)
                 - page: Page number (default 1)
                 - limit: Items per page (default 25, max 25)
                 - category: Filter by category ID
@@ -296,10 +297,13 @@ class Limitless(Exchange):
         Returns:
             List of Market objects
         """
+        query_params = params or {}
+
+        if query_params.get("all"):
+            return self._fetch_all_markets(query_params)
 
         @self._retry_on_failure
         def _fetch():
-            query_params = params or {}
             page = query_params.get("page", 1)
             limit = min(query_params.get("limit", 25), 25)  # API max is 25
 
@@ -319,6 +323,23 @@ class Limitless(Exchange):
             return markets
 
         return _fetch()
+
+    def _fetch_all_markets(self, params: Dict[str, Any]) -> List[Market]:
+        """Fetch all markets with automatic pagination."""
+        all_markets: List[Market] = []
+        page = 1
+        max_pages = 100
+
+        while page <= max_pages:
+            page_params = {**params, "page": page, "limit": 25}
+            page_params.pop("all", None)
+            batch = self.fetch_markets(page_params)
+            if not batch:
+                break
+            all_markets.extend(batch)
+            page += 1
+
+        return all_markets
 
     def fetch_market(self, market_id: str) -> Market:
         """

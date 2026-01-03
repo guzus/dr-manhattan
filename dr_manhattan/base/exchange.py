@@ -59,10 +59,13 @@ class Exchange(ABC):
     @abstractmethod
     def fetch_markets(self, params: Optional[Dict[str, Any]] = None) -> list[Market]:
         """
-        Fetch all available markets.
+        Fetch available markets.
 
         Args:
             params: Optional parameters for filtering/pagination
+                - all: If True, fetch all markets with automatic pagination
+                - page: Page number (exchange-specific)
+                - limit: Maximum markets per page (exchange-specific)
 
         Returns:
             List of Market objects

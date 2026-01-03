@@ -24,10 +24,11 @@ from .base.exchange_client import (
 from .base.exchange_factory import create_exchange, list_exchanges
 from .base.order_tracker import OrderEvent, OrderTracker, create_fill_logger
 from .base.strategy import Strategy
+from .cross_exchange import CrossExchangeManager, OutcomeMapping
 from .exchanges.limitless import Limitless
 from .exchanges.opinion import Opinion
 from .exchanges.polymarket import Polymarket
-from .models.market import Market
+from .models.market import ExchangeOutcomeRef, Market, OutcomeRef
 from .models.order import Order, OrderSide, OrderStatus
 from .models.position import Position
 
@@ -63,11 +64,23 @@ __all__ = [
     "calculate_delta",
     "format_positions_compact",
     "format_delta_side",
+    "CrossExchangeManager",
+    "ExchangeOutcomeRef",
+    "OutcomeMapping",
+    "OutcomeRef",
+    "POLYMARKET",
+    "OPINION",
+    "LIMITLESS",
 ]
 
 
+# Exchange ID constants
+POLYMARKET = "polymarket"
+OPINION = "opinion"
+LIMITLESS = "limitless"
+
 exchanges = {
-    "polymarket": Polymarket,
-    "limitless": Limitless,
-    "opinion": Opinion,
+    POLYMARKET: Polymarket,
+    LIMITLESS: Limitless,
+    OPINION: Opinion,
 }

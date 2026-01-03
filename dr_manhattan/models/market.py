@@ -1,14 +1,33 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
-class OutcomeToken:
-    """Represents a tradeable outcome with its associated token ID."""
+class OutcomeRef:
+    """Reference to locate an outcome (market_id + outcome name)."""
 
+    market_id: str
     outcome: str
+
+
+@dataclass
+class OutcomeToken(OutcomeRef):
+    """Tradeable outcome with token ID (extends OutcomeRef)."""
+
     token_id: str
+
+
+@dataclass
+class ExchangeOutcomeRef:
+    """Full cross-exchange reference: exchange + market + outcome."""
+
+    exchange_id: str
+    market_id: str
+    outcome: str
+
+    def to_outcome_ref(self) -> OutcomeRef:
+        return OutcomeRef(market_id=self.market_id, outcome=self.outcome)
 
 
 @dataclass
@@ -61,3 +80,20 @@ class Market:
         # For binary markets, spread is typically 1 - sum of probabilities
         # (when prices sum to exactly 1, spread is 0)
         return abs(1.0 - sum(prices))
+
+    def get_outcome_ref(self, outcome: str) -> OutcomeRef:
+        """Get reference to a specific outcome."""
+        return OutcomeRef(market_id=self.id, outcome=outcome)
+
+    def get_outcome_refs(self) -> List[OutcomeRef]:
+        """Get references for all outcomes."""
+        return [OutcomeRef(market_id=self.id, outcome=o) for o in self.outcomes]
+
+    def get_outcome_tokens(self) -> List[OutcomeToken]:
+        """Get all tradeable outcomes with their token IDs."""
+        tokens = self.metadata.get("tokens", {})
+        return [
+            OutcomeToken(market_id=self.id, outcome=o, token_id=tokens.get(o, ""))
+            for o in self.outcomes
+            if o in tokens
+        ]
