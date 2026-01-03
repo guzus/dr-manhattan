@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from dr_manhattan import (
+    LIMITLESS,
     OPINION,
     POLYMARKET,
     CrossExchangeManager,
@@ -30,24 +31,36 @@ MAPPING: OutcomeMapping = {
                 POLYMARKET, ["fed-decision-in-january", "No change"], "Yes"
             ),
             OPINION: ExchangeOutcomeRef(OPINION, ["61"], "No change"),
+            LIMITLESS: ExchangeOutcomeRef(
+                LIMITLESS, ["fed-decision-in-january-1764672402681", "No change"], "Yes"
+            ),
         },
         "cut-25bps": {
             POLYMARKET: ExchangeOutcomeRef(
                 POLYMARKET, ["fed-decision-in-january", "25 bps decrease"], "Yes"
             ),
             OPINION: ExchangeOutcomeRef(OPINION, ["61"], "25 bps decrease"),
+            LIMITLESS: ExchangeOutcomeRef(
+                LIMITLESS, ["fed-decision-in-january-1764672402681", "25 bps decrease"], "Yes"
+            ),
         },
         "cut-50bps": {
             POLYMARKET: ExchangeOutcomeRef(
                 POLYMARKET, ["fed-decision-in-january", "50+ bps decrease"], "Yes"
             ),
             OPINION: ExchangeOutcomeRef(OPINION, ["61"], "50+ bps decrease"),
+            LIMITLESS: ExchangeOutcomeRef(
+                LIMITLESS, ["fed-decision-in-january-1764672402681", "50+ bps decrease"], "Yes"
+            ),
         },
         "increase": {
             POLYMARKET: ExchangeOutcomeRef(
                 POLYMARKET, ["fed-decision-in-january", "25+ bps increase"], "Yes"
             ),
             OPINION: ExchangeOutcomeRef(OPINION, ["61"], "Increase"),
+            LIMITLESS: ExchangeOutcomeRef(
+                LIMITLESS, ["fed-decision-in-january-1764672402681", "25+ bps increase"], "Yes"
+            ),
         },
     },
 }
@@ -68,24 +81,27 @@ def main():
             table.add_column("Outcome", style="cyan")
             table.add_column("Polymarket", justify="right")
             table.add_column("Opinion", justify="right")
+            table.add_column("Limitless", justify="right")
             table.add_column("Spread", justify="right")
 
             for m in matched:
                 poly_price = m.prices.get(POLYMARKET)
                 opinion_price = m.prices.get(OPINION)
+                limitless_price = m.prices.get(LIMITLESS)
 
-                poly_str = f"{poly_price.price * 100:.2f}%" if poly_price else "-"
-                opinion_str = f"{opinion_price.price * 100:.2f}%" if opinion_price else "-"
+                poly_str = f"{poly_price.price * 100:.1f}%" if poly_price else "-"
+                opinion_str = f"{opinion_price.price * 100:.1f}%" if opinion_price else "-"
+                limitless_str = f"{limitless_price.price * 100:.1f}%" if limitless_price else "-"
 
                 spread = m.spread * 100
                 if spread > 1:
-                    spread_str = f"[red]{spread:.2f}%[/red]"
+                    spread_str = f"[red]{spread:.1f}%[/red]"
                 elif spread > 0.5:
-                    spread_str = f"[yellow]{spread:.2f}%[/yellow]"
+                    spread_str = f"[yellow]{spread:.1f}%[/yellow]"
                 else:
-                    spread_str = f"[green]{spread:.2f}%[/green]"
+                    spread_str = f"[green]{spread:.1f}%[/green]"
 
-                table.add_row(m.outcome_key, poly_str, opinion_str, spread_str)
+                table.add_row(m.outcome_key, poly_str, opinion_str, limitless_str, spread_str)
 
             console.print(table)
 
