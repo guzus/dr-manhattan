@@ -15,25 +15,102 @@ from ..utils import (
 exchange_manager = ExchangeSessionManager()
 
 
-def fetch_markets(exchange: str, params: Optional[Dict[str, Any]] = None) -> List[Dict]:
+# Default pagination settings (per CLAUDE.md Rule #4: config in code)
+DEFAULT_PAGE_LIMIT = 100  # Default number of markets per page
+MAX_PAGE_LIMIT = 500  # Maximum allowed limit
+
+
+def fetch_markets(
+    exchange: str,
+    params: Optional[Dict[str, Any]] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> Dict[str, Any]:
     """
-    Fetch all available markets from an exchange.
+    Fetch markets from an exchange with pagination support.
 
     Mirrors: Exchange.fetch_markets()
 
     Args:
         exchange: Exchange name (polymarket, opinion, limitless)
-        params: Optional filters
-            - limit: int (max markets to return)
-            - offset: int (pagination offset)
+        params: Optional filters passed to exchange
             - closed: bool (include closed markets)
             - active: bool (only active markets)
+        limit: Max markets to return (default: 100, max: 500)
+        offset: Pagination offset (default: 0)
+
+    Returns:
+        Dict with markets and pagination info:
+        {
+            "markets": [...],
+            "pagination": {
+                "limit": 100,
+                "offset": 0,
+                "count": 100,
+                "has_more": true
+            }
+        }
+
+    Example:
+        >>> result = fetch_markets("polymarket", limit=50)
+        >>> markets = result["markets"]
+        >>> if result["pagination"]["has_more"]:
+        ...     next_page = fetch_markets("polymarket", limit=50, offset=50)
+    """
+    try:
+        exchange = validate_exchange(exchange)
+
+        # Validate and apply pagination defaults
+        if limit is None:
+            limit = DEFAULT_PAGE_LIMIT
+        elif not isinstance(limit, int) or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        elif limit > MAX_PAGE_LIMIT:
+            limit = MAX_PAGE_LIMIT
+
+        if not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+
+        exch = exchange_manager.get_exchange(exchange)
+
+        # Merge pagination into params
+        merged_params = dict(params or {})
+        merged_params["limit"] = limit
+        merged_params["offset"] = offset
+
+        markets = exch.fetch_markets(merged_params)
+        serialized = [serialize_model(m) for m in markets]
+
+        # Determine if there are more results
+        # If we got exactly limit results, there might be more
+        has_more = len(serialized) >= limit
+
+        return {
+            "markets": serialized,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "count": len(serialized),
+                "has_more": has_more,
+            },
+        }
+
+    except Exception as e:
+        raise translate_error(e, {"exchange": exchange}) from e
+
+
+def fetch_markets_list(exchange: str, params: Optional[Dict[str, Any]] = None) -> List[Dict]:
+    """
+    Fetch all available markets from an exchange (simple list, no pagination).
+
+    This is the legacy interface. Use fetch_markets() for pagination support.
+
+    Args:
+        exchange: Exchange name (polymarket, opinion, limitless)
+        params: Optional filters
 
     Returns:
         List of Market objects as dicts
-
-    Example:
-        >>> markets = fetch_markets("polymarket", {"limit": 10})
     """
     try:
         exchange = validate_exchange(exchange)

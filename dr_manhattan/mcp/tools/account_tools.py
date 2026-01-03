@@ -3,6 +3,8 @@
 from typing import Any, Dict, List, Optional
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from dr_manhattan.utils import setup_logger
 
@@ -33,15 +35,50 @@ POLYGON_RPC_URLS = [
     "https://polygon.llamarpc.com",
 ]
 
+# Connection pool configuration (per CLAUDE.md Rule #4: config in code)
+RPC_POOL_CONNECTIONS = 10  # Number of connection pools to cache
+RPC_POOL_MAXSIZE = 20  # Max connections per pool
+RPC_RETRY_COUNT = 3  # Number of retries on failure
+RPC_RETRY_BACKOFF = 0.5  # Backoff factor between retries
+
 # Reusable session for connection pooling (improves performance)
 _RPC_SESSION: Optional[requests.Session] = None
 
 
 def _get_rpc_session() -> requests.Session:
-    """Get or create reusable HTTP session for RPC requests."""
+    """
+    Get or create reusable HTTP session with connection pooling and retry.
+
+    Features:
+    - Connection pooling for better performance
+    - Automatic retry on transient failures
+    - Exponential backoff between retries
+    """
     global _RPC_SESSION
     if _RPC_SESSION is None:
         _RPC_SESSION = requests.Session()
+
+        # Configure retry strategy
+        retry_strategy = Retry(
+            total=RPC_RETRY_COUNT,
+            backoff_factor=RPC_RETRY_BACKOFF,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["POST"],  # RPC uses POST
+        )
+
+        # Configure adapter with connection pooling
+        adapter = HTTPAdapter(
+            pool_connections=RPC_POOL_CONNECTIONS,
+            pool_maxsize=RPC_POOL_MAXSIZE,
+            max_retries=retry_strategy,
+        )
+
+        _RPC_SESSION.mount("https://", adapter)
+        _RPC_SESSION.mount("http://", adapter)
+        logger.info(
+            f"RPC session created with pool_size={RPC_POOL_MAXSIZE}, retries={RPC_RETRY_COUNT}"
+        )
+
     return _RPC_SESSION
 
 

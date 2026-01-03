@@ -4,7 +4,7 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from dr_manhattan.base import Exchange, ExchangeClient, create_exchange
 from dr_manhattan.utils import setup_logger
@@ -105,6 +105,25 @@ def _zeroize_credentials() -> None:
         if "proxy_wallet" in exchange_creds:
             exchange_creds["proxy_wallet"] = ""
     logger.info("Credentials zeroized")
+
+
+def reload_credentials() -> Dict[str, Dict[str, Any]]:
+    """
+    Reload credentials from environment variables.
+
+    This allows credential refresh without server restart.
+    Note: Existing exchange instances must be recreated to use new credentials.
+
+    Returns:
+        Updated credentials dictionary
+    """
+    global MCP_CREDENTIALS
+    # Zeroize old credentials first
+    _zeroize_credentials()
+    # Load fresh credentials
+    MCP_CREDENTIALS = _get_mcp_credentials()
+    logger.info("Credentials reloaded from environment")
+    return MCP_CREDENTIALS
 
 
 class ExchangeSessionManager:
@@ -254,6 +273,45 @@ class ExchangeSessionManager:
     def has_exchange(self, exchange_name: str) -> bool:
         """Check if exchange instance exists."""
         return exchange_name in self._exchanges
+
+    def refresh_credentials(self, exchange_name: Optional[str] = None) -> bool:
+        """
+        Refresh credentials from environment and recreate exchange instances.
+
+        This allows credential rotation without server restart.
+
+        Args:
+            exchange_name: Optional - refresh only this exchange.
+                          If None, refresh all exchanges.
+
+        Returns:
+            True if refresh successful
+        """
+        logger.info(f"Refreshing credentials for: {exchange_name or 'all exchanges'}")
+
+        with self._instance_lock:
+            # Determine which exchanges to refresh
+            exchanges_to_refresh = (
+                [exchange_name] if exchange_name else list(self._exchanges.keys())
+            )
+
+            # Stop and remove affected clients/exchanges
+            for name in exchanges_to_refresh:
+                if name in self._clients:
+                    try:
+                        self._clients[name].stop()
+                    except Exception as e:
+                        logger.warning(f"Error stopping client {name} during refresh: {e}")
+                    del self._clients[name]
+
+                if name in self._exchanges:
+                    del self._exchanges[name]
+
+        # Reload credentials from environment
+        reload_credentials()
+
+        logger.info("Credentials refreshed. Exchanges will be recreated on next access.")
+        return True
 
     def cleanup(self, zeroize: bool = True):
         """

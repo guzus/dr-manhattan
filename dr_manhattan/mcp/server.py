@@ -101,7 +101,7 @@ from .tools import (  # noqa: E402
     strategy_tools,
     trading_tools,
 )
-from .utils import translate_error  # noqa: E402
+from .utils import check_rate_limit, translate_error  # noqa: E402
 
 # Fix loggers immediately after imports
 fix_all_loggers()
@@ -362,8 +362,15 @@ async def list_tools() -> list[Tool]:
 
 @app.call_tool()
 async def call_tool(name: str, arguments: Any) -> list[TextContent]:
-    """Handle tool execution."""
+    """Handle tool execution with rate limiting."""
     try:
+        # Check rate limit before processing
+        if not check_rate_limit():
+            raise ValueError(
+                "Rate limit exceeded. Please wait before making more requests. "
+                "The MCP server limits requests to prevent overload."
+            )
+
         # Route to appropriate tool function
         if name == "list_exchanges":
             result = exchange_tools.list_exchanges()

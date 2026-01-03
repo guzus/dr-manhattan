@@ -269,35 +269,62 @@ POLYMARKET_SIGNATURE_TYPE=0
 
 **Status:** Deprecated for MCP usage
 
-### Type 2: POLY_GNOSIS_SAFE (Specialized)
+### Type 2: POLY_GNOSIS_SAFE (Proxy Wallet Trading)
 
 **What it does:**
-- Uses Gnosis Safe multisig wallet signatures
-- Requires special multisig wallet setup
+- Uses Polymarket Proxy wallet signatures (same as web interface)
+- Trades execute from the Proxy wallet, not the Funder wallet
+- Allows using USDC already deposited via Polymarket website
+
+**How it works:**
+- With `signature_type=2`, orders are signed for the Proxy wallet
+- **CRITICAL:** You must set `POLYMARKET_FUNDER` to your **Proxy wallet address** (not your MetaMask address)
+- Your private key signs on behalf of the Proxy wallet
 
 **When to use:**
-- ⚠️ Only if you're using a Gnosis Safe wallet
-- ⚠️ Requires additional configuration beyond this guide
+- You want to trade using USDC already deposited via Polymarket web
+- You prefer to keep funds in the Proxy wallet (same as web trading)
 
-**When NOT to use:**
-- ❌ With normal MetaMask wallets
-- ❌ Results in "invalid signature" errors
+**Configuration:**
+```bash
+# Use your PRIVATE KEY from MetaMask
+POLYMARKET_PRIVATE_KEY=0x...your_metamask_private_key...
 
-**Status:** Only for advanced users with Gnosis Safe
+# Set FUNDER to your PROXY wallet address (NOT your MetaMask address!)
+POLYMARKET_FUNDER=0x...your_proxy_wallet_address...
+
+# Use signature type 2
+POLYMARKET_SIGNATURE_TYPE=2
+```
+
+**How to find your Proxy wallet address:**
+1. Go to [polymarket.com](https://polymarket.com)
+2. Connect your MetaMask wallet
+3. Click your profile -> **Settings** -> **Wallet**
+4. Copy the **"Proxy Wallet Address"** (starts with 0x)
+
+**Important notes:**
+- USDC must be in your Proxy wallet (deposit via Polymarket website)
+- Your private key is still from your MetaMask wallet
+- Only the `POLYMARKET_FUNDER` address changes to the Proxy address
+
+**Status:** For users who want to trade from Proxy wallet
 
 ### Common Signature Type Errors
 
 **Error: "invalid signature"**
 
 Possible causes:
-1. Using `signature_type=2` with a normal MetaMask wallet
-   - **Solution:** Change to `signature_type=0`
+1. Using `signature_type=2` but `POLYMARKET_FUNDER` is still your MetaMask address
+   - **Solution:** Set `POLYMARKET_FUNDER` to your **Proxy wallet address**
+   - With type 2, the funder must be the Proxy wallet, not MetaMask
 
 2. Using `signature_type=1`
-   - **Solution:** Change to `signature_type=0`
+   - **Solution:** Change to `signature_type=0` (or `signature_type=2` with Proxy wallet setup)
 
 3. Mismatched private key and funder address
-   - **Solution:** Verify your private key matches your funder address
+   - **Solution for type 0:** Verify your private key matches your funder (MetaMask) address
+   - **Solution for type 2:** Keep private key from MetaMask, but set funder to Proxy wallet address
 
 **Error: "not enough balance / allowance"**
 
@@ -313,16 +340,27 @@ Possible causes:
 
 ### Signature Type Summary
 
-**For 99% of users:**
+**Option A: Trade from Funder Wallet (Recommended)**
 ```bash
+POLYMARKET_FUNDER=0x...your_metamask_address...
 POLYMARKET_SIGNATURE_TYPE=0
 ```
+- USDC must be in Funder wallet (MetaMask address)
+- Simple setup, direct wallet control
+
+**Option B: Trade from Proxy Wallet**
+```bash
+POLYMARKET_FUNDER=0x...your_proxy_wallet_address...  # NOT MetaMask!
+POLYMARKET_SIGNATURE_TYPE=2
+```
+- USDC must be in Proxy wallet (deposit via Polymarket website)
+- Uses same wallet as Polymarket web interface
 
 **Key Points:**
-- ✅ Use type 0 for normal MetaMask wallets
-- ✅ Ensure USDC is in your Funder wallet
-- ❌ Do NOT use type 1 or 2 unless you have specific requirements
-- ❌ Proxy wallet funds are NOT accessible via MCP (must withdraw to Funder first)
+- ✅ Type 0: Funder = MetaMask address, trades from Funder wallet
+- ✅ Type 2: Funder = Proxy wallet address, trades from Proxy wallet
+- ❌ Do NOT use type 1 (deprecated)
+- ❌ Type 2 with MetaMask as Funder = "invalid signature" error
 
 ## Usage Examples
 

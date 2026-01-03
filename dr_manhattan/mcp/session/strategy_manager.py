@@ -1,9 +1,10 @@
 """Strategy session manager."""
 
 import threading
+import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from dr_manhattan.base import Exchange, Strategy
 from dr_manhattan.utils import setup_logger
@@ -11,6 +12,14 @@ from dr_manhattan.utils import setup_logger
 from .models import SessionStatus, StrategySession
 
 logger = setup_logger(__name__)
+
+# Thread cleanup configuration (per CLAUDE.md Rule #4: config in code)
+THREAD_GRACE_PERIOD = 10.0  # seconds - initial wait before force-kill
+THREAD_FORCE_KILL_TIMEOUT = 5.0  # seconds - timeout for force-kill attempt
+THREAD_CLEANUP_TIMEOUT = 5.0  # seconds - timeout during cleanup()
+
+# Status caching configuration (reduces refresh_state() calls)
+STATUS_CACHE_TTL = 1.0  # seconds - cache lifetime for get_status()
 
 
 class StrategySessionManager:
@@ -31,6 +40,10 @@ class StrategySessionManager:
                 # Initialize within the lock to prevent race condition
                 cls._instance._sessions: Dict[str, StrategySession] = {}
                 cls._instance._instance_lock = threading.Lock()
+                # Orphaned sessions that failed to terminate
+                cls._instance._orphaned_sessions: Dict[str, str] = {}
+                # Status cache: session_id -> (timestamp, status_dict)
+                cls._instance._status_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
                 logger.info("StrategySessionManager initialized")
         return cls._instance
 
@@ -136,13 +149,42 @@ class StrategySessionManager:
 
     def get_status(self, session_id: str) -> Dict[str, Any]:
         """
-        Get real-time strategy status.
+        Get real-time strategy status with caching.
+
+        Uses TTL-based caching to reduce expensive refresh_state() calls.
+        Cache TTL is configured by STATUS_CACHE_TTL constant.
 
         Args:
             session_id: Session ID
 
         Returns:
             Status dictionary with NAV, positions, orders, etc.
+        """
+        now = time.time()
+
+        # Check cache first
+        if session_id in self._status_cache:
+            cached_time, cached_status = self._status_cache[session_id]
+            if now - cached_time < STATUS_CACHE_TTL:
+                return cached_status
+
+        # Cache miss - compute fresh status
+        status = self._compute_status(session_id)
+
+        # Update cache
+        self._status_cache[session_id] = (now, status)
+
+        return status
+
+    def _compute_status(self, session_id: str) -> Dict[str, Any]:
+        """
+        Compute fresh strategy status (internal, uncached).
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Status dictionary
         """
         session = self.get_session(session_id)
         strategy = session.strategy
@@ -156,6 +198,9 @@ class StrategySessionManager:
         # Calculate uptime
         uptime = (datetime.now() - session.created_at).total_seconds()
 
+        # Check if session is orphaned
+        is_orphaned = session_id in self._orphaned_sessions
+
         return {
             "session_id": session_id,
             "status": session.status.value,
@@ -165,6 +210,7 @@ class StrategySessionManager:
             "uptime_seconds": uptime,
             "is_running": strategy.is_running,
             "thread_alive": session.is_alive(),
+            "is_orphaned": is_orphaned,
             "nav": strategy.nav,
             "cash": strategy.cash,
             "positions": strategy.positions,
@@ -208,9 +254,47 @@ class StrategySessionManager:
         logger.info(f"Strategy resumed: {session_id}")
         return True
 
+    def _force_stop_thread(self, session_id: str, session: StrategySession) -> bool:
+        """
+        Attempt to force-stop a thread that didn't respond to graceful stop.
+
+        Args:
+            session_id: Session ID
+            session: Strategy session
+
+        Returns:
+            True if thread stopped, False if still running (orphaned)
+        """
+        strategy = session.strategy
+
+        # Second attempt: force is_running = False and wait again
+        strategy.is_running = False
+
+        if session.thread and session.thread.is_alive():
+            logger.warning(f"Force-stopping strategy thread: {session_id}")
+            session.thread.join(timeout=THREAD_FORCE_KILL_TIMEOUT)
+
+            if session.thread.is_alive():
+                # Thread is orphaned - mark it and log
+                self._orphaned_sessions[session_id] = (
+                    f"Thread did not terminate after {THREAD_GRACE_PERIOD + THREAD_FORCE_KILL_TIMEOUT}s"
+                )
+                logger.error(
+                    f"Strategy thread {session_id} is orphaned. "
+                    "Thread may still be running in background. "
+                    "Consider restarting the MCP server if this persists."
+                )
+                return False
+
+        return True
+
     def stop_strategy(self, session_id: str, cleanup: bool = True) -> Dict[str, Any]:
         """
-        Stop strategy and optionally cleanup.
+        Stop strategy with force-kill capability.
+
+        Implements a two-phase shutdown:
+        1. Graceful stop with THREAD_GRACE_PERIOD timeout
+        2. Force-kill with THREAD_FORCE_KILL_TIMEOUT if graceful fails
 
         Args:
             session_id: Session ID
@@ -224,26 +308,39 @@ class StrategySessionManager:
 
         logger.info(f"Stopping strategy: {session_id} (cleanup={cleanup})")
 
-        # Stop strategy execution
+        # Phase 1: Graceful stop
         strategy.stop()
 
-        # Wait for thread to finish (with timeout)
+        # Wait for thread to finish (with grace period)
+        thread_stopped = True
         if session.thread and session.thread.is_alive():
-            session.thread.join(timeout=10.0)
-            # Check if thread is still alive after timeout
+            session.thread.join(timeout=THREAD_GRACE_PERIOD)
+
+            # Check if thread is still alive after grace period
             if session.thread.is_alive():
                 logger.warning(
-                    f"Strategy thread {session_id} did not stop within timeout. "
-                    "Thread may still be running in background."
+                    f"Strategy thread {session_id} did not stop within grace period "
+                    f"({THREAD_GRACE_PERIOD}s). Attempting force-stop..."
                 )
+                # Phase 2: Force-kill
+                thread_stopped = self._force_stop_thread(session_id, session)
+
+        # Clear status cache for this session
+        if session_id in self._status_cache:
+            del self._status_cache[session_id]
 
         # Get final status
-        final_status = self.get_status(session_id)
+        final_status = self._compute_status(session_id)
 
         # Update session status
         session.status = SessionStatus.STOPPED
 
-        logger.info(f"Strategy stopped: {session_id}")
+        # Add thread status to response
+        final_status["thread_stopped"] = thread_stopped
+        if not thread_stopped:
+            final_status["warning"] = "Thread is orphaned and may still be running"
+
+        logger.info(f"Strategy stopped: {session_id} (thread_stopped={thread_stopped})")
 
         return final_status
 
@@ -292,12 +389,28 @@ class StrategySessionManager:
                     "status": session.status.value,
                     "created_at": session.created_at.isoformat(),
                     "is_alive": session.is_alive(),
+                    "is_orphaned": sid in self._orphaned_sessions,
                 }
                 for sid, session in self._sessions.items()
             }
 
+    def get_orphaned_sessions(self) -> Dict[str, str]:
+        """
+        Get list of orphaned sessions that failed to terminate.
+
+        Returns:
+            Dictionary of session_id -> reason for orphan status
+        """
+        return dict(self._orphaned_sessions)
+
     def cleanup(self):
-        """Stop all strategies and cleanup."""
+        """
+        Stop all strategies with force-kill capability.
+
+        Implements two-phase shutdown for each session:
+        1. Graceful stop with THREAD_CLEANUP_TIMEOUT
+        2. Force-stop for threads that don't respond
+        """
         logger.info("Cleaning up strategy sessions...")
         with self._instance_lock:
             failed_sessions = []
@@ -306,14 +419,28 @@ class StrategySessionManager:
                     logger.info(f"Stopping strategy: {session_id}")
                     session.strategy.stop()
 
-                    # Wait for thread with timeout
+                    # Phase 1: Graceful stop with timeout
                     if session.thread and session.thread.is_alive():
-                        session.thread.join(timeout=5.0)
+                        session.thread.join(timeout=THREAD_CLEANUP_TIMEOUT)
+
+                        # Phase 2: Force-stop if still alive
                         if session.thread.is_alive():
                             logger.warning(
-                                f"Strategy thread {session_id} did not stop within cleanup timeout"
+                                f"Strategy thread {session_id} did not stop within cleanup timeout. "
+                                "Attempting force-stop..."
                             )
-                            failed_sessions.append(session_id)
+                            session.strategy.is_running = False
+                            session.thread.join(timeout=THREAD_FORCE_KILL_TIMEOUT)
+
+                            if session.thread.is_alive():
+                                # Mark as orphaned
+                                self._orphaned_sessions[session_id] = (
+                                    "Failed to terminate during cleanup"
+                                )
+                                logger.error(
+                                    f"Strategy thread {session_id} is orphaned during cleanup"
+                                )
+                                failed_sessions.append(session_id)
 
                 except Exception as e:
                     logger.error(f"Error stopping strategy {session_id}: {e}")
@@ -323,5 +450,8 @@ class StrategySessionManager:
             for session_id in list(self._sessions.keys()):
                 if session_id not in failed_sessions:
                     del self._sessions[session_id]
+                    # Clear from cache
+                    if session_id in self._status_cache:
+                        del self._status_cache[session_id]
 
-        logger.info("Strategy sessions cleaned up")
+        logger.info(f"Strategy sessions cleaned up. Orphaned: {len(self._orphaned_sessions)}")
