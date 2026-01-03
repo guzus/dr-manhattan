@@ -5,6 +5,8 @@ Usage:
     uv run python examples/cross_exchange_simple.py
 """
 
+from dotenv import load_dotenv
+
 from dr_manhattan import (
     OPINION,
     POLYMARKET,
@@ -12,6 +14,8 @@ from dr_manhattan import (
     ExchangeOutcomeRef,
     OutcomeMapping,
 )
+
+load_dotenv()
 
 # Outcome mapping: slug -> outcome_key -> {exchange_id: ExchangeOutcomeRef}
 MAPPING: OutcomeMapping = {
