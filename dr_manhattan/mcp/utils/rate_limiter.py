@@ -9,8 +9,12 @@ from dr_manhattan.utils import setup_logger
 logger = setup_logger(__name__)
 
 # Rate limiter configuration (per CLAUDE.md Rule #4: config in code)
-DEFAULT_CALLS_PER_SECOND = 10.0  # Default rate limit
-DEFAULT_BURST_SIZE = 20  # Allow burst of this many calls
+# 10 calls/sec is a reasonable default that balances responsiveness with API protection.
+# Higher rates risk hitting exchange rate limits; lower rates feel sluggish.
+DEFAULT_CALLS_PER_SECOND = 10.0
+# Burst size of 20 allows quick initial queries (e.g., loading dashboard data)
+# while still enforcing the sustained rate limit over time.
+DEFAULT_BURST_SIZE = 20
 
 
 class RateLimiter:
@@ -125,15 +129,24 @@ class RateLimiter:
             }
 
 
-# Global rate limiter instance
+# Global rate limiter instance (thread-safe initialization)
 _rate_limiter: Optional[RateLimiter] = None
+_rate_limiter_lock = threading.Lock()
 
 
 def get_rate_limiter() -> RateLimiter:
-    """Get or create global rate limiter instance."""
+    """
+    Get or create global rate limiter instance.
+
+    Thread-safe: uses double-checked locking pattern.
+    """
     global _rate_limiter
+    # First check without lock (fast path for already-initialized case)
     if _rate_limiter is None:
-        _rate_limiter = RateLimiter()
+        with _rate_limiter_lock:
+            # Re-check inside lock (another thread may have initialized)
+            if _rate_limiter is None:
+                _rate_limiter = RateLimiter()
     return _rate_limiter
 
 

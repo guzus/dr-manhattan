@@ -207,11 +207,14 @@ class StrategySessionManager:
         # Cache miss - compute fresh status (outside lock to avoid blocking)
         status = self._compute_status(session_id)
 
-        # Update cache (thread-safe write) with eviction
+        # Update cache (thread-safe write) with size check
         with self._instance_lock:
-            self._status_cache[session_id] = (now, status)
-            # Periodic eviction to prevent memory leak
+            # Evict BEFORE adding to prevent exceeding max size under concurrent load
             self._evict_stale_cache_entries(now)
+
+            # Only add if under limit (prevents unbounded growth from concurrent requests)
+            if len(self._status_cache) < STATUS_CACHE_MAX_SIZE:
+                self._status_cache[session_id] = (now, status)
 
         return status
 

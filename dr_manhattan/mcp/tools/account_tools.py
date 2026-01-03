@@ -174,7 +174,20 @@ def get_usdc_balance_polygon(address: str) -> Optional[float]:
     for rpc_url in POLYGON_RPC_URLS:
         try:
             response = session.post(rpc_url, json=payload, timeout=10)
-            result = response.json()
+
+            # Parse JSON response with explicit error handling
+            try:
+                result = response.json()
+            except ValueError as e:
+                last_error = f"Invalid JSON response: {e}"
+                logger.warning(f"RPC returned invalid JSON from {rpc_url}: {e}")
+                continue
+
+            # Validate response structure (must be a dict)
+            if not isinstance(result, dict):
+                last_error = f"Unexpected response type: {type(result).__name__}"
+                logger.warning(f"RPC returned non-dict from {rpc_url}: {type(result)}")
+                continue
 
             if "result" in result:
                 rpc_result = result["result"]
@@ -182,7 +195,7 @@ def get_usdc_balance_polygon(address: str) -> Optional[float]:
                 if rpc_result == "0x" or rpc_result == "0x0":
                     return 0.0
                 if not _validate_rpc_response(rpc_result, address):
-                    last_error = f"Invalid response format: {rpc_result[:50]}"
+                    last_error = f"Invalid response format: {str(rpc_result)[:50]}"
                     continue
                 # Convert hex to int and divide by 1e6 (USDC has 6 decimals)
                 balance_wei = int(rpc_result, 16)
@@ -199,7 +212,7 @@ def get_usdc_balance_polygon(address: str) -> Optional[float]:
             last_error = str(e)
             logger.warning(f"RPC request failed for {rpc_url}: {e}")
             continue
-        except (ValueError, KeyError) as e:
+        except (ValueError, KeyError, TypeError) as e:
             last_error = str(e)
             logger.warning(f"Failed to parse RPC response from {rpc_url}: {e}")
             continue

@@ -30,7 +30,9 @@ def validate_exchange(exchange: str) -> str:
         ValueError: If exchange is invalid
     """
     if not exchange or not isinstance(exchange, str):
-        raise ValueError("Exchange name is required")
+        raise ValueError(
+            f"Exchange name is required. Supported exchanges: {', '.join(SUPPORTED_EXCHANGES)}"
+        )
 
     exchange_lower = exchange.lower().strip()
     if exchange_lower not in SUPPORTED_EXCHANGES:
@@ -54,7 +56,7 @@ def validate_market_id(market_id: str) -> str:
         ValueError: If market ID is invalid
     """
     if not market_id or not isinstance(market_id, str):
-        raise ValueError("Market ID is required")
+        raise ValueError("Market ID is required. Expected: hex (0x...), UUID, or alphanumeric ID")
 
     market_id = market_id.strip()
     if len(market_id) > 256:
@@ -87,7 +89,7 @@ def validate_token_id(token_id: str) -> str:
         ValueError: If token ID is invalid
     """
     if not token_id or not isinstance(token_id, str):
-        raise ValueError("Token ID is required")
+        raise ValueError("Token ID is required. Expected: numeric or hex (0x...) identifier")
 
     token_id = token_id.strip()
     if len(token_id) > 256:
@@ -115,7 +117,7 @@ def validate_order_id(order_id: str) -> str:
         ValueError: If order ID is invalid
     """
     if not order_id or not isinstance(order_id, str):
-        raise ValueError("Order ID is required")
+        raise ValueError("Order ID is required. Expected: hex (0x...), UUID, or alphanumeric ID")
 
     order_id = order_id.strip()
     if len(order_id) > 256:
@@ -148,7 +150,7 @@ def validate_session_id(session_id: str) -> str:
         ValueError: If session ID is invalid
     """
     if not session_id or not isinstance(session_id, str):
-        raise ValueError("Session ID is required")
+        raise ValueError("Session ID is required. Expected: UUID format")
 
     session_id = session_id.strip()
     if not UUID_PATTERN.match(session_id):
@@ -170,7 +172,7 @@ def validate_side(side: str) -> str:
         ValueError: If side is invalid
     """
     if not side or not isinstance(side, str):
-        raise ValueError("Order side is required")
+        raise ValueError("Order side is required. Expected: 'buy' or 'sell'")
 
     side_lower = side.lower().strip()
     if side_lower not in ["buy", "sell"]:
@@ -192,7 +194,7 @@ def validate_outcome(outcome: str) -> str:
         ValueError: If outcome is invalid
     """
     if not outcome or not isinstance(outcome, str):
-        raise ValueError("Outcome is required")
+        raise ValueError("Outcome is required. Expected: outcome name (e.g., 'Yes', 'No')")
 
     outcome = outcome.strip()
     if len(outcome) > 100:
@@ -221,7 +223,7 @@ def validate_slug(slug: str) -> str:
         ValueError: If slug is invalid
     """
     if not slug or not isinstance(slug, str):
-        raise ValueError("Slug is required")
+        raise ValueError("Slug is required. Expected: market slug or URL")
 
     slug = slug.strip()
     if len(slug) > 500:

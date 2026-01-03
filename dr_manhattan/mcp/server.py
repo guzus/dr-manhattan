@@ -419,6 +419,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
 
 # Shutdown flag for signal handler (avoids complex operations in signal context)
+# False = running normally, True = shutdown requested (set by signal handler)
 _shutdown_requested = False
 
 

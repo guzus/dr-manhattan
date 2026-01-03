@@ -305,6 +305,7 @@ class ExchangeSessionManager:
         Refresh credentials from environment and recreate exchange instances.
 
         This allows credential rotation without server restart.
+        Thread-safe: entire operation is atomic to prevent race conditions.
 
         Args:
             exchange_name: Optional - refresh only this exchange.
@@ -333,11 +334,12 @@ class ExchangeSessionManager:
                 if name in self._exchanges:
                     del self._exchanges[name]
 
-        # Reload credentials from environment
-        reload_credentials()
+            # Reload credentials inside lock to prevent race condition
+            # where another thread creates exchange with stale credentials
+            reload_credentials()
 
-        logger.info("Credentials refreshed. Exchanges will be recreated on next access.")
-        return True
+            logger.info("Credentials refreshed. Exchanges will be recreated on next access.")
+            return True
 
     def cleanup(self, zeroize: bool = True):
         """
