@@ -18,7 +18,10 @@ cross_exchange/
 OutcomeRef              # market_id + outcome (in models/market.py)
     └── OutcomeToken    # + token_id (extends OutcomeRef)
 
-ExchangeOutcomeRef      # exchange_id + market_id + outcome (full reference)
+ExchangeOutcomeRef      # exchange_id + market_path + outcome (full reference)
+    - market_path: List[str] = ["fetch_slug"] or ["fetch_slug", "match_id"]
+    - fetch_slug: property -> market_path[0]
+    - match_id: property -> market_path[-1]
 ```
 
 ## Design Choices
@@ -100,15 +103,16 @@ from dr_manhattan import (
 )
 
 # Define mapping
+# market_path: ["fetch_slug"] or ["fetch_slug", "match_id"]
 MAPPING: OutcomeMapping = {
     "fed-jan-2026": {
         "no-change": {
-            POLYMARKET: ExchangeOutcomeRef(POLYMARKET, "fed-decision-january", "Yes"),
-            OPINION: ExchangeOutcomeRef(OPINION, "61", "450-475"),
+            POLYMARKET: ExchangeOutcomeRef(POLYMARKET, ["fed-decision-january", "No change"], "Yes"),
+            OPINION: ExchangeOutcomeRef(OPINION, ["61"], "No change"),
         },
         "cut-25bps": {
-            POLYMARKET: ExchangeOutcomeRef(POLYMARKET, "fed-decision-january", "No"),
-            OPINION: ExchangeOutcomeRef(OPINION, "61", "425-450"),
+            POLYMARKET: ExchangeOutcomeRef(POLYMARKET, ["fed-decision-january", "25 bps decrease"], "Yes"),
+            OPINION: ExchangeOutcomeRef(OPINION, ["61"], "25 bps decrease"),
         },
     },
 }
@@ -177,7 +181,7 @@ candidates = matcher.find_matches(
 )
 
 for c in candidates:
-    print(f"Score: {c.score:.2f} | {c.market_a.market_id} <-> {c.market_b.market_id}")
+    print(f"Score: {c.score:.2f} | {c.market_a.match_id} <-> {c.market_b.match_id}")
 ```
 
 ## Data Flow

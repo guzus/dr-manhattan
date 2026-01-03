@@ -172,12 +172,12 @@ class MarketMatcher:
                         MatchCandidate(
                             market_a=ExchangeOutcomeRef(
                                 exchange_id=source_exchange,
-                                market_id=src.id,
+                                market_path=[src.id],
                                 outcome="",  # Outcome alignment is separate step
                             ),
                             market_b=ExchangeOutcomeRef(
                                 exchange_id=target_exchange,
-                                market_id=tgt.id,
+                                market_path=[tgt.id],
                                 outcome="",
                             ),
                             score=score,

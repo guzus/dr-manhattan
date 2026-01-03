@@ -3,22 +3,20 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
-from ..models.market import ExchangeOutcomeRef, Market, ReadableMarketId
+from ..models.market import ExchangeOutcomeRef, Market
 
-# slug -> outcome_key -> {exchange_id: ExchangeOutcomeRef}
+# Outcome mapping structure:
+# slug -> outcome_key -> exchange_id -> ExchangeOutcomeRef
+#
+# Example:
+#   "fed-jan-2026" -> "no-change" -> "polymarket" -> ExchangeOutcomeRef(...)
 OutcomeMapping = Dict[str, Dict[str, Dict[str, ExchangeOutcomeRef]]]
 
 
 def _market_matches(market: Market, ref: ExchangeOutcomeRef) -> bool:
-    """Check if a market matches the reference (last element is match_id or market.id)."""
-    ref_id = ref.market_id[-1]
+    """Check if a market matches the reference using ref.match_id."""
     market_id = market.metadata.get("match_id", market.id)
-    return str(market_id).lower() == ref_id.lower()
-
-
-def _get_fetch_slug(market_id: ReadableMarketId) -> str:
-    """Extract the fetch slug from a market ID (first element)."""
-    return market_id[0]
+    return str(market_id).lower() == ref.match_id.lower()
 
 
 def _extract_fetch_slugs(mapping: OutcomeMapping, slug: str) -> Dict[str, Set[str]]:
@@ -31,7 +29,7 @@ def _extract_fetch_slugs(mapping: OutcomeMapping, slug: str) -> Dict[str, Set[st
         for exchange_id, ref in exchange_refs.items():
             if exchange_id not in result:
                 result[exchange_id] = set()
-            result[exchange_id].add(_get_fetch_slug(ref.market_id))
+            result[exchange_id].add(ref.fetch_slug)
 
     return result
 
@@ -49,8 +47,8 @@ class TokenPrice:
         return self.ref.exchange_id
 
     @property
-    def market_id(self) -> str:
-        return self.ref.market_id
+    def market_path(self) -> List[str]:
+        return self.ref.market_path
 
     @property
     def outcome(self) -> str:

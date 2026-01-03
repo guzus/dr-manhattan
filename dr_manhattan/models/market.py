@@ -27,17 +27,31 @@ class OutcomeToken(OutcomeRef):
 class ExchangeOutcomeRef:
     """Full cross-exchange reference: exchange + market + outcome.
 
-    market_id is a path-like list:
+    market_path is a path-like list:
     - ["61"] for simple ID
-    - ["event-slug", "match-id"] for hierarchical
+    - ["fetch-slug", "match-id"] for hierarchical
+
+    Properties:
+    - fetch_slug: First element, used to fetch markets from exchange
+    - match_id: Last element, used to match against Market.id or metadata["match_id"]
     """
 
     exchange_id: str
-    market_id: ReadableMarketId
+    market_path: ReadableMarketId
     outcome: str
 
+    @property
+    def fetch_slug(self) -> str:
+        """First element of market_path, used to fetch markets."""
+        return self.market_path[0]
+
+    @property
+    def match_id(self) -> str:
+        """Last element of market_path, used to match against Market.id."""
+        return self.market_path[-1]
+
     def to_outcome_ref(self) -> OutcomeRef:
-        return OutcomeRef(market_id=self.market_id[0], outcome=self.outcome)
+        return OutcomeRef(market_id=self.market_path[0], outcome=self.outcome)
 
 
 @dataclass

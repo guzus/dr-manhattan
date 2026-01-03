@@ -21,8 +21,8 @@ console = Console()
 
 load_dotenv()
 
-# Outcome mapping: slug -> outcome_key -> {exchange_id: ExchangeOutcomeRef}
-# market_id is a list: ["fetch_slug"] or ["fetch_slug", "match_id"]
+# Outcome mapping: slug -> outcome_key -> exchange_id -> ExchangeOutcomeRef
+# market_path: ["fetch_slug"] or ["fetch_slug", "match_id"]
 MAPPING: OutcomeMapping = {
     "fed-jan-2026": {
         "no-change": {
