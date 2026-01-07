@@ -151,26 +151,28 @@ print(list_exchanges())  # ['polymarket', 'limitless', 'opinion']
 exchange = create_exchange('polymarket', {'timeout': 30})
 ```
 
-### MCP Server (Claude Desktop)
+### MCP Server
 
-Trade prediction markets directly from Claude Desktop using the Model Context Protocol (MCP).
+Trade prediction markets directly from Claude using the Model Context Protocol (MCP).
 
 ```bash
 # Install with MCP dependencies
-uv pip install -e ".[mcp]"
+uv sync --extra mcp
 
 # Configure credentials
 cp .env.example .env
 # Edit .env with your POLYMARKET_PRIVATE_KEY and POLYMARKET_FUNDER
 ```
 
-Add to Claude Desktop config:
+#### Claude Code
+
+Add to `~/.claude/settings.json` or project `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "dr-manhattan": {
-      "command": "/path/to/dr-manhattan/.venv/bin/python3",
+      "command": "/path/to/dr-manhattan/.venv/bin/python",
       "args": ["-m", "dr_manhattan.mcp.server"],
       "cwd": "/path/to/dr-manhattan"
     }
@@ -178,7 +180,25 @@ Add to Claude Desktop config:
 }
 ```
 
-After restarting Claude Desktop, you can:
+Restart Claude Code and verify with `/mcp`.
+
+#### Claude Desktop
+
+Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "dr-manhattan": {
+      "command": "/path/to/dr-manhattan/.venv/bin/python",
+      "args": ["-m", "dr_manhattan.mcp.server"],
+      "cwd": "/path/to/dr-manhattan"
+    }
+  }
+}
+```
+
+After restarting, you can:
 - "Show my Polymarket balance"
 - "Find active prediction markets"
 - "Buy 10 USDC of Yes on market X at 0.55"
