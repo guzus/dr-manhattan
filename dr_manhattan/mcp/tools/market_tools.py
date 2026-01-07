@@ -18,6 +18,69 @@ exchange_manager = ExchangeSessionManager()
 # Default pagination settings (per CLAUDE.md Rule #4: config in code)
 DEFAULT_PAGE_LIMIT = 100  # Default number of markets per page
 MAX_PAGE_LIMIT = 500  # Maximum allowed limit
+SEARCH_RESULT_LIMIT = 20  # Max results for search
+
+
+def search_markets(
+    exchange: str,
+    query: str,
+    limit: int = SEARCH_RESULT_LIMIT,
+) -> Dict[str, Any]:
+    """
+    Search markets by keyword in title/question.
+
+    Args:
+        exchange: Exchange name (polymarket, opinion, limitless)
+        query: Search keyword (case-insensitive)
+        limit: Max results to return (default: 20)
+
+    Returns:
+        Dict with matching markets:
+        {
+            "markets": [...],
+            "query": "elon musk",
+            "count": 5
+        }
+
+    Example:
+        >>> result = search_markets("polymarket", "elon musk")
+        >>> for m in result["markets"]:
+        ...     print(m["question"])
+    """
+    try:
+        exchange = validate_exchange(exchange)
+
+        if not query or not isinstance(query, str):
+            raise ValueError("query must be a non-empty string")
+
+        query = query.strip().lower()
+
+        if limit <= 0:
+            limit = SEARCH_RESULT_LIMIT
+        elif limit > 100:
+            limit = 100
+
+        exch = exchange_manager.get_exchange(exchange)
+        all_markets = exch.fetch_markets({})
+
+        # Filter markets by keyword in question or slug (from metadata)
+        matching = []
+        for market in all_markets:
+            question = (market.question or "").lower()
+            slug = (market.metadata.get("slug") or "").lower()
+            if query in question or query in slug:
+                matching.append(serialize_model(market))
+                if len(matching) >= limit:
+                    break
+
+        return {
+            "markets": matching,
+            "query": query,
+            "count": len(matching),
+        }
+
+    except Exception as e:
+        raise translate_error(e, {"exchange": exchange, "query": query}) from e
 
 
 def fetch_markets(

@@ -179,17 +179,47 @@ async def list_tools() -> List[Tool]:
         # Market tools (10)
         Tool(
             name="fetch_markets",
-            description="Fetch all available markets from an exchange",
+            description="Fetch markets from an exchange with pagination. Returns max 100 markets per call. Use offset to get more.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "exchange": {"type": "string", "description": "Exchange name"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max markets to return (default: 100, max: 500)",
+                        "default": 100,
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Pagination offset (default: 0). Use to fetch next page.",
+                        "default": 0,
+                    },
                     "params": {
                         "type": "object",
-                        "description": "Optional filters (limit, offset, closed, active)",
+                        "description": "Optional filters (closed, active)",
                     },
                 },
                 "required": ["exchange"],
+            },
+        ),
+        Tool(
+            name="search_markets",
+            description="Search markets by keyword. Use this to find specific markets instead of fetching all.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string", "description": "Exchange name"},
+                    "query": {
+                        "type": "string",
+                        "description": "Search keyword (e.g., 'elon musk', 'bitcoin', 'trump')",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default: 20, max: 100)",
+                        "default": 20,
+                    },
+                },
+                "required": ["exchange", "query"],
             },
         ),
         Tool(
@@ -495,8 +525,9 @@ TOOL_DISPATCH = {
     "list_exchanges": (exchange_tools.list_exchanges, False),
     "get_exchange_info": (exchange_tools.get_exchange_info, True),
     "validate_credentials": (exchange_tools.validate_credentials, True),
-    # Market tools (10)
+    # Market tools (11)
     "fetch_markets": (market_tools.fetch_markets, True),
+    "search_markets": (market_tools.search_markets, True),
     "fetch_market": (market_tools.fetch_market, True),
     "fetch_markets_by_slug": (market_tools.fetch_markets_by_slug, True),
     "get_orderbook": (market_tools.get_orderbook, True),
