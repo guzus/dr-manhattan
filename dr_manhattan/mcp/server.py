@@ -179,7 +179,7 @@ async def list_tools() -> List[Tool]:
         # Market tools (10)
         Tool(
             name="fetch_markets",
-            description="Fetch markets from an exchange with pagination. Returns max 100 markets per call. Use offset to get more.",
+            description="Fetch ALL markets with pagination (slow, 100+ results). Use search_markets instead to find specific markets by name.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -204,7 +204,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="search_markets",
-            description="Search markets by keyword. Use this to find specific markets instead of fetching all.",
+            description="RECOMMENDED: Search markets by keyword (fast). Use this first when user asks about specific topics like 'trump', 'bitcoin', 'election'.",
             inputSchema={
                 "type": "object",
                 "properties": {
