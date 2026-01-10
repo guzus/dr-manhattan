@@ -191,6 +191,10 @@ class PredictFun(Exchange):
         if self.smart_wallet_owner_private_key:
             self._owner_account = Account.from_key(self.smart_wallet_owner_private_key)
 
+        # Set _address for smart wallet mode (required by _is_using_smart_wallet)
+        if self.use_smart_wallet and self.smart_wallet_address:
+            self._address = self.smart_wallet_address
+
     def _get_headers(self, require_auth: bool = False) -> Dict[str, str]:
         """Get headers for API requests."""
         headers = {"Content-Type": "application/json"}
@@ -985,8 +989,12 @@ class PredictFun(Exchange):
             if not self.check_and_set_approvals():
                 raise ExchangeError("Failed to set USDT approvals for exchange contracts")
 
-        if not self._account or not self._address:
-            raise AuthenticationError("Wallet not initialized")
+        if self._is_using_smart_wallet():
+            if not self._owner_account or not self._address:
+                raise AuthenticationError("Smart wallet not initialized")
+        else:
+            if not self._account or not self._address:
+                raise AuthenticationError("Wallet not initialized")
 
         market = self.fetch_market(market_id)
         outcomes = market.outcomes
@@ -1228,8 +1236,12 @@ class PredictFun(Exchange):
         exchange_address: str,
     ) -> Dict[str, Any]:
         """Build and sign an order using EIP-712."""
-        if not self._account or not self._address:
-            raise AuthenticationError("Wallet not initialized")
+        if self._is_using_smart_wallet():
+            if not self._owner_account or not self._address:
+                raise AuthenticationError("Smart wallet not initialized")
+        else:
+            if not self._account or not self._address:
+                raise AuthenticationError("Wallet not initialized")
 
         # Generate salt (must be between 0 and 2147483648)
         max_salt = 2147483648
