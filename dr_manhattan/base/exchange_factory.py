@@ -198,8 +198,15 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
         "polymarket": ["private_key", "funder"],
         "opinion": ["api_key", "private_key", "multi_sig_addr"],
         "limitless": ["private_key"],
-        "predictfun": ["api_key", "private_key"],
+        "predictfun": ["api_key"],
     }
+
+    # For predictfun, require different keys based on wallet mode
+    if name == "predictfun":
+        if getattr(config, "use_smart_wallet", False):
+            required["predictfun"].append("smart_wallet_owner_private_key")
+        else:
+            required["predictfun"].append("private_key")
 
     missing = [key for key in required.get(name, []) if not getattr(config, key, None)]
 
@@ -209,9 +216,14 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
         raise ValueError(f"Missing required config: {missing}. Set env vars: {env_vars}")
 
     # Validate private key format if present
-    private_key = getattr(config, "private_key", None)
-    if private_key:
-        _validate_private_key(private_key, name)
+    if name == "predictfun" and getattr(config, "use_smart_wallet", False):
+        smart_wallet_key = getattr(config, "smart_wallet_owner_private_key", None)
+        if smart_wallet_key:
+            _validate_private_key(smart_wallet_key, name)
+    else:
+        private_key = getattr(config, "private_key", None)
+        if private_key:
+            _validate_private_key(private_key, name)
 
 
 def list_exchanges() -> list[str]:
