@@ -43,5 +43,17 @@ class LimitlessConfig(BaseExchangeConfig):
     private_key: str = ""
 
 
+@dataclass
+class PredictFunConfig(BaseExchangeConfig):
+    """Configuration for Predict.fun exchange."""
+
+    api_key: str = ""
+    private_key: str = ""  # Privy wallet private key (EOA)
+    smart_wallet_owner_private_key: str = ""  # Smart wallet owner's private key
+    use_smart_wallet: bool = False
+    smart_wallet_address: str = ""  # Predict Account (deposit address)
+    testnet: bool = False
+
+
 # Union type for any exchange config
-ExchangeConfig = PolymarketConfig | OpinionConfig | LimitlessConfig
+ExchangeConfig = PolymarketConfig | OpinionConfig | LimitlessConfig | PredictFunConfig

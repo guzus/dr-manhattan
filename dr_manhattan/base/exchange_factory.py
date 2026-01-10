@@ -11,6 +11,7 @@ from .exchange_config import (
     LimitlessConfig,
     OpinionConfig,
     PolymarketConfig,
+    PredictFunConfig,
 )
 
 
@@ -31,11 +32,13 @@ def get_exchange_class(name: str) -> Type[Exchange]:
     from ..exchanges.limitless import Limitless
     from ..exchanges.opinion import Opinion
     from ..exchanges.polymarket import Polymarket
+    from ..exchanges.predictfun import PredictFun
 
     exchanges: Dict[str, Type[Exchange]] = {
         "polymarket": Polymarket,
         "opinion": Opinion,
         "limitless": Limitless,
+        "predictfun": PredictFun,
     }
 
     name_lower = name.lower()
@@ -105,6 +108,7 @@ def _get_empty_config(name: str) -> ExchangeConfig:
         "polymarket": PolymarketConfig,
         "opinion": OpinionConfig,
         "limitless": LimitlessConfig,
+        "predictfun": PredictFunConfig,
     }
     return configs[name]()
 
@@ -136,6 +140,15 @@ def _load_env_config(name: str) -> ExchangeConfig:
     elif name == "limitless":
         return LimitlessConfig(
             private_key=os.getenv("LIMITLESS_PRIVATE_KEY", ""),
+        )
+    elif name == "predictfun":
+        return PredictFunConfig(
+            api_key=os.getenv("PREDICTFUN_API_KEY", ""),
+            private_key=os.getenv("PREDICTFUN_PRIVATE_KEY", ""),
+            smart_wallet_owner_private_key=os.getenv("PREDICTFUN_SMART_WALLET_OWNER_PRIVATE_KEY", ""),
+            use_smart_wallet=os.getenv("PREDICTFUN_USE_SMART_WALLET", "").lower() in ("true", "1", "yes"),
+            smart_wallet_address=os.getenv("PREDICTFUN_SMART_WALLET_ADDRESS", ""),
+            testnet=os.getenv("PREDICTFUN_TESTNET", "").lower() in ("true", "1", "yes"),
         )
     else:
         raise ValueError(f"Unknown exchange: {name}")
@@ -182,6 +195,7 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
         "polymarket": ["private_key", "funder"],
         "opinion": ["api_key", "private_key", "multi_sig_addr"],
         "limitless": ["private_key"],
+        "predictfun": ["api_key", "private_key"],
     }
 
     missing = [key for key in required.get(name, []) if not getattr(config, key, None)]
@@ -199,4 +213,4 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
 
 def list_exchanges() -> list[str]:
     """Return list of available exchange names."""
-    return ["polymarket", "opinion", "limitless"]
+    return ["polymarket", "opinion", "limitless", "predictfun"]
