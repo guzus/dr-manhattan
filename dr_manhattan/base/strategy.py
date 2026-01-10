@@ -8,13 +8,13 @@ import time
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Optional, Tuple
 
-from .errors import InsufficientFunds
 from ..models.market import Market, OutcomeToken
 from ..models.nav import NAV
 from ..models.order import Order, OrderSide
 from ..utils import setup_logger
 from ..utils.logger import Colors
 from ..utils.price import round_to_tick_size
+from .errors import InsufficientFunds
 from .exchange_client import (
     DeltaInfo,
     ExchangeClient,
