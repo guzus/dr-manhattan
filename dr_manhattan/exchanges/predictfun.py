@@ -734,6 +734,8 @@ class PredictFun(Exchange):
         if not slug:
             raise ValueError("Empty slug provided")
 
+        markets: List[Market] = []
+
         # Try to fetch from /v1/categories/{slug} API
         try:
             response = self._request("GET", f"/v1/categories/{slug}")
@@ -743,16 +745,57 @@ class PredictFun(Exchange):
                 # Category found - parse markets from it
                 markets_data = data.get("markets", [])
                 if markets_data:
-                    return [self._parse_market(m) for m in markets_data]
-
-                # If no nested markets, create market from category itself
-                return [self._parse_category_as_market(data)]
+                    markets = [self._parse_market(m) for m in markets_data]
+                else:
+                    # If no nested markets, create market from category itself
+                    markets = [self._parse_category_as_market(data)]
 
         except ExchangeError:
             pass  # Category not found, fall back to keyword search
 
         # Fallback: keyword search
-        return self._search_markets_by_keywords(slug)
+        if not markets:
+            markets = self._search_markets_by_keywords(slug)
+
+        # Enrich markets with orderbook prices
+        self._enrich_markets_with_prices(markets)
+
+        return markets
+
+    def _enrich_markets_with_prices(self, markets: List[Market]) -> None:
+        """Fetch orderbook prices and populate market.prices for display."""
+        if self.verbose and markets:
+            print(f"Fetching prices for {len(markets)} markets...")
+
+        for market in markets:
+            if market.prices.get("Yes"):
+                continue  # Already has prices
+
+            token_ids = market.metadata.get("clobTokenIds", [])
+            if not token_ids:
+                continue
+
+            try:
+                orderbook = self.get_orderbook(token_ids[0])
+                bids = orderbook.get("bids", [])
+                asks = orderbook.get("asks", [])
+
+                best_bid = float(bids[0]["price"]) if bids else 0
+                best_ask = float(asks[0]["price"]) if asks else 0
+
+                if best_bid and best_ask:
+                    mid_price = (best_bid + best_ask) / 2
+                elif best_bid:
+                    mid_price = best_bid
+                elif best_ask:
+                    mid_price = best_ask
+                else:
+                    continue
+
+                market.prices["Yes"] = mid_price
+                market.prices["No"] = 1 - mid_price
+            except Exception:
+                pass
 
     def _parse_slug(self, slug_or_url: str) -> str:
         """Parse slug from URL or return as-is."""
