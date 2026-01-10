@@ -7,7 +7,7 @@ Uses REST API for communication and EIP-712 for order signing.
 API Documentation: https://dev.predict.fun/
 """
 
-import random
+import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -878,7 +878,9 @@ class PredictFun(Exchange):
                 asks.sort(key=lambda x: float(x["price"]))
 
                 return {"bids": bids, "asks": asks}
-            except Exception:
+            except Exception as e:
+                if self.verbose:
+                    print(f"Failed to fetch orderbook for {market_id}: {e}")
                 return {"bids": [], "asks": []}
 
         return _fetch()
@@ -957,6 +959,9 @@ class PredictFun(Exchange):
 
         if price <= 0 or price > 1:
             raise InvalidOrder(f"Price must be between 0 and 1, got: {price}")
+
+        if size <= 0:
+            raise InvalidOrder(f"Size must be greater than 0, got: {size}")
 
         fee_rate_bps = market.metadata.get("feeRateBps", 0)
         is_yield_bearing = market.metadata.get("isYieldBearing", True)
@@ -1182,7 +1187,7 @@ class PredictFun(Exchange):
 
         # Generate salt (must be between 0 and 2147483648)
         max_salt = 2147483648
-        salt = random.randint(0, max_salt - 1)
+        salt = secrets.randbelow(max_salt)
 
         # Calculate amounts (all in wei, 18 decimals)
         # API requires amounts to be multiples of 1e13 (precision = 5 decimals)
