@@ -66,6 +66,9 @@ ECDSA_VALIDATOR_ADDRESS = "0x845ADb2C711129d4f3966735eD98a9F09fC4cE57"
 KERNEL_DOMAIN_NAME = "Kernel"
 KERNEL_DOMAIN_VERSION = "0.3.1"
 
+# Order expiration timestamp for no-expiry orders (year 2100)
+NO_EXPIRY_TIMESTAMP = 4102444800
+
 # BNB Chain RPC endpoints
 BNB_RPC_MAINNET = "https://bsc-dataseed.binance.org/"
 BNB_RPC_TESTNET = "https://data-seed-prebsc-1-s1.binance.org:8545/"
@@ -364,7 +367,7 @@ class PredictFun(Exchange):
                         pass
 
                     # Try to re-authenticate if we have credentials
-                    if self.api_key and self._account:
+                    if self.api_key and (self._account or self._owner_account):
                         self._jwt_token = None
                         self._authenticated = False
                         self._authenticate()
@@ -1215,9 +1218,7 @@ class PredictFun(Exchange):
         # When using smart wallet, maker and signer are both the smart wallet address
         maker_address = self._get_maker_address()
 
-        # Set expiration to far future (year 2100) for no-expiry orders
-        # Using Unix timestamp 4102444800 = 2100-01-01 00:00:00 UTC
-        expiration = 4102444800
+        expiration = NO_EXPIRY_TIMESTAMP
 
         order = {
             "salt": str(salt),
