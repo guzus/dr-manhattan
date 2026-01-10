@@ -9,6 +9,7 @@ CCXT-style unified API for prediction markets. Simple, scalable, and easy to ext
   <img src="assets/kalshi.jpeg" alt="Kalshi" width="50"/>
   <img src="assets/opinion.jpg" alt="Opinion" width="50"/>
   <img src="assets/limitless.jpg" alt="Limitless" width="50"/>
+  <img src="assets/predict_fun.jpg" alt="Predict.fun" width="50"/>
 </p>
 
 ## Architecture
@@ -32,7 +33,8 @@ dr_manhattan/
 │   ├── polymarket_ws.py
 │   ├── opinion.py
 │   ├── limitless.py
-│   └── limitless_ws.py
+│   ├── limitless_ws.py
+│   └── predictfun.py
 ├── models/             # Data models
 │   ├── market.py
 │   ├── order.py
@@ -79,6 +81,7 @@ import dr_manhattan
 polymarket = dr_manhattan.Polymarket({'timeout': 30})
 opinion = dr_manhattan.Opinion({'timeout': 30})
 limitless = dr_manhattan.Limitless({'timeout': 30})
+predictfun = dr_manhattan.PredictFun({'timeout': 30})
 
 # Fetch markets
 markets = polymarket.fetch_markets()
@@ -108,6 +111,15 @@ opinion = dr_manhattan.Opinion({
 limitless = dr_manhattan.Limitless({
     'private_key': 'your_private_key',
     'timeout': 30
+})
+
+# Predict.fun (BNB Chain)
+predictfun = dr_manhattan.PredictFun({
+    'api_key': 'your_api_key',
+    'private_key': 'your_private_key',
+    'use_smart_wallet': True,
+    'smart_wallet_owner_private_key': 'your_owner_private_key',
+    'smart_wallet_address': 'your_smart_wallet_address'
 })
 
 # Create order
@@ -145,7 +157,7 @@ strategy.run()
 from dr_manhattan import create_exchange, list_exchanges
 
 # List available exchanges
-print(list_exchanges())  # ['polymarket', 'limitless', 'opinion']
+print(list_exchanges())  # ['polymarket', 'limitless', 'opinion', 'predictfun']
 
 # Create exchange by name
 exchange = create_exchange('polymarket', {'timeout': 30})
@@ -237,6 +249,7 @@ exchanges = {
     "polymarket": Polymarket,
     "opinion": Opinion,
     "limitless": Limitless,
+    "predictfun": PredictFun,
     "newexchange": NewExchange,
 }
 ```
@@ -288,6 +301,7 @@ Run examples:
 uv run python examples/list_all_markets.py polymarket
 uv run python examples/list_all_markets.py opinion
 uv run python examples/list_all_markets.py limitless
+uv run python examples/list_all_markets.py predictfun
 
 # Run spread strategy
 uv run python examples/spread_strategy.py --exchange polymarket --slug fed-decision
