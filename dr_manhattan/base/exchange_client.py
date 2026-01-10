@@ -784,7 +784,7 @@ class ExchangeClient:
         balance: Dict[str, float],
     ) -> NAV:
         """Internal NAV calculation with explicit parameters."""
-        cash = balance.get("USDC", 0.0) + balance.get("USD", 0.0)
+        cash = balance.get("USDC", 0.0) + balance.get("USD", 0.0) + balance.get("USDT", 0.0)
 
         positions_breakdown = []
         positions_value = 0.0

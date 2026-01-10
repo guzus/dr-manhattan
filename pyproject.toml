@@ -22,6 +22,7 @@ dependencies = [
     "pyarrow>=22.0.0",
     "matplotlib>=3.10.8",
     "rich>=14.2.0",
+    "predict-sdk>=0.0.8",
 ]
 
 [project.urls]
