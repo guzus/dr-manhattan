@@ -10,10 +10,11 @@ def test_list_exchanges():
     exchanges = exchange_tools.list_exchanges()
 
     assert isinstance(exchanges, list)
-    assert len(exchanges) == 3
+    assert len(exchanges) == 4
     assert "polymarket" in exchanges
     assert "opinion" in exchanges
     assert "limitless" in exchanges
+    assert "predictfun" in exchanges
 
 
 def test_validate_credentials_without_env():

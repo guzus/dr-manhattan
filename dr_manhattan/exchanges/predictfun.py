@@ -8,7 +8,6 @@ API Documentation: https://dev.predict.fun/
 """
 
 import random
-import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -985,8 +984,8 @@ class PredictFun(Exchange):
         )
 
         # Price in wei (1e18), rounded to 1e13 precision
-        PRECISION = int(1e13)
-        price_per_share_wei = (int(price * 1e18) // PRECISION) * PRECISION
+        precision = int(1e13)
+        price_per_share_wei = (int(price * 1e18) // precision) * precision
 
         payload = {
             "data": {
@@ -1180,16 +1179,16 @@ class PredictFun(Exchange):
             raise AuthenticationError("Wallet not initialized")
 
         # Generate salt (must be between 0 and 2147483648)
-        MAX_SALT = 2147483648
-        salt = random.randint(0, MAX_SALT - 1)
+        max_salt = 2147483648
+        salt = random.randint(0, max_salt - 1)
 
         # Calculate amounts (all in wei, 18 decimals)
         # API requires amounts to be multiples of 1e13 (precision = 5 decimals)
-        PRECISION = int(1e13)
+        precision = int(1e13)
 
         def round_to_precision(value: int) -> int:
             """Round down to nearest multiple of 1e13."""
-            return (value // PRECISION) * PRECISION
+            return (value // precision) * precision
 
         shares_wei = round_to_precision(int(size * 1e18))
         price_wei = round_to_precision(int(price * 1e18))
