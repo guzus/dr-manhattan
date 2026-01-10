@@ -145,8 +145,11 @@ def _load_env_config(name: str) -> ExchangeConfig:
         return PredictFunConfig(
             api_key=os.getenv("PREDICTFUN_API_KEY", ""),
             private_key=os.getenv("PREDICTFUN_PRIVATE_KEY", ""),
-            smart_wallet_owner_private_key=os.getenv("PREDICTFUN_SMART_WALLET_OWNER_PRIVATE_KEY", ""),
-            use_smart_wallet=os.getenv("PREDICTFUN_USE_SMART_WALLET", "").lower() in ("true", "1", "yes"),
+            smart_wallet_owner_private_key=os.getenv(
+                "PREDICTFUN_SMART_WALLET_OWNER_PRIVATE_KEY", ""
+            ),
+            use_smart_wallet=os.getenv("PREDICTFUN_USE_SMART_WALLET", "").lower()
+            in ("true", "1", "yes"),
             smart_wallet_address=os.getenv("PREDICTFUN_SMART_WALLET_ADDRESS", ""),
             testnet=os.getenv("PREDICTFUN_TESTNET", "").lower() in ("true", "1", "yes"),
         )

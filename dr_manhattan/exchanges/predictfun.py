@@ -603,7 +603,9 @@ class PredictFun(Exchange):
         outcome_data = data.get("outcome", {})
 
         market_id = str(market_data.get("id", "") or data.get("marketId", ""))
-        outcome = outcome_data.get("name", "") if isinstance(outcome_data, dict) else str(outcome_data)
+        outcome = (
+            outcome_data.get("name", "") if isinstance(outcome_data, dict) else str(outcome_data)
+        )
 
         # Amount is in wei (18 decimals)
         amount_wei = int(data.get("amount", 0) or 0)
@@ -968,9 +970,7 @@ class PredictFun(Exchange):
                 else self._yield_bearing_ctf_exchange
             )
         else:
-            exchange_address = (
-                self._neg_risk_ctf_exchange if is_neg_risk else self._ctf_exchange
-            )
+            exchange_address = self._neg_risk_ctf_exchange if is_neg_risk else self._ctf_exchange
 
         strategy = (extra_params.get("strategy", "LIMIT")).upper()
 
@@ -1077,13 +1077,15 @@ class PredictFun(Exchange):
 
                     tx = self._usdt_contract.functions.approve(
                         exchange_checksum, max_approval
-                    ).build_transaction({
-                        "from": owner_checksum,
-                        "nonce": nonce,
-                        "gas": 100000,
-                        "gasPrice": gas_price,
-                        "chainId": self.chain_id,
-                    })
+                    ).build_transaction(
+                        {
+                            "from": owner_checksum,
+                            "nonce": nonce,
+                            "gas": 100000,
+                            "gasPrice": gas_price,
+                            "chainId": self.chain_id,
+                        }
+                    )
 
                     signed_tx = self._account.sign_transaction(tx)
                     tx_hash = self._web3.eth.send_raw_transaction(signed_tx.raw_transaction)
@@ -1113,9 +1115,7 @@ class PredictFun(Exchange):
         message_hash_bytes = bytes.fromhex(
             message_hash[2:] if message_hash.startswith("0x") else message_hash
         )
-        encoded = eth_abi_encode(
-            ["bytes32", "bytes32"], [kernel_type_hash, message_hash_bytes]
-        )
+        encoded = eth_abi_encode(["bytes32", "bytes32"], [kernel_type_hash, message_hash_bytes])
         return "0x" + Web3.keccak(encoded).hex()
 
     def _hash_eip712_domain(self, domain: Dict[str, Any]) -> bytes:
@@ -1147,7 +1147,9 @@ class PredictFun(Exchange):
     def _sign_predict_account_message(self, message_hash: str) -> str:
         """Sign a message for Predict smart wallet using Kernel domain wrapping."""
         if not self._owner_account or not self.smart_wallet_address:
-            raise AuthenticationError("Owner account and smart_wallet_address required for smart wallet signing")
+            raise AuthenticationError(
+                "Owner account and smart_wallet_address required for smart wallet signing"
+            )
 
         kernel_domain = {
             "name": KERNEL_DOMAIN_NAME,
@@ -1407,13 +1409,12 @@ class PredictFun(Exchange):
 
         @self._retry_on_failure
         def _fetch():
-            response = self._request(
-                "GET", "/v1/positions", params=query_params, require_auth=True
-            )
+            response = self._request("GET", "/v1/positions", params=query_params, require_auth=True)
             positions_data = response if isinstance(response, list) else response.get("data", [])
             # Filter by amount (wei) or size
             return [
-                self._parse_position(p) for p in positions_data
+                self._parse_position(p)
+                for p in positions_data
                 if int(p.get("amount", 0) or 0) > 0 or float(p.get("size", 0) or 0) > 0
             ]
 

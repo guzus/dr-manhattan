@@ -531,7 +531,9 @@ class Strategy(ABC):
                         self.log_order(OrderSide.BUY, self.order_size, outcome, our_bid)
                     except InsufficientFunds as e:
                         logger.error(f"    {Colors.red('BUY failed - Insufficient funds:')} {e}")
-                        logger.warning(f"    {Colors.yellow('Stopping new orders due to insufficient funds')}")
+                        logger.warning(
+                            f"    {Colors.yellow('Stopping new orders due to insufficient funds')}"
+                        )
                         self._insufficient_funds = True
                         return
                     except Exception as e:
@@ -547,7 +549,9 @@ class Strategy(ABC):
                     self.log_order(OrderSide.SELL, self.order_size, outcome, our_ask)
                 except InsufficientFunds as e:
                     logger.error(f"    {Colors.red('SELL failed - Insufficient funds:')} {e}")
-                    logger.warning(f"    {Colors.yellow('Stopping new orders due to insufficient funds')}")
+                    logger.warning(
+                        f"    {Colors.yellow('Stopping new orders due to insufficient funds')}"
+                    )
                     self._insufficient_funds = True
                     return
                 except Exception as e:
