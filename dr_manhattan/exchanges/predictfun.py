@@ -182,8 +182,8 @@ class PredictFun(Exchange):
         # Track if approvals have been checked this session
         self._approvals_checked = False
 
-        # Initialize account if private key provided
-        if self.private_key:
+        # Initialize account if private key provided (skip in smart wallet mode)
+        if self.private_key and not self.use_smart_wallet:
             self._account = Account.from_key(self.private_key)
             self._address = self._account.address
 
