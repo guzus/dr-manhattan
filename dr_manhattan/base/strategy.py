@@ -8,6 +8,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Optional, Tuple
 
+from .errors import InsufficientFunds
 from ..models.market import Market, OutcomeToken
 from ..models.nav import NAV
 from ..models.order import Order, OrderSide
@@ -85,6 +86,7 @@ class Strategy(ABC):
 
         # Runtime state
         self.is_running = False
+        self._insufficient_funds = False  # Stop trading on insufficient funds
 
         # Cached state (updated each tick)
         self._positions: Dict[str, float] = {}
@@ -270,6 +272,10 @@ class Strategy(ABC):
             logger.warning(
                 f"Delta ({self.delta:.2f}) > max ({self.max_delta:.2f}) - reducing exposure"
             )
+
+        # Warn if insufficient funds
+        if self._insufficient_funds:
+            logger.warning(f"{Colors.red('Insufficient funds - new orders paused')}")
 
     def log_order(
         self, side: OrderSide, size: float, outcome: str, price: float, action: str = "->"
@@ -471,6 +477,10 @@ class Strategy(ABC):
         Args:
             get_bbo: Optional function(token_id) -> (bid, ask). Uses REST by default.
         """
+        # Skip if insufficient funds
+        if self._insufficient_funds:
+            return
+
         if get_bbo is None:
             get_bbo = self.get_best_bid_ask
 
@@ -484,6 +494,10 @@ class Strategy(ABC):
         get_bbo: Callable,
     ):
         """Place BBO orders for a single outcome"""
+        # Skip if insufficient funds detected
+        if self._insufficient_funds:
+            return
+
         best_bid, best_ask = get_bbo(token_id)
 
         if best_bid is None or best_ask is None:
@@ -515,6 +529,11 @@ class Strategy(ABC):
                             outcome, OrderSide.BUY, our_bid, self.order_size, token_id
                         )
                         self.log_order(OrderSide.BUY, self.order_size, outcome, our_bid)
+                    except InsufficientFunds as e:
+                        logger.error(f"    {Colors.red('BUY failed - Insufficient funds:')} {e}")
+                        logger.warning(f"    {Colors.yellow('Stopping new orders due to insufficient funds')}")
+                        self._insufficient_funds = True
+                        return
                     except Exception as e:
                         logger.error(f"    BUY failed: {e}")
 
@@ -526,6 +545,11 @@ class Strategy(ABC):
                 try:
                     self.create_order(outcome, OrderSide.SELL, our_ask, self.order_size, token_id)
                     self.log_order(OrderSide.SELL, self.order_size, outcome, our_ask)
+                except InsufficientFunds as e:
+                    logger.error(f"    {Colors.red('SELL failed - Insufficient funds:')} {e}")
+                    logger.warning(f"    {Colors.yellow('Stopping new orders due to insufficient funds')}")
+                    self._insufficient_funds = True
+                    return
                 except Exception as e:
                     logger.error(f"    SELL failed: {e}")
 

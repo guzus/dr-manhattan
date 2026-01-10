@@ -7,7 +7,8 @@ Uses REST API for communication and EIP-712 for order signing.
 API Documentation: https://dev.predict.fun/
 """
 
-import secrets
+import random
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -65,9 +66,6 @@ ECDSA_VALIDATOR_ADDRESS = "0x845ADb2C711129d4f3966735eD98a9F09fC4cE57"
 # Kernel domain for smart wallet signing
 KERNEL_DOMAIN_NAME = "Kernel"
 KERNEL_DOMAIN_VERSION = "0.3.1"
-
-# Order expiration timestamp for no-expiry orders (year 2100)
-NO_EXPIRY_TIMESTAMP = 4102444800
 
 # BNB Chain RPC endpoints
 BNB_RPC_MAINNET = "https://bsc-dataseed.binance.org/"
@@ -182,18 +180,14 @@ class PredictFun(Exchange):
         # Track if approvals have been checked this session
         self._approvals_checked = False
 
-        # Initialize account if private key provided (skip in smart wallet mode)
-        if self.private_key and not self.use_smart_wallet:
+        # Initialize account if private key provided
+        if self.private_key:
             self._account = Account.from_key(self.private_key)
             self._address = self._account.address
 
         # Initialize owner account for smart wallet mode
         if self.smart_wallet_owner_private_key:
             self._owner_account = Account.from_key(self.smart_wallet_owner_private_key)
-
-        # Set _address for smart wallet mode (required by _is_using_smart_wallet)
-        if self.use_smart_wallet and self.smart_wallet_address:
-            self._address = self.smart_wallet_address
 
     def _get_headers(self, require_auth: bool = False) -> Dict[str, str]:
         """Get headers for API requests."""
@@ -371,7 +365,7 @@ class PredictFun(Exchange):
                         pass
 
                     # Try to re-authenticate if we have credentials
-                    if self.api_key and (self._account or self._owner_account):
+                    if self.api_key and self._account:
                         self._jwt_token = None
                         self._authenticated = False
                         self._authenticate()
@@ -610,9 +604,7 @@ class PredictFun(Exchange):
         outcome_data = data.get("outcome", {})
 
         market_id = str(market_data.get("id", "") or data.get("marketId", ""))
-        outcome = (
-            outcome_data.get("name", "") if isinstance(outcome_data, dict) else str(outcome_data)
-        )
+        outcome = outcome_data.get("name", "") if isinstance(outcome_data, dict) else str(outcome_data)
 
         # Amount is in wei (18 decimals)
         amount_wei = int(data.get("amount", 0) or 0)
@@ -738,8 +730,6 @@ class PredictFun(Exchange):
         if not slug:
             raise ValueError("Empty slug provided")
 
-        markets: List[Market] = []
-
         # Try to fetch from /v1/categories/{slug} API
         try:
             response = self._request("GET", f"/v1/categories/{slug}")
@@ -749,57 +739,16 @@ class PredictFun(Exchange):
                 # Category found - parse markets from it
                 markets_data = data.get("markets", [])
                 if markets_data:
-                    markets = [self._parse_market(m) for m in markets_data]
-                else:
-                    # If no nested markets, create market from category itself
-                    markets = [self._parse_category_as_market(data)]
+                    return [self._parse_market(m) for m in markets_data]
+
+                # If no nested markets, create market from category itself
+                return [self._parse_category_as_market(data)]
 
         except ExchangeError:
             pass  # Category not found, fall back to keyword search
 
         # Fallback: keyword search
-        if not markets:
-            markets = self._search_markets_by_keywords(slug)
-
-        # Enrich markets with orderbook prices
-        self._enrich_markets_with_prices(markets)
-
-        return markets
-
-    def _enrich_markets_with_prices(self, markets: List[Market]) -> None:
-        """Fetch orderbook prices and populate market.prices for display."""
-        if self.verbose and markets:
-            print(f"Fetching prices for {len(markets)} markets...")
-
-        for market in markets:
-            if market.prices.get("Yes"):
-                continue  # Already has prices
-
-            token_ids = market.metadata.get("clobTokenIds", [])
-            if not token_ids:
-                continue
-
-            try:
-                orderbook = self.get_orderbook(token_ids[0])
-                bids = orderbook.get("bids", [])
-                asks = orderbook.get("asks", [])
-
-                best_bid = float(bids[0]["price"]) if bids else 0
-                best_ask = float(asks[0]["price"]) if asks else 0
-
-                if best_bid and best_ask:
-                    mid_price = (best_bid + best_ask) / 2
-                elif best_bid:
-                    mid_price = best_bid
-                elif best_ask:
-                    mid_price = best_ask
-                else:
-                    continue
-
-                market.prices["Yes"] = mid_price
-                market.prices["No"] = 1 - mid_price
-            except Exception:
-                pass
+        return self._search_markets_by_keywords(slug)
 
     def _parse_slug(self, slug_or_url: str) -> str:
         """Parse slug from URL or return as-is."""
@@ -928,9 +877,7 @@ class PredictFun(Exchange):
                 asks.sort(key=lambda x: float(x["price"]))
 
                 return {"bids": bids, "asks": asks}
-            except Exception as e:
-                if self.verbose:
-                    print(f"Failed to fetch orderbook for {market_id}: {e}")
+            except Exception:
                 return {"bids": [], "asks": []}
 
         return _fetch()
@@ -989,12 +936,8 @@ class PredictFun(Exchange):
             if not self.check_and_set_approvals():
                 raise ExchangeError("Failed to set USDT approvals for exchange contracts")
 
-        if self._is_using_smart_wallet():
-            if not self._owner_account or not self._address:
-                raise AuthenticationError("Smart wallet not initialized")
-        else:
-            if not self._account or not self._address:
-                raise AuthenticationError("Wallet not initialized")
+        if not self._account or not self._address:
+            raise AuthenticationError("Wallet not initialized")
 
         market = self.fetch_market(market_id)
         outcomes = market.outcomes
@@ -1014,9 +957,6 @@ class PredictFun(Exchange):
         if price <= 0 or price > 1:
             raise InvalidOrder(f"Price must be between 0 and 1, got: {price}")
 
-        if size <= 0:
-            raise InvalidOrder(f"Size must be greater than 0, got: {size}")
-
         fee_rate_bps = market.metadata.get("feeRateBps", 0)
         is_yield_bearing = market.metadata.get("isYieldBearing", True)
         is_neg_risk = market.metadata.get("isNegRisk", False)
@@ -1029,7 +969,9 @@ class PredictFun(Exchange):
                 else self._yield_bearing_ctf_exchange
             )
         else:
-            exchange_address = self._neg_risk_ctf_exchange if is_neg_risk else self._ctf_exchange
+            exchange_address = (
+                self._neg_risk_ctf_exchange if is_neg_risk else self._ctf_exchange
+            )
 
         strategy = (extra_params.get("strategy", "LIMIT")).upper()
 
@@ -1043,8 +985,8 @@ class PredictFun(Exchange):
         )
 
         # Price in wei (1e18), rounded to 1e13 precision
-        precision = int(1e13)
-        price_per_share_wei = (int(price * 1e18) // precision) * precision
+        PRECISION = int(1e13)
+        price_per_share_wei = (int(price * 1e18) // PRECISION) * PRECISION
 
         payload = {
             "data": {
@@ -1136,15 +1078,13 @@ class PredictFun(Exchange):
 
                     tx = self._usdt_contract.functions.approve(
                         exchange_checksum, max_approval
-                    ).build_transaction(
-                        {
-                            "from": owner_checksum,
-                            "nonce": nonce,
-                            "gas": 100000,
-                            "gasPrice": gas_price,
-                            "chainId": self.chain_id,
-                        }
-                    )
+                    ).build_transaction({
+                        "from": owner_checksum,
+                        "nonce": nonce,
+                        "gas": 100000,
+                        "gasPrice": gas_price,
+                        "chainId": self.chain_id,
+                    })
 
                     signed_tx = self._account.sign_transaction(tx)
                     tx_hash = self._web3.eth.send_raw_transaction(signed_tx.raw_transaction)
@@ -1174,7 +1114,9 @@ class PredictFun(Exchange):
         message_hash_bytes = bytes.fromhex(
             message_hash[2:] if message_hash.startswith("0x") else message_hash
         )
-        encoded = eth_abi_encode(["bytes32", "bytes32"], [kernel_type_hash, message_hash_bytes])
+        encoded = eth_abi_encode(
+            ["bytes32", "bytes32"], [kernel_type_hash, message_hash_bytes]
+        )
         return "0x" + Web3.keccak(encoded).hex()
 
     def _hash_eip712_domain(self, domain: Dict[str, Any]) -> bytes:
@@ -1206,9 +1148,7 @@ class PredictFun(Exchange):
     def _sign_predict_account_message(self, message_hash: str) -> str:
         """Sign a message for Predict smart wallet using Kernel domain wrapping."""
         if not self._owner_account or not self.smart_wallet_address:
-            raise AuthenticationError(
-                "Owner account and smart_wallet_address required for smart wallet signing"
-            )
+            raise AuthenticationError("Owner account and smart_wallet_address required for smart wallet signing")
 
         kernel_domain = {
             "name": KERNEL_DOMAIN_NAME,
@@ -1236,24 +1176,20 @@ class PredictFun(Exchange):
         exchange_address: str,
     ) -> Dict[str, Any]:
         """Build and sign an order using EIP-712."""
-        if self._is_using_smart_wallet():
-            if not self._owner_account or not self._address:
-                raise AuthenticationError("Smart wallet not initialized")
-        else:
-            if not self._account or not self._address:
-                raise AuthenticationError("Wallet not initialized")
+        if not self._account or not self._address:
+            raise AuthenticationError("Wallet not initialized")
 
         # Generate salt (must be between 0 and 2147483648)
-        max_salt = 2147483648
-        salt = secrets.randbelow(max_salt)
+        MAX_SALT = 2147483648
+        salt = random.randint(0, MAX_SALT - 1)
 
         # Calculate amounts (all in wei, 18 decimals)
         # API requires amounts to be multiples of 1e13 (precision = 5 decimals)
-        precision = int(1e13)
+        PRECISION = int(1e13)
 
         def round_to_precision(value: int) -> int:
             """Round down to nearest multiple of 1e13."""
-            return (value // precision) * precision
+            return (value // PRECISION) * PRECISION
 
         shares_wei = round_to_precision(int(size * 1e18))
         price_wei = round_to_precision(int(price * 1e18))
@@ -1273,7 +1209,9 @@ class PredictFun(Exchange):
         # When using smart wallet, maker and signer are both the smart wallet address
         maker_address = self._get_maker_address()
 
-        expiration = NO_EXPIRY_TIMESTAMP
+        # Set expiration to far future (year 2100) for no-expiry orders
+        # Using Unix timestamp 4102444800 = 2100-01-01 00:00:00 UTC
+        expiration = 4102444800
 
         order = {
             "salt": str(salt),
@@ -1470,12 +1408,13 @@ class PredictFun(Exchange):
 
         @self._retry_on_failure
         def _fetch():
-            response = self._request("GET", "/v1/positions", params=query_params, require_auth=True)
+            response = self._request(
+                "GET", "/v1/positions", params=query_params, require_auth=True
+            )
             positions_data = response if isinstance(response, list) else response.get("data", [])
             # Filter by amount (wei) or size
             return [
-                self._parse_position(p)
-                for p in positions_data
+                self._parse_position(p) for p in positions_data
                 if int(p.get("amount", 0) or 0) > 0 or float(p.get("size", 0) or 0) > 0
             ]
 
