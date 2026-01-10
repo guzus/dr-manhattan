@@ -296,6 +296,27 @@ uv run python examples/spread_strategy.py --exchange opinion --market-id 813
 
 See [examples/README.md](examples/README.md) for detailed documentation.
 
+## Contributing with Claude
+
+<p align="center">
+  <img src="assets/claude.png" alt="Claude" width="100"/>
+</p>
+
+We use Claude Code to implement new features from trading strategy ideas:
+
+1. Spot a good strategy on Twitter/X
+2. Create a GitHub issue describing the strategy
+3. Add a label: `feature`, `bug`, or `chore`
+4. Mention `@claude` in the issue
+5. Claude creates a PR with the implementation
+
+Branch naming follows the label:
+- `feature` -> `feat/issue-{number}`
+- `bug` -> `fix/issue-{number}`
+- `chore` -> `chore/issue-{number}`
+
+See [.github/workflows/claude.yml](.github/workflows/claude.yml) for details.
+
 ## Dependencies
 
 - Python >= 3.11

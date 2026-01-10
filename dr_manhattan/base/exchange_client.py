@@ -479,22 +479,23 @@ class ExchangeClient:
         if self._user_ws:
             self._user_ws.stop()
         if self._market_ws:
-            # Stop WebSocket first (disconnect while loop is still running)
-            self._market_ws.stop()
-            # Cancel all pending tasks and stop the event loop
+            # Stop WebSocket and wait for disconnect to complete
             if self._market_ws.loop:
-                if self._market_ws.loop.is_running():
-                    # Cancel all tasks
-                    for task in asyncio.all_tasks(self._market_ws.loop):
-                        self._market_ws.loop.call_soon_threadsafe(task.cancel)
-                    # Stop the loop
-                    self._market_ws.loop.call_soon_threadsafe(self._market_ws.loop.stop)
+                try:
+                    if self._market_ws.loop.is_running():
+                        future = asyncio.run_coroutine_threadsafe(
+                            self._market_ws.disconnect(), self._market_ws.loop
+                        )
+                        future.result(timeout=3.0)
+                        self._market_ws.loop.call_soon_threadsafe(self._market_ws.loop.stop)
+                except (RuntimeError, TimeoutError) as e:
+                    logger.debug(f"WebSocket disconnect: {e}")
         # Stop polling thread
         if self._polling_thread:
             self._polling_stop = True
             self._polling_thread.join(timeout=2.0)
         if self._ws_thread:
-            self._ws_thread.join(timeout=5.0)
+            self._ws_thread.join(timeout=3.0)
 
     def get_balance(self) -> Dict[str, float]:
         """

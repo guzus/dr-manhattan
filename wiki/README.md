@@ -11,6 +11,13 @@ Exchange-specific documentation:
 - Limitless - Prediction market on Base
 - [Template](exchanges/TEMPLATE.md) - Template for creating new exchange documentation
 
+## Strategies
+
+Trading strategy documentation:
+
+- [Spread Strategy](strategies/spread.md) - BBO market making strategy
+- [Spike Strategy](strategies/spike.md) - Mean reversion strategy for price spikes
+
 ## Core Concepts
 
 ### Exchange
