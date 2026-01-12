@@ -28,6 +28,7 @@ from .cross_exchange import CrossExchangeManager, OutcomeMapping
 from .exchanges.limitless import Limitless
 from .exchanges.opinion import Opinion
 from .exchanges.polymarket import Polymarket
+from .exchanges.predictfun import PredictFun
 from .models.market import ExchangeOutcomeRef, Market, OutcomeRef, ReadableMarketId
 from .models.order import Order, OrderSide, OrderStatus
 from .models.position import Position
@@ -59,6 +60,7 @@ __all__ = [
     "Polymarket",
     "Limitless",
     "Opinion",
+    "PredictFun",
     "StrategyState",
     "DeltaInfo",
     "calculate_delta",
@@ -79,9 +81,11 @@ __all__ = [
 POLYMARKET = "polymarket"
 OPINION = "opinion"
 LIMITLESS = "limitless"
+PREDICT_FUN = "predict.fun"
 
 exchanges = {
     POLYMARKET: Polymarket,
     LIMITLESS: Limitless,
     OPINION: Opinion,
+    PREDICT_FUN: PredictFun,
 }
