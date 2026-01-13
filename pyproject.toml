@@ -72,9 +72,13 @@ packages = ["dr_manhattan"]
 mcp = [
     "mcp>=0.9.0",
 ]
+telegram = [
+    "python-telegram-bot>=21.0",
+]
 
 [project.scripts]
 dr-manhattan-mcp = "dr_manhattan.mcp.server:run"
+dr-manhattan-telegram = "dr_manhattan.telegram.bot:main"
 
 [dependency-groups]
 dev = [
