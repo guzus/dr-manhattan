@@ -55,6 +55,7 @@ class TestKalshiFetchMarkets:
                 {
                     "ticker": "INXD-24DEC31-B5000",
                     "title": "S&P 500 above 5000?",
+                    "yes_bid": 65,
                     "yes_ask": 65,
                     "volume": 1000,
                     "status": "open",
