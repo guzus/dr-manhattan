@@ -198,10 +198,15 @@ class Kalshi(Exchange):
         yes_bid = data.get("yes_bid")
         last_price = data.get("last_price")
 
-        if yes_ask is not None:
-            yes_price = yes_ask / 100
+        # Calculate mid price
+        if yes_bid is not None and yes_ask is not None:
+            yes_price = (yes_bid + yes_ask) / 2 / 100
+        elif yes_ask is not None:
+            # Only ask exists, assume bid is 0
+            yes_price = yes_ask / 2 / 100
         elif yes_bid is not None:
-            yes_price = yes_bid / 100
+            # Only bid exists, assume ask is 100
+            yes_price = (yes_bid + 100) / 2 / 100
         elif last_price is not None:
             yes_price = last_price / 100
         else:

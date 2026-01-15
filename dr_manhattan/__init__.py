@@ -74,6 +74,7 @@ __all__ = [
     "POLYMARKET",
     "OPINION",
     "LIMITLESS",
+    "KALSHI",
 ]
 
 
@@ -81,10 +82,11 @@ __all__ = [
 POLYMARKET = "polymarket"
 OPINION = "opinion"
 LIMITLESS = "limitless"
+KALSHI = "kalshi"
 
 exchanges = {
     POLYMARKET: Polymarket,
     LIMITLESS: Limitless,
     OPINION: Opinion,
-    "kalshi": Kalshi,
+    KALSHI: Kalshi,
 }

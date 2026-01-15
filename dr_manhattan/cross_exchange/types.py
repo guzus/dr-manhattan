@@ -90,8 +90,13 @@ class FetchedMarkets:
     def get(self, exchange_id: str) -> List[Market]:
         return self.markets.get(exchange_id, [])
 
-    def get_matched_outcomes(self) -> List[MatchedOutcome]:
-        """Get outcomes matched across exchanges."""
+    def get_matched_outcomes(self, min_exchanges: int = 2) -> List[MatchedOutcome]:
+        """Get outcomes matched across exchanges.
+
+        Args:
+            min_exchanges: Minimum number of exchanges required (default 2).
+                          Set to 1 to include single-exchange outcomes.
+        """
         if not self.outcome_mapping:
             return []
 
@@ -111,7 +116,7 @@ class FetchedMarkets:
                         )
                         break
 
-            if len(prices) >= 2:
+            if len(prices) >= min_exchanges:
                 result.append(MatchedOutcome(outcome_key=outcome_key, prices=prices))
 
         return result
