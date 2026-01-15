@@ -37,7 +37,7 @@ MAPPING: OutcomeMapping = {
             ),
             KALSHI: ExchangeOutcomeRef(KALSHI, ["KXFEDDECISION-26JAN-H0"], "Yes"),
         },
-        "cut-25bps": {
+        "cut-25": {
             POLYMARKET: ExchangeOutcomeRef(
                 POLYMARKET, ["fed-decision-in-january", "25 bps decrease"], "Yes"
             ),
@@ -47,7 +47,7 @@ MAPPING: OutcomeMapping = {
             ),
             KALSHI: ExchangeOutcomeRef(KALSHI, ["KXFEDDECISION-26JAN-C25"], "Yes"),
         },
-        "cut-50bps": {
+        "cut-50+": {
             POLYMARKET: ExchangeOutcomeRef(
                 POLYMARKET, ["fed-decision-in-january", "50+ bps decrease"], "Yes"
             ),
@@ -57,18 +57,22 @@ MAPPING: OutcomeMapping = {
             ),
             KALSHI: ExchangeOutcomeRef(KALSHI, ["KXFEDDECISION-26JAN-C26"], "Yes"),
         },
-        "hike-25bps": {
+        "hike": {
+            # Polymarket and Opinion only - generic hike
             POLYMARKET: ExchangeOutcomeRef(
                 POLYMARKET, ["fed-decision-in-january", "25+ bps increase"], "Yes"
             ),
             OPINION: ExchangeOutcomeRef(OPINION, ["61"], "Increase"),
+        },
+        "hike-25": {
+            # Kalshi only
+            KALSHI: ExchangeOutcomeRef(KALSHI, ["KXFEDDECISION-26JAN-H25"], "Yes"),
+        },
+        "hike-50+": {
+            # Kalshi and Limitless
             LIMITLESS: ExchangeOutcomeRef(
                 LIMITLESS, ["fed-decision-in-january-1764672402681", "25+ bps increase"], "Yes"
             ),
-            KALSHI: ExchangeOutcomeRef(KALSHI, ["KXFEDDECISION-26JAN-H25"], "Yes"),
-        },
-        "hike-50bps+": {
-            # Kalshi only - other exchanges combine with 25bps hike
             KALSHI: ExchangeOutcomeRef(KALSHI, ["KXFEDDECISION-26JAN-H26"], "Yes"),
         },
     },
