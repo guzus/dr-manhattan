@@ -234,6 +234,11 @@ class Kalshi(Exchange):
             "ticker": ticker,
             "event_ticker": data.get("event_ticker"),
             "closed": closed,
+            "tokens": {
+                "Yes": ticker,
+                "No": ticker,
+            },
+            "clobTokenIds": [ticker, ticker],
         }
 
         return Market(

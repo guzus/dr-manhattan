@@ -55,5 +55,17 @@ class PredictFunConfig(BaseExchangeConfig):
     testnet: bool = False
 
 
+@dataclass
+class KalshiConfig(BaseExchangeConfig):
+    """Configuration for Kalshi exchange."""
+
+    api_key_id: str = ""
+    private_key_path: str = ""
+    private_key_pem: str = ""
+    demo: bool = False
+
+
 # Union type for any exchange config
-ExchangeConfig = PolymarketConfig | OpinionConfig | LimitlessConfig | PredictFunConfig
+ExchangeConfig = (
+    PolymarketConfig | OpinionConfig | LimitlessConfig | PredictFunConfig | KalshiConfig
+)
