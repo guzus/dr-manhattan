@@ -328,7 +328,9 @@ class PredictFunUserWebSocket:
         ts = data.get("timestamp", 0)
         if isinstance(ts, (int, float)) and ts > 1e12:
             ts = ts / 1000
-        timestamp = datetime.fromtimestamp(ts, tz=timezone.utc) if ts else datetime.now(timezone.utc)
+        timestamp = (
+            datetime.fromtimestamp(ts, tz=timezone.utc) if ts else datetime.now(timezone.utc)
+        )
 
         event = WalletEvent(
             event_type=event_type,
