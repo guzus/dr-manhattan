@@ -14,6 +14,7 @@ def fetch_event_price_history(
     interval: INTERVAL_TYPE = "max",
     fidelity: int = 300,
     top_n: int | None = None,
+    min_price: float = 0.001,
 ) -> tuple[str, dict[str, pd.DataFrame]]:
     """
     Fetch price history for all markets in an event.
@@ -23,6 +24,7 @@ def fetch_event_price_history(
         interval: Price history interval (1m, 1h, 6h, 1d, 1w, max)
         fidelity: Number of data points
         top_n: Only include top N outcomes by current price
+        min_price: Minimum price threshold (0-1) to include outcome (default: 0.1%)
 
     Returns:
         Tuple of (event_title, dict mapping labels to price DataFrames)
@@ -64,8 +66,9 @@ def fetch_event_price_history(
                 current_price = prices.get(outcome, 0.0)
                 outcomes_with_prices.append((label, current_price, market, i))
 
-    # Sort by price descending and take top N
+    # Sort by price descending, filter by min_price, and take top N
     outcomes_with_prices.sort(key=lambda x: x[1], reverse=True)
+    outcomes_with_prices = [o for o in outcomes_with_prices if o[1] >= min_price]
     if top_n is not None:
         outcomes_with_prices = outcomes_with_prices[:top_n]
 

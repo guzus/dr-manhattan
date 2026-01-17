@@ -16,6 +16,7 @@ uv run python -m examples.slug_to_chart <slug> [options]
 | `--interval`, `-i` | Price history interval (1m, 1h, 6h, 1d, 1w, max) | `max` |
 | `--fidelity`, `-f` | Number of data points | `300` |
 | `--top`, `-t` | Show only top N outcomes by price | All |
+| `--min-price`, `-m` | Min price threshold 0-1 to include | `0.001` (0.1%) |
 | `--subtitle`, `-s` | Chart subtitle | None |
 
 ## Examples

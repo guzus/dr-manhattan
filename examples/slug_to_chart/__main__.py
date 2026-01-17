@@ -38,6 +38,13 @@ def main():
     )
     parser.add_argument("--subtitle", "-s", type=str, default=None, help="Chart subtitle")
     parser.add_argument("--top", "-t", type=int, default=None, help="Top N outcomes by price")
+    parser.add_argument(
+        "--min-price",
+        "-m",
+        type=float,
+        default=0.001,
+        help="Min price threshold 0-1 (default: 0.001 = 0.1%%)",
+    )
 
     args = parser.parse_args()
 
@@ -55,7 +62,11 @@ def main():
 
     try:
         title, price_data = fetch_event_price_history(
-            slug, interval=args.interval, fidelity=args.fidelity, top_n=args.top
+            slug,
+            interval=args.interval,
+            fidelity=args.fidelity,
+            top_n=args.top,
+            min_price=args.min_price,
         )
 
         if not price_data:
