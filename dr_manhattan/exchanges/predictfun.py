@@ -187,6 +187,9 @@ class PredictFun(Exchange):
         self._websocket: Optional[PredictFunWebSocket] = None
         self._user_websocket: Optional[PredictFunUserWebSocket] = None
 
+        # Mid-price cache for orderbook updates
+        self._mid_price_cache: Dict[str, float] = {}
+
         # Initialize account if private key provided (skip in smart wallet mode)
         if self.private_key and not self.use_smart_wallet:
             self._account = Account.from_key(self.private_key)
@@ -1537,6 +1540,8 @@ class PredictFun(Exchange):
     def get_user_websocket(self) -> PredictFunUserWebSocket:
         """Get User WebSocket for wallet event notifications."""
         self._ensure_authenticated()
+        if not self._jwt_token:
+            raise AuthenticationError("Cannot create user websocket: not authenticated")
         if self._user_websocket is None:
             self._user_websocket = PredictFunUserWebSocket(
                 jwt_token=self._jwt_token,
@@ -1546,7 +1551,7 @@ class PredictFun(Exchange):
         return self._user_websocket
 
     def update_mid_price_from_orderbook(self, token_id: str, orderbook: Dict[str, Any]) -> None:
-        """Update mid-price cache from orderbook data."""
+        """Update mid-price cache from orderbook data (called by WebSocket)."""
         bids = orderbook.get("bids", [])
         asks = orderbook.get("asks", [])
         if not bids and not asks:
@@ -1561,8 +1566,6 @@ class PredictFun(Exchange):
             mid_price = best_ask
         else:
             return
-        if not hasattr(self, "_mid_price_cache"):
-            self._mid_price_cache: Dict[str, float] = {}
         self._mid_price_cache[token_id] = mid_price
 
     def describe(self) -> Dict[str, Any]:

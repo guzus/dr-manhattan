@@ -27,6 +27,11 @@ from ..models.orderbook import OrderbookManager
 
 logger = logging.getLogger(__name__)
 
+# Constants
+RECONNECT_DELAY = 3.0
+SHUTDOWN_TIMEOUT = 5.0
+MILLISECOND_THRESHOLD = 1e12  # Timestamps > this are in milliseconds
+
 
 class WalletEventType(Enum):
     ORDER_ACCEPTED = "orderAccepted"
@@ -88,13 +93,51 @@ class PredictFunWebSocket(OrderBookWebSocket):
 
     @property
     def ws_url(self) -> str:
-        if self.api_key:
-            return f"{self.WS_URL}?apiKey={self.api_key}"
         return self.WS_URL
+
+    @property
+    def _ws_headers(self) -> Dict[str, str]:
+        """WebSocket headers (API key via header instead of URL query param)."""
+        if self.api_key:
+            return {"x-api-key": self.api_key}
+        return {}
 
     def _next_request_id(self) -> int:
         self._request_id += 1
         return self._request_id
+
+    def _handle_task_exception(self, task: asyncio.Task) -> None:
+        """Handle exceptions from background tasks to prevent silent failures."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc and self.verbose:
+            logger.warning(f"Background task failed: {exc}")
+
+    async def connect(self):
+        """Connect to WebSocket with API key in header (not URL)."""
+        if self.state == WebSocketState.CONNECTED:
+            return
+
+        self.state = WebSocketState.CONNECTING
+        try:
+            self.ws = await websockets.connect(
+                self.ws_url,
+                ping_interval=self.ping_interval,
+                ping_timeout=self.ping_timeout,
+                close_timeout=self.close_timeout,
+                max_size=10 * 1024 * 1024,
+                compression=None,
+                additional_headers=self._ws_headers,
+            )
+            self.state = WebSocketState.CONNECTED
+            self.reconnect_attempts = 0
+            if self.verbose:
+                logger.debug("WebSocket connected")
+            await self._authenticate()
+        except Exception as e:
+            self.state = WebSocketState.DISCONNECTED
+            raise e
 
     async def _authenticate(self):
         if self.verbose:
@@ -125,7 +168,9 @@ class PredictFunWebSocket(OrderBookWebSocket):
             topic = message.get("topic", "")
             if topic == "heartbeat":
                 self._last_heartbeat_ts = message.get("data", 0)
-                asyncio.create_task(self._send_heartbeat_response())
+                # Use ensure_future with error callback to prevent silent failures
+                task = asyncio.ensure_future(self._send_heartbeat_response())
+                task.add_done_callback(self._handle_task_exception)
                 return None
             if topic.startswith("predictOrderbook/"):
                 return self._parse_orderbook_data(topic, message.get("data", {}))
@@ -211,6 +256,7 @@ class PredictFunWebSocket(OrderBookWebSocket):
                     self.exchange.update_mid_price_from_orderbook(yes_token, yes_ob)
 
             if no_token:
+                # Invert prices for NO token (1 - price)
                 no_bids = [(round(1 - p, 4), s) for p, s in ob["asks"]]
                 no_asks = [(round(1 - p, 4), s) for p, s in ob["bids"]]
                 no_bids.sort(reverse=True)
@@ -227,6 +273,10 @@ class PredictFunWebSocket(OrderBookWebSocket):
 
     def get_orderbook_manager(self) -> OrderbookManager:
         return self.orderbook_manager
+
+    def clear_orderbooks(self) -> None:
+        """Clear all cached orderbooks to free memory."""
+        self.orderbook_manager.orderbooks.clear()
 
 
 class PredictFunUserWebSocket:
@@ -249,12 +299,18 @@ class PredictFunUserWebSocket:
         self._trade_callbacks: List[TradeCallback] = []
         self._event_callbacks: List[Callable[[WalletEvent], None]] = []
         self._last_heartbeat_ts: int = 0
+        self._lock = threading.Lock()
 
     @property
     def ws_url(self) -> str:
-        if self.api_key:
-            return f"{self.WS_URL}?apiKey={self.api_key}"
         return self.WS_URL
+
+    @property
+    def _ws_headers(self) -> Dict[str, str]:
+        """WebSocket headers (API key via header instead of URL query param)."""
+        if self.api_key:
+            return {"x-api-key": self.api_key}
+        return {}
 
     def _next_request_id(self) -> int:
         self._request_id += 1
@@ -269,7 +325,12 @@ class PredictFunUserWebSocket:
         return self
 
     async def _connect(self):
-        self.ws = await websockets.connect(self.ws_url, ping_interval=None, ping_timeout=None)
+        self.ws = await websockets.connect(
+            self.ws_url,
+            ping_interval=None,
+            ping_timeout=None,
+            additional_headers=self._ws_headers,
+        )
         self._connected = True
         topic = f"predictWalletEvents/{self.jwt_token}"
         msg = {"method": "subscribe", "requestId": self._next_request_id(), "params": [topic]}
@@ -292,13 +353,13 @@ class PredictFunUserWebSocket:
             except websockets.exceptions.ConnectionClosed:
                 self._connected = False
                 if self._running:
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(RECONNECT_DELAY)
             except Exception as e:
                 if self.verbose:
                     logger.warning(f"User WebSocket error: {e}")
                 self._connected = False
                 if self._running:
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(RECONNECT_DELAY)
 
     async def _handle_message(self, data: Dict[str, Any]):
         msg_type = data.get("type")
@@ -315,8 +376,9 @@ class PredictFunUserWebSocket:
             return
         try:
             await self.ws.send(json.dumps({"method": "heartbeat", "data": self._last_heartbeat_ts}))
-        except Exception:
-            pass
+        except Exception as e:
+            if self.verbose:
+                logger.warning(f"Heartbeat failed: {e}")
 
     async def _process_wallet_event(self, data: Dict[str, Any]):
         event_type_str = data.get("eventType", "")
@@ -326,7 +388,8 @@ class PredictFunUserWebSocket:
             return
 
         ts = data.get("timestamp", 0)
-        if isinstance(ts, (int, float)) and ts > 1e12:
+        # Convert milliseconds to seconds if needed
+        if isinstance(ts, (int, float)) and ts > MILLISECOND_THRESHOLD:
             ts = ts / 1000
         timestamp = (
             datetime.fromtimestamp(ts, tz=timezone.utc) if ts else datetime.now(timezone.utc)
@@ -343,8 +406,9 @@ class PredictFunUserWebSocket:
         for cb in self._event_callbacks:
             try:
                 cb(event)
-            except Exception:
-                pass
+            except Exception as e:
+                if self.verbose:
+                    logger.warning(f"Event callback error: {e}")
 
         if event_type == WalletEventType.ORDER_TRANSACTION_SUCCESS:
             trade = self._parse_trade(data, timestamp)
@@ -352,8 +416,9 @@ class PredictFunUserWebSocket:
                 for cb in self._trade_callbacks:
                     try:
                         cb(trade)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        if self.verbose:
+                            logger.warning(f"Trade callback error: {e}")
 
     def _parse_trade(self, data: Dict[str, Any], timestamp: datetime) -> Optional[Trade]:
         try:
@@ -371,26 +436,38 @@ class PredictFunUserWebSocket:
                 transaction_hash=data.get("transactionHash", ""),
                 event_type=WalletEventType.ORDER_TRANSACTION_SUCCESS.value,
             )
-        except Exception:
+        except Exception as e:
+            if self.verbose:
+                logger.warning(f"Failed to parse trade: {e}")
             return None
 
     def start(self) -> threading.Thread:
-        if self._running:
+        with self._lock:
+            if self._running:
+                return self._thread
+            self._running = True
+            self._loop = asyncio.new_event_loop()
+
+            def run():
+                asyncio.set_event_loop(self._loop)
+                self._loop.run_until_complete(self._receive_loop())
+
+            self._thread = threading.Thread(target=run, daemon=True)
+            self._thread.start()
             return self._thread
-        self._running = True
-        self._loop = asyncio.new_event_loop()
-
-        def run():
-            asyncio.set_event_loop(self._loop)
-            self._loop.run_until_complete(self._receive_loop())
-
-        self._thread = threading.Thread(target=run, daemon=True)
-        self._thread.start()
-        return self._thread
 
     def stop(self):
         self._running = False
         if self.ws and self._loop:
-            asyncio.run_coroutine_threadsafe(self.ws.close(), self._loop)
+            try:
+                future = asyncio.run_coroutine_threadsafe(self.ws.close(), self._loop)
+                future.result(timeout=SHUTDOWN_TIMEOUT)
+            except Exception:
+                pass
         if self._thread:
-            self._thread.join(timeout=5)
+            self._thread.join(timeout=SHUTDOWN_TIMEOUT)
+        if self._loop:
+            try:
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            except Exception:
+                pass
