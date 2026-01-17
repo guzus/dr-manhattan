@@ -12,17 +12,13 @@
         :root {
             --void: #050508;
             --deep-space: #0a0a10;
-            --nebula: #0d0d15;
             --manhattan-blue: #00b4ff;
             --manhattan-glow: #00d4ff;
-            --quantum-cyan: #00ffff;
-            --atomic-purple: #7b5cff;
             --text-primary: #e8eaed;
             --text-secondary: #8b9098;
             --text-muted: #5a5f6a;
             --code-bg: #0c0c14;
             --border-subtle: rgba(0, 180, 255, 0.15);
-            --glow-intense: 0 0 60px rgba(0, 180, 255, 0.4), 0 0 120px rgba(0, 180, 255, 0.2);
             --glow-soft: 0 0 30px rgba(0, 180, 255, 0.3);
         }
 
@@ -44,34 +40,141 @@
             overflow-x: hidden;
         }
 
-        /* Cosmic Background */
-        .cosmic-bg {
+        /* ========== MARVEL-STYLE INTRO ========== */
+        .marvel-intro {
             position: fixed;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: -1;
-            background:
-                radial-gradient(ellipse at 20% 20%, rgba(0, 180, 255, 0.08) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 80%, rgba(123, 92, 255, 0.05) 0%, transparent 50%),
-                radial-gradient(ellipse at 50% 50%, rgba(0, 212, 255, 0.03) 0%, transparent 70%);
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+            background: #020408;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
         }
 
-        .grid-overlay {
-            position: fixed;
+        .marvel-intro.fade-out {
+            animation: introFadeOut 0.8s ease-out forwards;
+        }
+
+        @keyframes introFadeOut {
+            to {
+                opacity: 0;
+                visibility: hidden;
+            }
+        }
+
+        /* Phase 1: Full-screen flip-book */
+        .flip-book {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            perspective: 1000px;
+            opacity: 0;
+            animation: flipBookFade 1s ease-out forwards;
+        }
+
+        @keyframes flipBookFade {
+            0% { opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        .flip-page {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backface-visibility: hidden;
+            opacity: 0;
+        }
+
+        .flip-page img {
+            width: 50vmin;
+            height: 50vmin;
+            object-fit: contain;
+            filter: brightness(0.9) contrast(1.1);
+        }
+
+        /* Each page flips in sequence - one at a time */
+        .flip-page:nth-child(1) { animation: pageFlipVertical 0.2s ease-in-out 0s forwards; }
+        .flip-page:nth-child(2) { animation: pageFlipVertical 0.2s ease-in-out 0.2s forwards; }
+        .flip-page:nth-child(3) { animation: pageFlipVertical 0.2s ease-in-out 0.4s forwards; }
+        .flip-page:nth-child(4) { animation: pageFlipVertical 0.2s ease-in-out 0.6s forwards; }
+        .flip-page:nth-child(5) { animation: pageFlipVertical 0.2s ease-in-out 0.8s forwards; }
+
+        @keyframes pageFlipVertical {
+            0% {
+                opacity: 0;
+                transform: rotateX(90deg);
+            }
+            10% {
+                opacity: 1;
+                transform: rotateX(0deg);
+            }
+            90% {
+                opacity: 1;
+                transform: rotateX(0deg);
+            }
+            100% {
+                opacity: 0;
+                transform: rotateX(-90deg);
+            }
+        }
+
+        /* Color overlay that shifts */
+        .color-overlay {
+            position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             pointer-events: none;
-            z-index: -1;
-            background-image:
-                linear-gradient(rgba(0, 180, 255, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 180, 255, 0.03) 1px, transparent 1px);
-            background-size: 60px 60px;
-            mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
+            animation: colorShift 1s ease-in-out forwards;
+            mix-blend-mode: multiply;
+        }
+
+        @keyframes colorShift {
+            0% { background: #002244; }
+            25% { background: #003366; }
+            50% { background: #004488; }
+            75% { background: #0055aa; }
+            100% { background: #001133; }
+        }
+
+        /* Logo reveal at end */
+        .logo-reveal {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            opacity: 0;
+            animation: logoAppear 0.5s ease-out 1s forwards;
+        }
+
+        @keyframes logoAppear {
+            0% { opacity: 0; transform: scale(0.9); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .logo-text {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: clamp(3rem, 12vw, 10rem);
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            color: var(--manhattan-glow);
+            text-shadow: 0 0 60px rgba(0, 212, 255, 0.5);
         }
 
         /* Navigation */
@@ -85,7 +188,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: linear-gradient(to bottom, var(--void) 0%, transparent 100%);
+            background: rgba(5, 5, 8, 0.8);
+            backdrop-filter: blur(10px);
         }
 
         .logo {
@@ -95,7 +199,6 @@
             color: var(--manhattan-glow);
             text-decoration: none;
             letter-spacing: -0.02em;
-            text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
         }
 
         .nav-links {
@@ -109,38 +212,26 @@
             text-decoration: none;
             font-size: 0.9rem;
             font-weight: 500;
-            transition: color 0.3s, text-shadow 0.3s;
+            transition: color 0.3s;
         }
 
         .nav-links a:hover {
             color: var(--manhattan-glow);
-            text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
         }
 
-        .github-btn {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.6rem 1.2rem;
-            background: transparent;
-            border: 1px solid var(--border-subtle);
-            border-radius: 6px;
-            color: var(--text-primary);
+        .nav-icon {
+            color: var(--text-secondary);
             text-decoration: none;
-            font-size: 0.85rem;
-            font-weight: 500;
-            transition: all 0.3s;
+            transition: color 0.3s;
         }
 
-        .github-btn:hover {
-            border-color: var(--manhattan-blue);
-            background: rgba(0, 180, 255, 0.1);
-            box-shadow: var(--glow-soft);
+        .nav-icon:hover {
+            color: var(--manhattan-glow);
         }
 
-        .github-btn svg {
-            width: 18px;
-            height: 18px;
+        .nav-icon svg {
+            width: 20px;
+            height: 20px;
         }
 
         /* Hero Section */
@@ -153,6 +244,11 @@
             text-align: center;
             padding: 8rem 2rem 4rem;
             position: relative;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
         }
 
         .hero-badge {
@@ -175,7 +271,6 @@
             height: 6px;
             background: var(--manhattan-glow);
             border-radius: 50%;
-            box-shadow: 0 0 10px var(--manhattan-glow);
             animation: pulse 2s infinite;
         }
 
@@ -195,7 +290,6 @@
 
         .hero h1 .glow {
             color: var(--manhattan-glow);
-            text-shadow: var(--glow-intense);
         }
 
         .hero-tagline {
@@ -231,7 +325,7 @@
             align-items: center;
             gap: 0.5rem;
             padding: 0.9rem 2rem;
-            background: linear-gradient(135deg, var(--manhattan-blue) 0%, var(--atomic-purple) 100%);
+            background: var(--manhattan-blue);
             border: none;
             border-radius: 8px;
             color: white;
@@ -241,12 +335,11 @@
             text-decoration: none;
             cursor: pointer;
             transition: all 0.3s;
-            box-shadow: 0 4px 20px rgba(0, 180, 255, 0.3);
         }
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: var(--glow-intense);
+            box-shadow: var(--glow-soft);
         }
 
         .btn-secondary {
@@ -269,6 +362,11 @@
         .btn-secondary:hover {
             border-color: var(--manhattan-blue);
             background: rgba(0, 180, 255, 0.1);
+        }
+
+        .btn-secondary svg {
+            width: 18px;
+            height: 18px;
         }
 
         /* Exchanges Section */
@@ -310,7 +408,6 @@
             filter: grayscale(0);
             opacity: 1;
             transform: scale(1.1);
-            box-shadow: var(--glow-soft);
         }
 
         /* Code Preview Section */
@@ -345,9 +442,6 @@
             border: 1px solid var(--border-subtle);
             border-radius: 16px;
             overflow: hidden;
-            box-shadow:
-                0 4px 6px rgba(0, 0, 0, 0.3),
-                0 0 60px rgba(0, 180, 255, 0.1);
         }
 
         .code-header {
@@ -389,11 +483,10 @@
         }
 
         .code-block .comment { color: #6b737c; }
-        .code-block .keyword { color: var(--atomic-purple); }
+        .code-block .keyword { color: #7b5cff; }
         .code-block .string { color: #7ec699; }
         .code-block .function { color: var(--manhattan-glow); }
         .code-block .variable { color: var(--text-primary); }
-        .code-block .property { color: #f78c6c; }
         .code-block .number { color: #f78c6c; }
 
         /* Features Section */
@@ -412,32 +505,15 @@
         .feature-card {
             position: relative;
             padding: 2rem;
-            background: linear-gradient(135deg, rgba(13, 13, 21, 0.8) 0%, rgba(10, 10, 16, 0.9) 100%);
+            background: rgba(10, 10, 16, 0.8);
             border: 1px solid var(--border-subtle);
             border-radius: 16px;
             transition: all 0.4s;
         }
 
-        .feature-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--manhattan-blue), transparent);
-            opacity: 0;
-            transition: opacity 0.4s;
-        }
-
         .feature-card:hover {
             border-color: rgba(0, 180, 255, 0.3);
             transform: translateY(-4px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), 0 0 40px rgba(0, 180, 255, 0.1);
-        }
-
-        .feature-card:hover::before {
-            opacity: 1;
         }
 
         .feature-icon {
@@ -557,6 +633,10 @@
                 padding: 6rem 1.5rem 3rem;
             }
 
+            .logo-text {
+                font-size: clamp(2rem, 10vw, 4rem);
+            }
+
             .exchanges-preview {
                 flex-direction: column;
                 gap: 1.5rem;
@@ -588,46 +668,55 @@
     </style>
 </head>
 <body>
-    <div class="cosmic-bg"></div>
-    <div class="grid-overlay"></div>
-
     <nav>
         <a href="#" class="logo">dr-manhattan</a>
         <div class="nav-links">
-            <a href="#features">Features</a>
-            <a href="#code">Examples</a>
-            <a href="#install">Install</a>
-            <a href="https://x.com/drmanhattan_oss" class="github-btn" target="_blank">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                Twitter
-            </a>
-            <a href="https://t.me/dr_manhattan_oss" class="github-btn" target="_blank">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-                Telegram
-            </a>
-            <a href="https://github.com/guzus/dr-manhattan" class="github-btn" target="_blank">
+            <a href="docs.html">Docs</a>
+            <a href="https://github.com/guzus/dr-manhattan" class="nav-icon" target="_blank" title="GitHub">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-                GitHub
             </a>
         </div>
     </nav>
 
-    <section class="hero">
-        <div class="hero-badge">Open Source</div>
-        <h1><span class="glow">dr-manhattan</span></h1>
-        <p class="hero-tagline">CCXT for prediction markets. Simple, scalable, and easy to extend.</p>
-        <div class="hero-actions">
-            <a href="#install" class="btn-primary">Get Started</a>
-            <a href="https://github.com/guzus/dr-manhattan" class="btn-secondary" target="_blank">View on GitHub</a>
+    <!-- Marvel-Style Intro -->
+    <div class="marvel-intro" id="marvelIntro">
+        <!-- Phase 1: Flip-book -->
+        <div class="flip-book">
+            <div class="flip-page"><img src="assets/polymarket.png" alt="Polymarket"></div>
+            <div class="flip-page"><img src="assets/kalshi.jpeg" alt="Kalshi"></div>
+            <div class="flip-page"><img src="assets/opinion.jpg" alt="Opinion"></div>
+            <div class="flip-page"><img src="assets/limitless.jpg" alt="Limitless"></div>
+            <div class="flip-page"><img src="assets/predict_fun.jpg" alt="Predict.fun"></div>
         </div>
 
-        <div class="exchanges-preview">
-            <span>Supported Exchanges</span>
-            <div class="exchange-logos">
-                <img src="assets/polymarket.png" alt="Polymarket" class="exchange-logo">
-                <img src="assets/kalshi.jpeg" alt="Kalshi" class="exchange-logo">
-                <img src="assets/opinion.jpg" alt="Opinion" class="exchange-logo">
-                <img src="assets/limitless.jpg" alt="Limitless" class="exchange-logo">
+        <!-- Color overlay -->
+        <div class="color-overlay"></div>
+
+        <!-- Logo reveal at end -->
+        <div class="logo-reveal">
+            <div class="logo-text">dr-manhattan</div>
+        </div>
+    </div>
+
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-badge">Open Source</div>
+            <h1><span class="glow">dr-manhattan</span></h1>
+            <p class="hero-tagline">CCXT for prediction markets. Simple, scalable, and easy to extend.</p>
+            <div class="hero-actions">
+                <a href="#install" class="btn-primary">Get Started</a>
+                <a href="https://github.com/guzus/dr-manhattan" class="btn-secondary" target="_blank"><svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>View on GitHub</a>
+            </div>
+
+            <div class="exchanges-preview">
+                <span>Supported Exchanges</span>
+                <div class="exchange-logos">
+                    <img src="assets/polymarket.png" alt="Polymarket" class="exchange-logo">
+                    <img src="assets/kalshi.jpeg" alt="Kalshi" class="exchange-logo">
+                    <img src="assets/opinion.jpg" alt="Opinion" class="exchange-logo">
+                    <img src="assets/limitless.jpg" alt="Limitless" class="exchange-logo">
+                    <img src="assets/predict_fun.jpg" alt="Predict.fun" class="exchange-logo">
+                </div>
             </div>
         </div>
     </section>
@@ -744,6 +833,16 @@
     </footer>
 
     <script>
+        // Fade out intro after animation completes
+        setTimeout(() => {
+            const intro = document.getElementById('marvelIntro');
+            intro.classList.add('fade-out');
+            // Remove from DOM after fade
+            setTimeout(() => {
+                intro.style.display = 'none';
+            }, 800);
+        }, 2000);
+
         function copyInstall() {
             const text = 'uv pip install -e git+https://github.com/guzus/dr-manhattan';
             navigator.clipboard.writeText(text);
