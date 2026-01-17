@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Polymarket Slug to Chart - CLI Entry Point
+Slug to Chart - CLI Entry Point
 
 Usage:
     uv run python -m examples.slug_to_chart <slug> [options]
 
 Examples:
     uv run python -m examples.slug_to_chart fed-decision-in-january --top 4
-    uv run python -m examples.slug_to_chart democratic-presidential-nominee-2028 -o chart.png
+    uv run python -m examples.slug_to_chart --exchange limitless will-trump-fire-jerome-powell
+    uv run python -m examples.slug_to_chart --exchange opinion "fed rate"
 """
 
 import argparse
@@ -15,16 +16,37 @@ import sys
 from pathlib import Path
 
 from .chart import generate_chart
-from .fetcher import fetch_event_price_history
+from .fetcher import EXCHANGE_INTERVALS, fetch_event_price_history
+
+
+def parse_slug(slug: str, exchange: str) -> str:
+    """Parse slug from URL based on exchange."""
+    url_patterns = {
+        "polymarket": "polymarket.com",
+        "limitless": "limitless.exchange",
+        "opinion": "opinion.xyz",
+    }
+    pattern = url_patterns.get(exchange, "")
+    if pattern and pattern in slug:
+        slug = slug.split("/")[-1].split("?")[0]
+    return slug
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate Bloomberg-style price chart from Polymarket event",
+        description="Generate Bloomberg-style price chart from prediction market data",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("slug", help="Polymarket event slug or full URL")
+    parser.add_argument("slug", help="Event slug, URL, or search query")
     parser.add_argument("--output", "-o", type=Path, default=None, help="Output image path")
+    parser.add_argument(
+        "--exchange",
+        "-e",
+        type=str,
+        default="polymarket",
+        choices=["polymarket", "limitless", "opinion"],
+        help="Exchange to use (default: polymarket)",
+    )
     parser.add_argument(
         "--interval",
         "-i",
@@ -34,7 +56,11 @@ def main():
         help="Price history interval (default: max)",
     )
     parser.add_argument(
-        "--fidelity", "-f", type=int, default=300, help="Data points (default: 300)"
+        "--fidelity",
+        "-f",
+        type=int,
+        default=300,
+        help="Data points (default: 300, Polymarket only)",
     )
     parser.add_argument("--subtitle", "-s", type=str, default=None, help="Chart subtitle")
     parser.add_argument("--top", "-t", type=int, default=None, help="Top N outcomes by price")
@@ -48,22 +74,26 @@ def main():
 
     args = parser.parse_args()
 
-    # Parse slug from URL if needed
-    slug = args.slug
-    if "polymarket.com" in slug:
-        slug = slug.split("/")[-1].split("?")[0]
+    slug = parse_slug(args.slug, args.exchange)
+    output_path = args.output or Path(f"{slug.replace('/', '_').replace(' ', '_')}.png")
 
-    output_path = args.output or Path(f"{slug.replace('/', '_')}.png")
+    # Validate interval for exchange
+    supported = EXCHANGE_INTERVALS[args.exchange]
+    interval = args.interval if args.interval in supported else supported[-1]
+    if interval != args.interval:
+        print(f"Note: {args.exchange} doesn't support '{args.interval}', using '{interval}'")
 
+    print(f"Exchange: {args.exchange}")
     print(f"Fetching price history for: {slug}")
-    print(f"Interval: {args.interval}, Fidelity: {args.fidelity}")
+    print(f"Interval: {interval}")
     if args.top:
         print(f"Showing top {args.top} outcomes")
 
     try:
         title, price_data = fetch_event_price_history(
             slug,
-            interval=args.interval,
+            exchange_name=args.exchange,
+            interval=interval,
             fidelity=args.fidelity,
             top_n=args.top,
             min_price=args.min_price,
