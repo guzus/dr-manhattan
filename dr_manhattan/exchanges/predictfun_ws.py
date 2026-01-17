@@ -108,11 +108,14 @@ class PredictFunWebSocket(OrderBookWebSocket):
 
     def _handle_task_exception(self, task: asyncio.Task) -> None:
         """Handle exceptions from background tasks to prevent silent failures."""
-        if task.cancelled():
-            return
-        exc = task.exception()
-        if exc and self.verbose:
-            logger.warning(f"Background task failed: {exc}")
+        try:
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc and self.verbose:
+                logger.warning(f"Background task failed: {exc}")
+        except (asyncio.InvalidStateError, asyncio.CancelledError):
+            pass
 
     async def connect(self):
         """Connect to WebSocket with API key in header (not URL)."""
