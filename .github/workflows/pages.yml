@@ -26,10 +26,16 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
+      - name: Copy assets to website folder
+        run: cp -r assets website/assets
+
+      - name: Update asset paths
+        run: sed -i 's|\.\./assets/|assets/|g' website/index.html website/docs.html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: website
 
       - name: Deploy to GitHub Pages
         id: deployment
