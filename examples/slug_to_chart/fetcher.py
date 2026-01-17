@@ -11,8 +11,8 @@ INTERVAL_TYPE = Literal["1m", "1h", "6h", "1d", "1w", "max"]
 
 def fetch_event_price_history(
     slug: str,
-    interval: INTERVAL_TYPE = "1d",
-    fidelity: int = 90,
+    interval: INTERVAL_TYPE = "max",
+    fidelity: int = 300,
     top_n: int | None = None,
 ) -> tuple[str, dict[str, pd.DataFrame]]:
     """

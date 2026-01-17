@@ -53,9 +53,22 @@ def generate_chart(
     ax.yaxis.set_label_position("right")
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x)}%"))
 
-    # X-axis
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
-    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    # X-axis - smart formatting based on data range
+    all_timestamps = pd.concat([df["timestamp"] for df in price_data.values()])
+    date_range = (all_timestamps.max() - all_timestamps.min()).days
+
+    if date_range > 365:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    elif date_range > 90:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
+    elif date_range > 30:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO))
+    else:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, date_range // 7)))
 
     # Grid
     ax.grid(True, axis="y", linestyle="-", linewidth=0.8, color="#e0e0e0", zorder=0)

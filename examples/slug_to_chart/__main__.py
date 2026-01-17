@@ -29,11 +29,13 @@ def main():
         "--interval",
         "-i",
         type=str,
-        default="1d",
+        default="max",
         choices=["1m", "1h", "6h", "1d", "1w", "max"],
-        help="Price history interval (default: 1d)",
+        help="Price history interval (default: max)",
     )
-    parser.add_argument("--fidelity", "-f", type=int, default=90, help="Data points (default: 90)")
+    parser.add_argument(
+        "--fidelity", "-f", type=int, default=300, help="Data points (default: 300)"
+    )
     parser.add_argument("--subtitle", "-s", type=str, default=None, help="Chart subtitle")
     parser.add_argument("--top", "-t", type=int, default=None, help="Top N outcomes by price")
 
