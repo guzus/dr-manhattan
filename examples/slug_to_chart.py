@@ -68,6 +68,15 @@ def fetch_event_price_history(
     outcomes_with_prices: list[tuple[str, float, object, int]] = []
 
     for market in markets:
+        # Fetch token IDs if not present
+        if not market.metadata.get("clobTokenIds"):
+            try:
+                token_ids = exchange.fetch_token_ids(market.id)
+                if token_ids:
+                    market.metadata["clobTokenIds"] = token_ids
+            except Exception:
+                pass
+
         outcomes = market.outcomes
         prices = market.prices
 
