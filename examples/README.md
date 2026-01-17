@@ -18,6 +18,13 @@ OPINION_MULTI_SIG_ADDR=0x...
 
 # Limitless
 LIMITLESS_PRIVATE_KEY=0x...
+
+# Kalshi (get API keys from https://kalshi.com/api)
+KALSHI_API_KEY_ID=your-api-key-id
+KALSHI_PRIVATE_KEY_PEM="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+# Or use a file path instead:
+# KALSHI_PRIVATE_KEY_PATH=/path/to/kalshi-private-key.pem
+KALSHI_DEMO=false
 ```
 
 **2. Run from project root:**
@@ -34,6 +41,7 @@ uv run python examples/spread_strategy.py --exchange polymarket --slug fed-decis
 uv run python examples/list_all_markets.py polymarket
 uv run python examples/list_all_markets.py opinion
 uv run python examples/list_all_markets.py limitless
+uv run python examples/list_all_markets.py kalshi
 uv run python examples/list_all_markets.py polymarket --limit 50 --open-only
 ```
 
@@ -49,7 +57,7 @@ uv run python examples/find_common_markets.py
 
 **Exchange-agnostic BBO market making strategy.**
 
-Works with Polymarket, Opinion, Limitless, or any exchange implementing the standard interface.
+Works with Polymarket, Opinion, Limitless, Kalshi, or any exchange implementing the standard interface.
 
 **Usage:**
 ```bash
@@ -61,12 +69,16 @@ uv run python examples/spread_strategy.py -e polymarket -m 12345
 uv run python examples/spread_strategy.py --exchange opinion --market-id 813
 uv run python examples/spread_strategy.py -e opinion --slug bitcoin
 
+# Kalshi (market ID from URL: kalshi.com/markets/.../MARKET-ID)
+uv run python examples/spread_strategy.py -e kalshi -m "KXNBABLK-26JAN15MEMORL-ORLPBANCHERO5-1"
+uv run python examples/spread_strategy.py -e kalshi -m "KXATPMATCH-26JAN16DAVHUM-HUM" --order-size 1
+
 # Environment variables
 EXCHANGE=polymarket MARKET_SLUG=fed-decision uv run python examples/spread_strategy.py
 ```
 
 **Options:**
-- `--exchange, -e`: Exchange name (polymarket, opinion, limitless)
+- `--exchange, -e`: Exchange name (polymarket, opinion, limitless, kalshi)
 - `--market-id, -m`: Market ID
 - `--slug, -s`: Market slug/keyword for search
 - `--max-position`: Max position per outcome (default: 100)
@@ -87,7 +99,7 @@ uv run python examples/spike_strategy.py -e polymarket -m 12345 --spike-threshol
 ```
 
 **Options:**
-- `--exchange, -e`: Exchange name (polymarket, opinion, limitless)
+- `--exchange, -e`: Exchange name (polymarket, opinion, limitless, kalshi)
 - `--market-id, -m`: Market ID
 - `--slug, -s`: Market slug/keyword for search
 - `--spike-threshold`: Entry threshold (default: 1.5%)

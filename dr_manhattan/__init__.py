@@ -25,6 +25,7 @@ from .base.exchange_factory import create_exchange, list_exchanges
 from .base.order_tracker import OrderEvent, OrderTracker, create_fill_logger
 from .base.strategy import Strategy
 from .cross_exchange import CrossExchangeManager, OutcomeMapping
+from .exchanges.kalshi import Kalshi
 from .exchanges.limitless import Limitless
 from .exchanges.opinion import Opinion
 from .exchanges.polymarket import Polymarket
@@ -61,6 +62,7 @@ __all__ = [
     "Limitless",
     "Opinion",
     "PredictFun",
+    "Kalshi",
     "StrategyState",
     "DeltaInfo",
     "calculate_delta",
@@ -74,6 +76,7 @@ __all__ = [
     "POLYMARKET",
     "OPINION",
     "LIMITLESS",
+    "KALSHI",
 ]
 
 
@@ -82,10 +85,12 @@ POLYMARKET = "polymarket"
 OPINION = "opinion"
 LIMITLESS = "limitless"
 PREDICT_FUN = "predict.fun"
+KALSHI = "kalshi"
 
 exchanges = {
     POLYMARKET: Polymarket,
     LIMITLESS: Limitless,
     OPINION: Opinion,
     PREDICT_FUN: PredictFun,
+    KALSHI: Kalshi,
 }

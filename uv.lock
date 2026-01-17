@@ -866,6 +866,7 @@ version = "0.0.2"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
+    { name = "cryptography" },
     { name = "eth-account" },
     { name = "matplotlib" },
     { name = "opinion-clob-sdk" },
@@ -898,6 +899,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.42.14" },
+    { name = "cryptography", specifier = ">=42.0.0" },
     { name = "eth-account", specifier = ">=0.11.0" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=0.9.0" },

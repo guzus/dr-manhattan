@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Type
 from .exchange import Exchange
 from .exchange_config import (
     ExchangeConfig,
+    KalshiConfig,
     LimitlessConfig,
     OpinionConfig,
     PolymarketConfig,
@@ -29,6 +30,7 @@ def get_exchange_class(name: str) -> Type[Exchange]:
         ValueError: If exchange name is unknown
     """
     # Import here to avoid circular imports
+    from ..exchanges.kalshi import Kalshi
     from ..exchanges.limitless import Limitless
     from ..exchanges.opinion import Opinion
     from ..exchanges.polymarket import Polymarket
@@ -39,6 +41,7 @@ def get_exchange_class(name: str) -> Type[Exchange]:
         "opinion": Opinion,
         "limitless": Limitless,
         "predictfun": PredictFun,
+        "kalshi": Kalshi,
     }
 
     name_lower = name.lower()
@@ -109,6 +112,7 @@ def _get_empty_config(name: str) -> ExchangeConfig:
         "opinion": OpinionConfig,
         "limitless": LimitlessConfig,
         "predictfun": PredictFunConfig,
+        "kalshi": KalshiConfig,
     }
     return configs[name]()
 
@@ -152,6 +156,13 @@ def _load_env_config(name: str) -> ExchangeConfig:
             in ("true", "1", "yes"),
             smart_wallet_address=os.getenv("PREDICTFUN_SMART_WALLET_ADDRESS", ""),
             testnet=os.getenv("PREDICTFUN_TESTNET", "").lower() in ("true", "1", "yes"),
+        )
+    elif name == "kalshi":
+        return KalshiConfig(
+            api_key_id=os.getenv("KALSHI_API_KEY_ID", ""),
+            private_key_path=os.getenv("KALSHI_PRIVATE_KEY_PATH", ""),
+            private_key_pem=os.getenv("KALSHI_PRIVATE_KEY_PEM", ""),
+            demo=os.getenv("KALSHI_DEMO", "").lower() in ("true", "1", "yes"),
         )
     else:
         raise ValueError(f"Unknown exchange: {name}")
@@ -199,6 +210,7 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
         "opinion": ["api_key", "private_key", "multi_sig_addr"],
         "limitless": ["private_key"],
         "predictfun": ["api_key"],
+        "kalshi": ["api_key_id"],
     }
 
     # For predictfun, require different keys based on wallet mode
@@ -207,6 +219,16 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
             required["predictfun"].append("smart_wallet_owner_private_key")
         else:
             required["predictfun"].append("private_key")
+
+    # For kalshi, require either private_key_path or private_key_pem
+    if name == "kalshi":
+        has_path = bool(getattr(config, "private_key_path", ""))
+        has_pem = bool(getattr(config, "private_key_pem", ""))
+        if not has_path and not has_pem:
+            raise ValueError(
+                "Kalshi requires either private_key_path or private_key_pem. "
+                "Set env vars: KALSHI_PRIVATE_KEY_PATH or KALSHI_PRIVATE_KEY_PEM"
+            )
 
     missing = [key for key in required.get(name, []) if not getattr(config, key, None)]
 
@@ -228,4 +250,4 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
 
 def list_exchanges() -> list[str]:
     """Return list of available exchange names."""
-    return ["polymarket", "opinion", "limitless", "predictfun"]
+    return ["polymarket", "opinion", "limitless", "predictfun", "kalshi"]
