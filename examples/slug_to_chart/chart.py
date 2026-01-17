@@ -94,9 +94,20 @@ def generate_chart(
         fig.text(0.08, 0.86, subtitle, fontsize=14, color="#666666", va="top", ha="left")
         legend_y = 0.79
 
-    # Legend with diagonal markers
+    # Legend with diagonal markers (multi-line support)
     legend_x = 0.08
+    legend_x_start = 0.08
+    legend_x_max = 0.92
+    legend_row_height = 0.035
+
     for label, color in zip(labels_list, colors_list):
+        item_width = 0.025 + len(label) * 0.008 + 0.03
+
+        # Wrap to next line if exceeds max width
+        if legend_x + item_width > legend_x_max and legend_x > legend_x_start:
+            legend_x = legend_x_start
+            legend_y -= legend_row_height
+
         line_ax = fig.add_axes([legend_x, legend_y - 0.01, 0.02, 0.025])
         line_ax.plot([0, 1], [0, 1], color=color, linewidth=3, solid_capstyle="round")
         line_ax.set_xlim(0, 1)
@@ -106,7 +117,7 @@ def generate_chart(
         fig.text(
             legend_x + 0.025, legend_y, label, fontsize=12, color="#333333", va="center", ha="left"
         )
-        legend_x += 0.025 + len(label) * 0.008 + 0.03
+        legend_x += item_width
 
     # Footer
     fig.text(0.08, 0.03, "Source: Polymarket", fontsize=11, color="#666666", va="bottom", ha="left")
