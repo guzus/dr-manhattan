@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation | dr-manhattan</title>
+    <link rel="icon" type="image/jpeg" href="../assets/favicon.jpg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --void: #050508;
+            --deep-space: #0a0a10;
+            --nebula: #0d0d15;
+            --manhattan-blue: #00b4ff;
+            --manhattan-glow: #00d4ff;
+            --quantum-cyan: #00ffff;
+            --atomic-purple: #7b5cff;
+            --text-primary: #e8eaed;
+            --text-secondary: #8b9098;
+            --text-muted: #5a5f6a;
+            --code-bg: #0c0c14;
+            --border-subtle: rgba(0, 180, 255, 0.15);
+            --glow-intense: 0 0 60px rgba(0, 180, 255, 0.4), 0 0 120px rgba(0, 180, 255, 0.2);
+            --glow-soft: 0 0 30px rgba(0, 180, 255, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Space Grotesk', -apple-system, sans-serif;
+            background: var(--void);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .cosmic-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+            background:
+                radial-gradient(ellipse at 20% 20%, rgba(0, 180, 255, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, rgba(123, 92, 255, 0.05) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(0, 212, 255, 0.03) 0%, transparent 70%);
+        }
+
+        .grid-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+            background-image:
+                linear-gradient(rgba(0, 180, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 180, 255, 0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+            mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            padding: 1.5rem 3rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(5, 5, 8, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .logo {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--manhattan-glow);
+            text-decoration: none;
+            letter-spacing: -0.02em;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.3s, text-shadow 0.3s;
+        }
+
+        .nav-links a:hover,
+        .nav-links a.active {
+            color: var(--manhattan-glow);
+            text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
+        }
+
+        .github-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            background: transparent;
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .github-btn:hover {
+            border-color: var(--manhattan-blue);
+            background: rgba(0, 180, 255, 0.1);
+            box-shadow: var(--glow-soft);
+        }
+
+        .github-btn svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Main Layout */
+        .docs-layout {
+            display: flex;
+            padding-top: 80px;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            top: 80px;
+            left: 0;
+            width: 280px;
+            height: calc(100vh - 80px);
+            padding: 2rem;
+            background: rgba(10, 10, 16, 0.8);
+            border-right: 1px solid var(--border-subtle);
+            overflow-y: auto;
+        }
+
+        .sidebar-section {
+            margin-bottom: 2rem;
+        }
+
+        .sidebar-section h3 {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.75rem;
+        }
+
+        .sidebar-section a {
+            display: block;
+            padding: 0.5rem 0;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            border-left: 2px solid transparent;
+            padding-left: 1rem;
+            margin-left: -1rem;
+        }
+
+        .sidebar-section a:hover,
+        .sidebar-section a.active {
+            color: var(--manhattan-glow);
+            border-left-color: var(--manhattan-glow);
+        }
+
+        /* Main Content */
+        .docs-content {
+            flex: 1;
+            margin-left: 280px;
+            padding: 3rem 4rem;
+            max-width: 900px;
+        }
+
+        .docs-content h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--manhattan-glow);
+            text-shadow: 0 0 30px rgba(0, 212, 255, 0.3);
+        }
+
+        .docs-content h2 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-top: 3rem;
+            margin-bottom: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .docs-content h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-top: 2rem;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+        }
+
+        .docs-content p {
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            line-height: 1.8;
+        }
+
+        .docs-content ul,
+        .docs-content ol {
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            padding-left: 1.5rem;
+        }
+
+        .docs-content li {
+            margin-bottom: 0.5rem;
+        }
+
+        .docs-content a {
+            color: var(--manhattan-glow);
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .docs-content a:hover {
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+        }
+
+        /* Code Blocks */
+        .code-block {
+            background: var(--code-bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            margin: 1.5rem 0;
+            overflow: hidden;
+        }
+
+        .code-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .code-header .dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .code-header .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .code-header .dot:nth-child(1) { background: #ff5f57; }
+        .code-header .dot:nth-child(2) { background: #ffbd2e; }
+        .code-header .dot:nth-child(3) { background: #28c840; }
+
+        .code-header .filename {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .code-block pre {
+            padding: 1.5rem;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.7;
+        }
+
+        .code-block .comment { color: #6b737c; }
+        .code-block .keyword { color: var(--atomic-purple); }
+        .code-block .string { color: #7ec699; }
+        .code-block .function { color: var(--manhattan-glow); }
+        .code-block .variable { color: var(--text-primary); }
+        .code-block .property { color: #f78c6c; }
+        .code-block .number { color: #f78c6c; }
+
+        /* Inline Code */
+        code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            background: rgba(0, 180, 255, 0.1);
+            padding: 0.2em 0.5em;
+            border-radius: 4px;
+            color: var(--manhattan-glow);
+        }
+
+        /* Cards */
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .card {
+            background: linear-gradient(135deg, rgba(13, 13, 21, 0.8) 0%, rgba(10, 10, 16, 0.9) 100%);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.3s;
+        }
+
+        .card:hover {
+            border-color: rgba(0, 180, 255, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3), 0 0 30px rgba(0, 180, 255, 0.1);
+        }
+
+        .card h4 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .card p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        .card-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 180, 255, 0.1);
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            color: var(--manhattan-glow);
+        }
+
+        .card-icon svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+        }
+
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        th {
+            font-weight: 600;
+            color: var(--text-primary);
+            background: rgba(0, 180, 255, 0.05);
+        }
+
+        td {
+            color: var(--text-secondary);
+        }
+
+        td code {
+            font-size: 0.8rem;
+        }
+
+        /* Callouts */
+        .callout {
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            margin: 1.5rem 0;
+            border-left: 4px solid;
+        }
+
+        .callout-info {
+            background: rgba(0, 180, 255, 0.1);
+            border-color: var(--manhattan-blue);
+        }
+
+        .callout-warning {
+            background: rgba(255, 189, 46, 0.1);
+            border-color: #ffbd2e;
+        }
+
+        .callout p {
+            margin: 0;
+        }
+
+        /* Exchange Logos */
+        .exchange-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .exchange-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+            background: linear-gradient(135deg, rgba(13, 13, 21, 0.8) 0%, rgba(10, 10, 16, 0.9) 100%);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            text-decoration: none;
+            transition: all 0.3s;
+        }
+
+        .exchange-card:hover {
+            border-color: rgba(0, 180, 255, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3), 0 0 30px rgba(0, 180, 255, 0.1);
+        }
+
+        .exchange-card img {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+        }
+
+        .exchange-card span {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        /* Section */
+        section {
+            scroll-margin-top: 100px;
+        }
+
+        /* Footer */
+        footer {
+            margin-left: 280px;
+            padding: 3rem 4rem;
+            border-top: 1px solid var(--border-subtle);
+            text-align: center;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .footer-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.3s;
+        }
+
+        .footer-links a:hover {
+            color: var(--manhattan-glow);
+        }
+
+        .footer-copy {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .sidebar {
+                display: none;
+            }
+            .docs-content,
+            footer {
+                margin-left: 0;
+                padding: 2rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            nav {
+                padding: 1rem 1.5rem;
+            }
+            .nav-links {
+                display: none;
+            }
+            .docs-content h1 {
+                font-size: 2rem;
+            }
+            .code-block pre {
+                font-size: 0.75rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="cosmic-bg"></div>
+    <div class="grid-overlay"></div>
+
+    <nav>
+        <a href="index.html" class="logo">dr-manhattan</a>
+        <div class="nav-links">
+            <a href="index.html">Home</a>
+            <a href="#getting-started">Getting Started</a>
+            <a href="#api">API Reference</a>
+            <a href="#exchanges">Exchanges</a>
+            <a href="https://github.com/guzus/dr-manhattan" class="github-btn" target="_blank">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                GitHub
+            </a>
+        </div>
+    </nav>
+
+    <div class="docs-layout">
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <h3>Getting Started</h3>
+                <a href="#getting-started">Introduction</a>
+                <a href="#installation">Installation</a>
+                <a href="#quick-start">Quick Start</a>
+            </div>
+            <div class="sidebar-section">
+                <h3>API Reference</h3>
+                <a href="#api">Overview</a>
+                <a href="#markets">Markets</a>
+                <a href="#orders">Orders</a>
+                <a href="#positions">Positions</a>
+                <a href="#websockets">WebSockets</a>
+            </div>
+            <div class="sidebar-section">
+                <h3>Exchanges</h3>
+                <a href="#exchanges">Overview</a>
+                <a href="#polymarket">Polymarket</a>
+                <a href="#kalshi">Kalshi</a>
+                <a href="#opinion">Opinion</a>
+                <a href="#limitless">Limitless</a>
+                <a href="#predictfun">Predict.fun</a>
+            </div>
+            <div class="sidebar-section">
+                <h3>Strategies</h3>
+                <a href="#strategy-framework">Strategy Framework</a>
+                <a href="#spread-strategy">Spread Strategy</a>
+                <a href="#spike-strategy">Spike Strategy</a>
+            </div>
+            <div class="sidebar-section">
+                <h3>Advanced</h3>
+                <a href="#architecture">Architecture</a>
+                <a href="#error-handling">Error Handling</a>
+                <a href="#mcp-server">MCP Server</a>
+            </div>
+        </aside>
+
+        <main class="docs-content">
+            <section id="getting-started">
+                <h1>Documentation</h1>
+                <p>dr-manhattan is a CCXT-style unified API for prediction markets. It provides a simple, scalable, and extensible interface to interact with multiple prediction market platforms.</p>
+
+                <div class="card-grid">
+                    <div class="card">
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                        </div>
+                        <h4>Unified Interface</h4>
+                        <p>One API for all prediction markets. Write once, deploy anywhere.</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                        </div>
+                        <h4>Real-time Data</h4>
+                        <p>WebSocket support for live orderbook and trade updates.</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        </div>
+                        <h4>Type Safe</h4>
+                        <p>Full type hints throughout for better IDE support.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="installation">
+                <h2>Installation</h2>
+                <p>Install dr-manhattan using <code>uv</code> (recommended):</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">terminal</span>
+                    </div>
+                    <pre><span class="comment"># Create virtual environment and install</span>
+uv venv
+uv pip install -e .
+
+<span class="comment"># Or install directly from GitHub</span>
+uv pip install -e git+https://github.com/guzus/dr-manhattan</pre>
+                </div>
+
+                <div class="callout callout-info">
+                    <p><strong>Note:</strong> dr-manhattan requires Python 3.11 or higher.</p>
+                </div>
+            </section>
+
+            <section id="quick-start">
+                <h2>Quick Start</h2>
+                <p>Here's a simple example to get you started:</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">example.py</span>
+                    </div>
+                    <pre><span class="keyword">import</span> <span class="variable">dr_manhattan</span>
+
+<span class="comment"># Initialize any exchange</span>
+<span class="variable">polymarket</span> = <span class="variable">dr_manhattan</span>.<span class="function">Polymarket</span>({<span class="string">'timeout'</span>: <span class="number">30</span>})
+<span class="variable">opinion</span> = <span class="variable">dr_manhattan</span>.<span class="function">Opinion</span>({<span class="string">'timeout'</span>: <span class="number">30</span>})
+<span class="variable">limitless</span> = <span class="variable">dr_manhattan</span>.<span class="function">Limitless</span>({<span class="string">'timeout'</span>: <span class="number">30</span>})
+<span class="variable">predictfun</span> = <span class="variable">dr_manhattan</span>.<span class="function">PredictFun</span>({<span class="string">'timeout'</span>: <span class="number">30</span>})
+
+<span class="comment"># Fetch markets</span>
+<span class="variable">markets</span> = <span class="variable">polymarket</span>.<span class="function">fetch_markets</span>()
+
+<span class="keyword">for</span> <span class="variable">market</span> <span class="keyword">in</span> <span class="variable">markets</span>:
+    <span class="function">print</span>(<span class="string">f"</span><span class="variable">{market.question}</span><span class="string">: </span><span class="variable">{market.prices}</span><span class="string">"</span>)</pre>
+                </div>
+            </section>
+
+            <section id="api">
+                <h2>API Reference</h2>
+                <p>All exchanges implement the same base interface, making it easy to switch between platforms or build cross-exchange applications.</p>
+
+                <h3>Exchange Factory</h3>
+                <p>Use the exchange factory to dynamically create exchange instances:</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">factory.py</span>
+                    </div>
+                    <pre><span class="keyword">from</span> <span class="variable">dr_manhattan</span> <span class="keyword">import</span> <span class="function">create_exchange</span>, <span class="function">list_exchanges</span>
+
+<span class="comment"># List available exchanges</span>
+<span class="function">print</span>(<span class="function">list_exchanges</span>())
+<span class="comment"># ['polymarket', 'kalshi', 'limitless', 'opinion', 'predictfun']</span>
+
+<span class="comment"># Create exchange by name</span>
+<span class="variable">exchange</span> = <span class="function">create_exchange</span>(<span class="string">'polymarket'</span>, {<span class="string">'timeout'</span>: <span class="number">30</span>})</pre>
+                </div>
+            </section>
+
+            <section id="markets">
+                <h3>Markets</h3>
+                <p>Fetch and query prediction markets:</p>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>fetch_markets()</code></td>
+                            <td>Fetch all available markets</td>
+                        </tr>
+                        <tr>
+                            <td><code>fetch_market(market_id)</code></td>
+                            <td>Fetch a specific market by ID</td>
+                        </tr>
+                        <tr>
+                            <td><code>fetch_orderbook(market_id)</code></td>
+                            <td>Get the orderbook for a market</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h4>Market Model</h4>
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">models/market.py</span>
+                    </div>
+                    <pre><span class="keyword">class</span> <span class="function">Market</span>:
+    <span class="variable">id</span>: <span class="variable">str</span>              <span class="comment"># Unique market identifier</span>
+    <span class="variable">question</span>: <span class="variable">str</span>        <span class="comment"># Market question</span>
+    <span class="variable">outcomes</span>: <span class="variable">list</span>       <span class="comment"># Available outcomes (e.g., ["Yes", "No"])</span>
+    <span class="variable">prices</span>: <span class="variable">dict</span>         <span class="comment"># Current prices for each outcome</span>
+    <span class="variable">volume</span>: <span class="variable">float</span>        <span class="comment"># Total trading volume</span>
+    <span class="variable">close_time</span>: <span class="variable">datetime</span> <span class="comment"># When the market closes</span>
+    <span class="variable">status</span>: <span class="variable">str</span>          <span class="comment"># Market status (open, closed, resolved)</span></pre>
+                </div>
+            </section>
+
+            <section id="orders">
+                <h3>Orders</h3>
+                <p>Create and manage orders:</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">trading.py</span>
+                    </div>
+                    <pre><span class="keyword">import</span> <span class="variable">dr_manhattan</span>
+
+<span class="comment"># Initialize with authentication</span>
+<span class="variable">polymarket</span> = <span class="variable">dr_manhattan</span>.<span class="function">Polymarket</span>({
+    <span class="string">'private_key'</span>: <span class="string">'your_private_key'</span>,
+    <span class="string">'funder'</span>: <span class="string">'your_funder_address'</span>,
+})
+
+<span class="comment"># Create a buy order</span>
+<span class="variable">order</span> = <span class="variable">polymarket</span>.<span class="function">create_order</span>(
+    <span class="variable">market_id</span>=<span class="string">"market_123"</span>,
+    <span class="variable">outcome</span>=<span class="string">"Yes"</span>,
+    <span class="variable">side</span>=<span class="variable">dr_manhattan</span>.<span class="variable">OrderSide</span>.<span class="property">BUY</span>,
+    <span class="variable">price</span>=<span class="number">0.65</span>,
+    <span class="variable">size</span>=<span class="number">100</span>,
+    <span class="variable">params</span>={<span class="string">'token_id'</span>: <span class="string">'token_id'</span>}
+)
+
+<span class="comment"># Cancel an order</span>
+<span class="variable">polymarket</span>.<span class="function">cancel_order</span>(<span class="variable">order</span>.<span class="variable">id</span>)</pre>
+                </div>
+            </section>
+
+            <section id="positions">
+                <h3>Positions</h3>
+                <p>Track your positions and balances:</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">positions.py</span>
+                    </div>
+                    <pre><span class="comment"># Fetch balance</span>
+<span class="variable">balance</span> = <span class="variable">polymarket</span>.<span class="function">fetch_balance</span>()
+<span class="function">print</span>(<span class="string">f"USDC: </span><span class="variable">{balance['USDC']}</span><span class="string">"</span>)
+
+<span class="comment"># Fetch positions</span>
+<span class="variable">positions</span> = <span class="variable">polymarket</span>.<span class="function">fetch_positions</span>()
+<span class="keyword">for</span> <span class="variable">pos</span> <span class="keyword">in</span> <span class="variable">positions</span>:
+    <span class="function">print</span>(<span class="string">f"</span><span class="variable">{pos.market_id}</span><span class="string">: </span><span class="variable">{pos.size}</span><span class="string"> @ </span><span class="variable">{pos.avg_price}</span><span class="string">"</span>)</pre>
+                </div>
+            </section>
+
+            <section id="websockets">
+                <h3>WebSockets</h3>
+                <p>Subscribe to real-time market data:</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">websocket.py</span>
+                    </div>
+                    <pre><span class="keyword">import</span> <span class="variable">asyncio</span>
+<span class="keyword">from</span> <span class="variable">dr_manhattan</span> <span class="keyword">import</span> <span class="function">PolymarketWS</span>
+
+<span class="keyword">async</span> <span class="keyword">def</span> <span class="function">main</span>():
+    <span class="variable">ws</span> = <span class="function">PolymarketWS</span>()
+
+    <span class="keyword">async</span> <span class="keyword">def</span> <span class="function">on_orderbook</span>(<span class="variable">data</span>):
+        <span class="function">print</span>(<span class="string">f"Orderbook update: </span><span class="variable">{data}</span><span class="string">"</span>)
+
+    <span class="keyword">await</span> <span class="variable">ws</span>.<span class="function">subscribe_orderbook</span>(<span class="string">"market_id"</span>, <span class="variable">on_orderbook</span>)
+    <span class="keyword">await</span> <span class="variable">ws</span>.<span class="function">run</span>()
+
+<span class="variable">asyncio</span>.<span class="function">run</span>(<span class="function">main</span>())</pre>
+                </div>
+            </section>
+
+            <section id="exchanges">
+                <h2>Supported Exchanges</h2>
+                <p>dr-manhattan supports the following prediction market exchanges:</p>
+
+                <div class="exchange-grid">
+                    <a href="#polymarket" class="exchange-card">
+                        <img src="../assets/polymarket.png" alt="Polymarket">
+                        <span>Polymarket</span>
+                    </a>
+                    <a href="#kalshi" class="exchange-card">
+                        <img src="../assets/kalshi.jpeg" alt="Kalshi">
+                        <span>Kalshi</span>
+                    </a>
+                    <a href="#opinion" class="exchange-card">
+                        <img src="../assets/opinion.jpg" alt="Opinion">
+                        <span>Opinion</span>
+                    </a>
+                    <a href="#limitless" class="exchange-card">
+                        <img src="../assets/limitless.jpg" alt="Limitless">
+                        <span>Limitless</span>
+                    </a>
+                    <a href="#predictfun" class="exchange-card">
+                        <img src="../assets/predict_fun.jpg" alt="Predict.fun">
+                        <span>Predict.fun</span>
+                    </a>
+                </div>
+            </section>
+
+            <section id="polymarket">
+                <h3>Polymarket</h3>
+                <p>Polymarket is the leading prediction market on Polygon. It uses USDC for trading and requires a wallet for authentication.</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">polymarket_example.py</span>
+                    </div>
+                    <pre><span class="keyword">import</span> <span class="variable">dr_manhattan</span>
+
+<span class="variable">polymarket</span> = <span class="variable">dr_manhattan</span>.<span class="function">Polymarket</span>({
+    <span class="string">'private_key'</span>: <span class="string">'your_private_key'</span>,
+    <span class="string">'funder'</span>: <span class="string">'your_funder_address'</span>,
+})
+
+<span class="comment"># Fetch active markets</span>
+<span class="variable">markets</span> = <span class="variable">polymarket</span>.<span class="function">fetch_markets</span>()</pre>
+                </div>
+            </section>
+
+            <section id="kalshi">
+                <h3>Kalshi</h3>
+                <p>Kalshi is a US-regulated prediction market exchange. It uses RSA-PSS authentication.</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">kalshi_example.py</span>
+                    </div>
+                    <pre><span class="keyword">import</span> <span class="variable">dr_manhattan</span>
+
+<span class="variable">kalshi</span> = <span class="variable">dr_manhattan</span>.<span class="function">Kalshi</span>({
+    <span class="string">'api_key'</span>: <span class="string">'your_api_key'</span>,
+    <span class="string">'private_key_path'</span>: <span class="string">'/path/to/private_key.pem'</span>,
+})</pre>
+                </div>
+            </section>
+
+            <section id="opinion">
+                <h3>Opinion</h3>
+                <p>Opinion is a prediction market on BNB Chain.</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">opinion_example.py</span>
+                    </div>
+                    <pre><span class="keyword">import</span> <span class="variable">dr_manhattan</span>
+
+<span class="variable">opinion</span> = <span class="variable">dr_manhattan</span>.<span class="function">Opinion</span>({
+    <span class="string">'api_key'</span>: <span class="string">'your_api_key'</span>,
+    <span class="string">'private_key'</span>: <span class="string">'your_private_key'</span>,
+    <span class="string">'multi_sig_addr'</span>: <span class="string">'your_multi_sig_addr'</span>
+})</pre>
+                </div>
+            </section>
+
+            <section id="limitless">
+                <h3>Limitless</h3>
+                <p>Limitless is a prediction market platform with WebSocket support.</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">limitless_example.py</span>
+                    </div>
+                    <pre><span class="keyword">import</span> <span class="variable">dr_manhattan</span>
+
+<span class="variable">limitless</span> = <span class="variable">dr_manhattan</span>.<span class="function">Limitless</span>({
+    <span class="string">'private_key'</span>: <span class="string">'your_private_key'</span>,
+    <span class="string">'timeout'</span>: <span class="number">30</span>
+})</pre>
+                </div>
+            </section>
+
+            <section id="predictfun">
+                <h3>Predict.fun</h3>
+                <p>Predict.fun is a prediction market on BNB Chain with smart wallet support.</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">predictfun_example.py</span>
+                    </div>
+                    <pre><span class="keyword">import</span> <span class="variable">dr_manhattan</span>
+
+<span class="variable">predictfun</span> = <span class="variable">dr_manhattan</span>.<span class="function">PredictFun</span>({
+    <span class="string">'api_key'</span>: <span class="string">'your_api_key'</span>,
+    <span class="string">'private_key'</span>: <span class="string">'your_private_key'</span>,
+    <span class="string">'use_smart_wallet'</span>: <span class="keyword">True</span>,
+    <span class="string">'smart_wallet_owner_private_key'</span>: <span class="string">'your_owner_private_key'</span>,
+    <span class="string">'smart_wallet_address'</span>: <span class="string">'your_smart_wallet_address'</span>
+})</pre>
+                </div>
+            </section>
+
+            <section id="strategy-framework">
+                <h2>Strategy Framework</h2>
+                <p>dr-manhattan provides a base class for building trading strategies with order tracking, position management, and event logging.</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">my_strategy.py</span>
+                    </div>
+                    <pre><span class="keyword">from</span> <span class="variable">dr_manhattan</span> <span class="keyword">import</span> <span class="function">Strategy</span>
+
+<span class="keyword">class</span> <span class="function">MyStrategy</span>(<span class="function">Strategy</span>):
+    <span class="keyword">def</span> <span class="function">on_tick</span>(<span class="variable">self</span>):
+        <span class="variable">self</span>.<span class="function">log_status</span>()
+        <span class="variable">self</span>.<span class="function">place_bbo_orders</span>()
+
+<span class="comment"># Run the strategy</span>
+<span class="variable">strategy</span> = <span class="function">MyStrategy</span>(<span class="variable">exchange</span>, <span class="variable">market_id</span>=<span class="string">"123"</span>)
+<span class="variable">strategy</span>.<span class="function">run</span>()</pre>
+                </div>
+            </section>
+
+            <section id="spread-strategy">
+                <h3>Spread Strategy</h3>
+                <p>The spread strategy implements BBO (Best Bid/Offer) market making. It places orders at the best bid and ask prices with a configurable spread.</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">terminal</span>
+                    </div>
+                    <pre>uv run python examples/spread_strategy.py --exchange polymarket --slug fed-decision
+uv run python examples/spread_strategy.py --exchange opinion --market-id 813</pre>
+                </div>
+            </section>
+
+            <section id="spike-strategy">
+                <h3>Spike Strategy</h3>
+                <p>The spike strategy implements mean reversion trading. It detects price spikes and places counter-trend orders.</p>
+            </section>
+
+            <section id="architecture">
+                <h2>Architecture</h2>
+                <p>dr-manhattan follows a clean, modular architecture:</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">structure</span>
+                    </div>
+                    <pre>dr_manhattan/
+├── base/               <span class="comment"># Core abstractions</span>
+│   ├── exchange.py     <span class="comment"># Abstract base class for exchanges</span>
+│   ├── exchange_client.py  <span class="comment"># High-level trading client</span>
+│   ├── exchange_factory.py <span class="comment"># Exchange instantiation</span>
+│   ├── strategy.py     <span class="comment"># Strategy base class</span>
+│   ├── order_tracker.py    <span class="comment"># Order event tracking</span>
+│   ├── websocket.py    <span class="comment"># WebSocket base class</span>
+│   └── errors.py       <span class="comment"># Exception hierarchy</span>
+├── exchanges/          <span class="comment"># Exchange implementations</span>
+│   ├── polymarket.py
+│   ├── polymarket_ws.py
+│   ├── kalshi.py
+│   ├── opinion.py
+│   ├── limitless.py
+│   ├── limitless_ws.py
+│   ├── predictfun.py
+│   └── predictfun_ws.py
+├── models/             <span class="comment"># Data models</span>
+│   ├── market.py
+│   ├── order.py
+│   ├── orderbook.py
+│   └── position.py
+├── strategies/         <span class="comment"># Strategy implementations</span>
+└── utils/              <span class="comment"># Utilities</span></pre>
+                </div>
+
+                <h3>Design Principles</h3>
+                <ul>
+                    <li><strong>Unified Interface:</strong> All exchanges implement the same <code>Exchange</code> base class</li>
+                    <li><strong>Scalability:</strong> Adding new exchanges is straightforward - just implement the abstract methods</li>
+                    <li><strong>Simplicity:</strong> Clean abstractions with minimal dependencies</li>
+                    <li><strong>Type Safety:</strong> Full type hints throughout the codebase</li>
+                </ul>
+            </section>
+
+            <section id="error-handling">
+                <h3>Error Handling</h3>
+                <p>All errors inherit from <code>DrManhattanError</code>:</p>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Error</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>ExchangeError</code></td>
+                            <td>Exchange-specific errors</td>
+                        </tr>
+                        <tr>
+                            <td><code>NetworkError</code></td>
+                            <td>Connectivity issues</td>
+                        </tr>
+                        <tr>
+                            <td><code>RateLimitError</code></td>
+                            <td>Rate limit exceeded</td>
+                        </tr>
+                        <tr>
+                            <td><code>AuthenticationError</code></td>
+                            <td>Auth failures</td>
+                        </tr>
+                        <tr>
+                            <td><code>InsufficientFunds</code></td>
+                            <td>Not enough balance</td>
+                        </tr>
+                        <tr>
+                            <td><code>InvalidOrder</code></td>
+                            <td>Invalid order parameters</td>
+                        </tr>
+                        <tr>
+                            <td><code>MarketNotFound</code></td>
+                            <td>Market doesn't exist</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="mcp-server">
+                <h3>MCP Server</h3>
+                <p>Trade prediction markets directly from Claude using the Model Context Protocol (MCP).</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">terminal</span>
+                    </div>
+                    <pre><span class="comment"># Install with MCP dependencies</span>
+uv sync --extra mcp
+
+<span class="comment"># Configure credentials</span>
+cp .env.example .env
+<span class="comment"># Edit .env with your POLYMARKET_PRIVATE_KEY and POLYMARKET_FUNDER</span></pre>
+                </div>
+
+                <p>Add to your Claude Code settings (<code>~/.claude/settings.json</code> or project <code>.mcp.json</code>):</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                        <span class="filename">settings.json</span>
+                    </div>
+                    <pre>{
+  <span class="string">"mcpServers"</span>: {
+    <span class="string">"dr-manhattan"</span>: {
+      <span class="string">"command"</span>: <span class="string">"/path/to/dr-manhattan/.venv/bin/python"</span>,
+      <span class="string">"args"</span>: [<span class="string">"-m"</span>, <span class="string">"dr_manhattan.mcp.server"</span>],
+      <span class="string">"cwd"</span>: <span class="string">"/path/to/dr-manhattan"</span>
+    }
+  }
+}</pre>
+                </div>
+
+                <p>After restarting, you can:</p>
+                <ul>
+                    <li>"Show my Polymarket balance"</li>
+                    <li>"Find active prediction markets"</li>
+                    <li>"Buy 10 USDC of Yes on market X at 0.55"</li>
+                </ul>
+            </section>
+        </main>
+    </div>
+
+    <footer>
+        <div class="footer-links">
+            <a href="https://github.com/guzus/dr-manhattan" target="_blank">GitHub</a>
+            <a href="https://x.com/drmanhattan_oss" target="_blank">Twitter</a>
+            <a href="https://t.me/dr_manhattan_oss" target="_blank">Telegram</a>
+            <a href="https://github.com/guzus/dr-manhattan/issues" target="_blank">Issues</a>
+        </div>
+        <p class="footer-copy">MIT License. Built for the prediction market community.</p>
+    </footer>
+
+    <script>
+        // Highlight active sidebar link based on scroll position
+        const sections = document.querySelectorAll('section[id]');
+        const sidebarLinks = document.querySelectorAll('.sidebar-section a');
+
+        function highlightActiveSection() {
+            let current = '';
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop;
+                if (scrollY >= sectionTop - 150) {
+                    current = section.getAttribute('id');
+                }
+            });
+
+            sidebarLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === '#' + current) {
+                    link.classList.add('active');
+                }
+            });
+        }
+
+        window.addEventListener('scroll', highlightActiveSection);
+        highlightActiveSection();
+    </script>
+</body>
+</html>
