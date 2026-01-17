@@ -30,6 +30,7 @@ from ..base.exchange import Exchange
 from ..models.market import Market
 from ..models.order import Order, OrderSide, OrderStatus
 from ..models.position import Position
+from .predictfun_ws import PredictFunUserWebSocket, PredictFunWebSocket
 
 __all__ = ["PredictFun"]
 
@@ -181,6 +182,10 @@ class PredictFun(Exchange):
 
         # Track if approvals have been checked this session
         self._approvals_checked = False
+
+        # WebSocket instances
+        self._websocket: Optional[PredictFunWebSocket] = None
+        self._user_websocket: Optional[PredictFunUserWebSocket] = None
 
         # Initialize account if private key provided (skip in smart wallet mode)
         if self.private_key and not self.use_smart_wallet:
@@ -1520,6 +1525,46 @@ class PredictFun(Exchange):
         """Get the wallet address."""
         return self._address
 
+    def get_websocket(self) -> PredictFunWebSocket:
+        """Get WebSocket for real-time orderbook updates."""
+        if self._websocket is None:
+            self._websocket = PredictFunWebSocket(
+                config={"api_key": self.api_key, "verbose": self.verbose},
+                exchange=self,
+            )
+        return self._websocket
+
+    def get_user_websocket(self) -> PredictFunUserWebSocket:
+        """Get User WebSocket for wallet event notifications."""
+        self._ensure_authenticated()
+        if self._user_websocket is None:
+            self._user_websocket = PredictFunUserWebSocket(
+                jwt_token=self._jwt_token,
+                api_key=self.api_key,
+                verbose=self.verbose,
+            )
+        return self._user_websocket
+
+    def update_mid_price_from_orderbook(self, token_id: str, orderbook: Dict[str, Any]) -> None:
+        """Update mid-price cache from orderbook data."""
+        bids = orderbook.get("bids", [])
+        asks = orderbook.get("asks", [])
+        if not bids and not asks:
+            return
+        best_bid = bids[0][0] if bids else 0
+        best_ask = asks[0][0] if asks else 0
+        if best_bid and best_ask:
+            mid_price = (best_bid + best_ask) / 2
+        elif best_bid:
+            mid_price = best_bid
+        elif best_ask:
+            mid_price = best_ask
+        else:
+            return
+        if not hasattr(self, "_mid_price_cache"):
+            self._mid_price_cache: Dict[str, float] = {}
+        self._mid_price_cache[token_id] = mid_price
+
     def describe(self) -> Dict[str, Any]:
         """Return exchange metadata and capabilities."""
         return {
@@ -1539,7 +1584,7 @@ class PredictFun(Exchange):
                 "fetch_balance": True,
                 "get_orderbook": True,
                 "fetch_token_ids": True,
-                "websocket": False,
+                "websocket": True,
             },
             "notes": {
                 "smart_wallet": (
