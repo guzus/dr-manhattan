@@ -235,13 +235,9 @@ class MessageBuilder:
         self._parts.append(italic(text))
         return self
 
-    def field(self, key: str, value: Any, inline: bool = False) -> "MessageBuilder":
+    def field(self, key: str, value: Any) -> "MessageBuilder":
         """Add a key-value field"""
-        separator = ": " if inline else "\n"
-        if not inline:
-            self._parts.append(f"{bold(key)}: {code(str(value))}")
-        else:
-            self._parts.append(f"{bold(key)}: {code(str(value))}")
+        self._parts.append(f"{bold(key)}: {code(str(value))}")
         return self
 
     def fields(self, data: Dict[str, Any]) -> "MessageBuilder":

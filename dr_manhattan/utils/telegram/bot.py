@@ -6,13 +6,12 @@ A generic, type-safe Telegram bot client for sending messages and notifications.
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import requests
 
 from .types import (
     InlineKeyboardMarkup,
-    Message,
     MessageOptions,
     ParseMode,
     ReplyMarkup,
