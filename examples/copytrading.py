@@ -26,6 +26,7 @@ from dr_manhattan.models import Market
 from dr_manhattan.models.order import OrderSide
 from dr_manhattan.utils import TelegramBot, setup_logger
 from dr_manhattan.utils.logger import Colors
+from dr_manhattan.utils.telegram import MessageBuilder, bold, code
 
 logger = setup_logger(__name__)
 
@@ -159,16 +160,58 @@ class CopytradingBot:
 
         return None
 
+    def _notify_trade(
+        self,
+        side: str,
+        size: float,
+        outcome: str,
+        price: float,
+        market: str,
+        is_copy: bool,
+    ) -> None:
+        """Send trade notification via Telegram"""
+        if not self.telegram:
+            return
+
+        emoji = "🟢" if side.upper() == "BUY" else "🔴"
+        action = "Copied" if is_copy else "Detected"
+
+        msg = (
+            MessageBuilder()
+            .title(f"{emoji} Trade {action}")
+            .newline()
+            .field("Side", side.upper())
+            .newline()
+            .field("Size", f"{size:.2f}")
+            .newline()
+            .field("Outcome", outcome)
+            .newline()
+            .field("Price", f"{price:.4f}")
+        )
+
+        if market:
+            msg.newline().field("Market", market)
+
+        self.telegram.send(msg.build())
+
+    def _notify_error(self, error: str, context: str = "") -> None:
+        """Send error notification via Telegram"""
+        if not self.telegram:
+            return
+
+        msg = MessageBuilder().title("⚠️ Error").newline().raw(code(error))
+
+        if context:
+            msg.newline().field("Context", context)
+
+        self.telegram.send(msg.build())
+
     def _execute_copy_trade(self, trade: PublicTrade) -> bool:
         """Execute a copy of the target's trade"""
         market = self._get_market(trade)
         if not market:
             logger.error(f"Cannot find market for trade: {trade.condition_id}")
-            if self.telegram:
-                self.telegram.send_error(
-                    f"Cannot find market: {trade.condition_id}",
-                    context="execute_copy_trade",
-                )
+            self._notify_error(f"Cannot find market: {trade.condition_id}", "execute_copy_trade")
             return False
 
         outcome = trade.outcome
@@ -209,22 +252,20 @@ class CopytradingBot:
                 f"[{Colors.gray(order.id[:8] + '...')}]"
             )
 
-            if self.telegram:
-                self.telegram.send_trade_notification(
-                    side=side.value,
-                    size=size,
-                    outcome=outcome,
-                    price=price,
-                    market=trade.slug or trade.event_slug or "",
-                    is_copy=True,
-                )
+            self._notify_trade(
+                side=side.value,
+                size=size,
+                outcome=outcome,
+                price=price,
+                market=trade.slug or trade.event_slug or "",
+                is_copy=True,
+            )
 
             return True
 
         except Exception as e:
             logger.error(f"Failed to execute copy trade: {e}")
-            if self.telegram:
-                self.telegram.send_error(str(e), context="execute_copy_trade")
+            self._notify_error(str(e), "execute_copy_trade")
             return False
 
     def _poll_trades(self) -> List[PublicTrade]:
@@ -246,7 +287,7 @@ class CopytradingBot:
             logger.warning(f"Failed to fetch trades: {e}")
             return []
 
-    def _process_trades(self, trades: List[PublicTrade]):
+    def _process_trades(self, trades: List[PublicTrade]) -> None:
         """Process new trades from target wallet"""
         for trade in trades:
             self.stats.trades_detected += 1
@@ -265,15 +306,14 @@ class CopytradingBot:
                 f"@ {Colors.yellow(f'{trade.price:.4f}')} [{Colors.gray(trade.slug or '')}]"
             )
 
-            if self.telegram:
-                self.telegram.send_trade_notification(
-                    side=side_str,
-                    size=trade.size,
-                    outcome=outcome_str,
-                    price=trade.price,
-                    market=trade.slug or trade.event_slug or "",
-                    is_copy=False,
-                )
+            self._notify_trade(
+                side=side_str,
+                size=trade.size,
+                outcome=outcome_str,
+                price=trade.price,
+                market=trade.slug or trade.event_slug or "",
+                is_copy=False,
+            )
 
             if self._execute_copy_trade(trade):
                 self.copied_trades.add(trade_id)
@@ -287,7 +327,7 @@ class CopytradingBot:
         elapsed = (datetime.now(timezone.utc) - self.stats.start_time).total_seconds()
         return f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
 
-    def log_status(self):
+    def log_status(self) -> None:
         """Log current status"""
         uptime_str = self._get_uptime_str()
 
@@ -302,7 +342,7 @@ class CopytradingBot:
             f"Uptime: {Colors.gray(uptime_str)}"
         )
 
-    def run(self, duration_minutes: Optional[int] = None):
+    def run(self, duration_minutes: Optional[int] = None) -> None:
         """Run the copytrading bot"""
         logger.info(f"\n{Colors.bold('Copytrading Bot Started')}")
         logger.info(f"Target: {Colors.cyan(self.target_wallet)}")
@@ -329,11 +369,19 @@ class CopytradingBot:
             logger.warning(f"Failed to fetch balance: {e}")
 
         if self.telegram:
-            self.telegram.send_startup(
-                target_wallet=self.target_wallet,
-                scale_factor=self.scale_factor,
-                balance=usdc,
+            wallet_short = f"{self.target_wallet[:8]}...{self.target_wallet[-6:]}"
+            msg = (
+                MessageBuilder()
+                .title("🚀 Copytrading Bot Started")
+                .newline()
+                .field("Target", wallet_short)
+                .newline()
+                .field("Scale", f"{self.scale_factor}x")
+                .newline()
+                .field("Balance", f"${usdc:,.2f}")
+                .build()
             )
+            self.telegram.send(msg)
 
         logger.info(f"\n{Colors.gray('Waiting for trades...')}")
 
@@ -361,7 +409,7 @@ class CopytradingBot:
             self.is_running = False
             self._log_summary()
 
-    def _log_summary(self):
+    def _log_summary(self) -> None:
         """Log final summary"""
         duration_str = self._get_uptime_str()
 
@@ -374,14 +422,22 @@ class CopytradingBot:
         logger.info(f"Total Volume: {Colors.yellow(f'${self.stats.total_volume:.2f}')}")
 
         if self.telegram:
-            self.telegram.send_shutdown({
-                "copied": self.stats.trades_copied,
-                "failed": self.stats.trades_failed,
-                "volume": self.stats.total_volume,
-                "duration": duration_str,
-            })
+            msg = (
+                MessageBuilder()
+                .title("🛑 Copytrading Bot Stopped")
+                .newline()
+                .field("Trades Copied", str(self.stats.trades_copied))
+                .newline()
+                .field("Trades Failed", str(self.stats.trades_failed))
+                .newline()
+                .field("Total Volume", f"${self.stats.total_volume:.2f}")
+                .newline()
+                .field("Duration", duration_str)
+                .build()
+            )
+            self.telegram.send(msg)
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the bot"""
         self.is_running = False
 
