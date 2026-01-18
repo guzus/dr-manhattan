@@ -500,9 +500,9 @@ class Kalshi(Exchange):
 
         # Map time_in_force to Kalshi API values
         tif_map = {
-            OrderTimeInForce.GTC: "gtc",
-            OrderTimeInForce.FOK: "fok",
-            OrderTimeInForce.IOC: "ioc",
+            OrderTimeInForce.GTC: "good_till_canceled",
+            OrderTimeInForce.FOK: "fill_or_kill",
+            OrderTimeInForce.IOC: "immediate_or_cancel",
         }
 
         body: Dict[str, Any] = {
@@ -511,7 +511,7 @@ class Kalshi(Exchange):
             "side": outcome_lower,
             "type": "limit",
             "count": int(size),
-            "time_in_force": tif_map.get(time_in_force, "gtc"),
+            "time_in_force": tif_map.get(time_in_force, "good_till_canceled"),
         }
 
         if outcome_lower == "yes":

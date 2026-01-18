@@ -46,11 +46,11 @@ Kalshi is the first CFTC-regulated prediction market exchange in the United Stat
 
 Kalshi supports three time-in-force options:
 
-| Type | Description |
-|------|-------------|
-| GTC | Good-Til-Cancelled - remains active until filled or cancelled |
-| FOK | Fill-Or-Kill - must be completely filled immediately or cancelled |
-| IOC | Immediate-Or-Cancel - fills what it can immediately, cancels rest |
+| Type | API Value | Description |
+|------|-----------|-------------|
+| GTC | `good_till_canceled` | Remains active until filled or cancelled |
+| FOK | `fill_or_kill` | Must be completely filled immediately or cancelled |
+| IOC | `immediate_or_cancel` | Fills what it can immediately, cancels rest |
 
 ### Exchange Capabilities
 
