@@ -4,7 +4,8 @@
       "Bash(uv run:*)",
       "Bash(uv add:*)",
       "Bash(uv sync:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "WebFetch(domain:docs.kalshi.com)"
     ],
     "deny": [],
     "ask": []

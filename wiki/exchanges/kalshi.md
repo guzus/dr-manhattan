@@ -307,7 +307,18 @@ positions = exchange.fetch_positions(market_id='KXBTC-24DEC31-T100000')
 
 ## WebSocket
 
-Kalshi provides WebSocket connections for real-time data. The following channels are available:
+Kalshi provides WebSocket connections for real-time data.
+
+### WebSocket URL
+
+- Production: `wss://api.elections.kalshi.com`
+- Demo: `wss://demo-api.kalshi.co`
+
+### Authentication
+
+API key authentication is required during the WebSocket handshake.
+
+### Available Channels
 
 | Channel | Description |
 |---------|-------------|
@@ -320,17 +331,30 @@ Kalshi provides WebSocket connections for real-time data. The following channels
 | `multivariate` | Multi-outcome market updates |
 | `communications` | System announcements |
 
-### WebSocket URL
+### Commands
 
-- Production: `wss://api.elections.kalshi.com`
-- Demo: `wss://demo-api.kalshi.co`
+**Subscribe:**
+```json
+{
+  "id": 1,
+  "cmd": "subscribe",
+  "params": {
+    "channels": ["orderbook_delta"],
+    "market_ticker": "CPI-22DEC-TN0.1"
+  }
+}
+```
 
-### Connection Flow
-
-1. Establish WebSocket connection
-2. Send authentication message with RSA-PSS signature
-3. Subscribe to channels with market tickers
-4. Receive real-time updates
+**Unsubscribe:**
+```json
+{
+  "id": 124,
+  "cmd": "unsubscribe",
+  "params": {
+    "sids": [1, 2]
+  }
+}
+```
 
 Note: WebSocket is not yet implemented in dr_manhattan for Kalshi. Use the REST API for now.
 
@@ -438,9 +462,3 @@ exchange = Kalshi({
 - [WebSocket Documentation](https://docs.kalshi.com/websockets/websocket-connection)
 - [Base Exchange Class](../../dr_manhattan/base/exchange.py)
 - [Examples](../../examples/)
-
-## See Also
-
-- [Polymarket](./polymarket.md) - Another prediction market exchange
-- [Limitless](./limitless.md) - Prediction market on Base
-- [Opinion](./opinion.md) - Another prediction market
