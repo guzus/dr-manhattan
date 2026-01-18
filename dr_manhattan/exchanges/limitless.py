@@ -651,6 +651,7 @@ class Limitless(Exchange):
                 - token_id: Token ID (optional if outcome provided)
                 - order_type: "GTC" or "FOK" (default: "GTC")
             time_in_force: Order time in force. Limitless supports GTC and FOK only.
+                IOC is not supported and will raise InvalidOrder.
 
         Returns:
             Order object

@@ -581,13 +581,20 @@ class Opinion(Exchange):
                 - token_id: Token ID (required)
                 - order_type: "limit" or "market" (default: "limit")
                 - check_approval: Whether to check approvals (default: False)
-            time_in_force: Order time in force (GTC, FOK, IOC). Default is GTC.
-                Note: Opinion SDK may have limited support for FOK/IOC.
+            time_in_force: Order time in force. Opinion only supports GTC.
+                FOK and IOC are not supported and will raise InvalidOrder.
 
         Returns:
             Order object
         """
         self._ensure_client()
+
+        # Validate time_in_force - Opinion only supports GTC
+        if time_in_force != OrderTimeInForce.GTC:
+            raise InvalidOrder(
+                f"Opinion does not support {time_in_force.value.upper()} orders. "
+                "Only GTC orders are supported."
+            )
 
         extra_params = params or {}
         token_id = extra_params.get("token_id")

@@ -21,7 +21,7 @@ from ..base.errors import (
 )
 from ..base.exchange import Exchange
 from ..models.market import Market
-from ..models.order import Order, OrderSide, OrderStatus
+from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from ..models.orderbook import Orderbook
 from ..models.position import Position
 
@@ -469,7 +469,23 @@ class Kalshi(Exchange):
         price: float,
         size: float,
         params: Optional[Dict[str, Any]] = None,
+        time_in_force: OrderTimeInForce = OrderTimeInForce.GTC,
     ) -> Order:
+        """
+        Create a new order on Kalshi.
+
+        Args:
+            market_id: Market ticker
+            outcome: Outcome to bet on ("Yes" or "No")
+            side: OrderSide.BUY or OrderSide.SELL
+            price: Price per contract (0-1)
+            size: Number of contracts
+            params: Additional parameters
+            time_in_force: Order time in force. Kalshi supports GTC, FOK, and IOC.
+
+        Returns:
+            Order object
+        """
         self._ensure_auth()
 
         if price <= 0 or price >= 1:
@@ -482,12 +498,20 @@ class Kalshi(Exchange):
         action = "buy" if side == OrderSide.BUY else "sell"
         price_cents = int(round(price * 100))
 
+        # Map time_in_force to Kalshi API values
+        tif_map = {
+            OrderTimeInForce.GTC: "gtc",
+            OrderTimeInForce.FOK: "fok",
+            OrderTimeInForce.IOC: "ioc",
+        }
+
         body: Dict[str, Any] = {
             "ticker": market_id,
             "action": action,
             "side": outcome_lower,
             "type": "limit",
             "count": int(size),
+            "time_in_force": tif_map.get(time_in_force, "gtc"),
         }
 
         if outcome_lower == "yes":
