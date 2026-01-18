@@ -113,11 +113,13 @@ def create_exchange() -> Optional[Polymarket]:
     funder = os.getenv("POLYMARKET_FUNDER") or os.getenv("FUNDER")
 
     try:
-        return Polymarket({
-            "private_key": private_key,
-            "funder": funder,
-            "verbose": False,
-        })
+        return Polymarket(
+            {
+                "private_key": private_key,
+                "funder": funder,
+                "verbose": False,
+            }
+        )
     except Exception as e:
         logger.error(f"Failed to initialize exchange: {e}")
         return None

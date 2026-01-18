@@ -6,13 +6,12 @@ A generic, type-safe Telegram bot client for sending messages and notifications.
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import requests
 
 from .types import (
     InlineKeyboardMarkup,
-    Message,
     MessageOptions,
     ParseMode,
     ReplyMarkup,
@@ -161,12 +160,16 @@ class TelegramBot:
             "chat_id": chat_id or self._config.chat_id,
             "text": text,
             "parse_mode": (opts.parse_mode or self._config.parse_mode).value,
-            "disable_notification": opts.disable_notification
-            if opts.disable_notification is not None
-            else self._config.disable_notification,
-            "disable_web_page_preview": opts.disable_web_page_preview
-            if opts.disable_web_page_preview is not None
-            else self._config.disable_web_page_preview,
+            "disable_notification": (
+                opts.disable_notification
+                if opts.disable_notification is not None
+                else self._config.disable_notification
+            ),
+            "disable_web_page_preview": (
+                opts.disable_web_page_preview
+                if opts.disable_web_page_preview is not None
+                else self._config.disable_web_page_preview
+            ),
         }
 
         if opts.reply_to_message_id:

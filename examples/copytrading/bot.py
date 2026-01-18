@@ -164,7 +164,9 @@ class CopytradingBot:
 
         outcome = trade.outcome
         if not outcome:
-            outcome = market.outcomes[trade.outcome_index] if trade.outcome_index is not None else None
+            outcome = (
+                market.outcomes[trade.outcome_index] if trade.outcome_index is not None else None
+            )
 
         if not outcome:
             logger.error("Cannot determine outcome for trade")

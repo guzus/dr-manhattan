@@ -157,7 +157,15 @@ class InlineKeyboardMarkup:
         return {
             "inline_keyboard": [
                 [
-                    {k: v for k, v in {"text": btn.text, "url": btn.url, "callback_data": btn.callback_data}.items() if v is not None}
+                    {
+                        k: v
+                        for k, v in {
+                            "text": btn.text,
+                            "url": btn.url,
+                            "callback_data": btn.callback_data,
+                        }.items()
+                        if v is not None
+                    }
                     for btn in row
                 ]
                 for row in self.inline_keyboard
