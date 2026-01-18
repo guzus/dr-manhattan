@@ -7,7 +7,7 @@ Uses dr-manhattan's unified API for Polymarket trading.
 Usage:
     uv run python examples/copytrading.py --target <wallet_address>
     uv run python examples/copytrading.py --target <wallet_address> --scale 0.5
-    uv run python examples/copytrading.py --target <wallet_address> --markets fed-decision
+    uv run python examples/copytrading.py --target <wallet_address> --telegram
 """
 
 import argparse
@@ -24,7 +24,7 @@ from dr_manhattan import Polymarket
 from dr_manhattan.exchanges.polymarket import PublicTrade
 from dr_manhattan.models import Market
 from dr_manhattan.models.order import OrderSide
-from dr_manhattan.utils import setup_logger
+from dr_manhattan.utils import TelegramBot, setup_logger
 from dr_manhattan.utils.logger import Colors
 
 logger = setup_logger(__name__)
@@ -51,6 +51,7 @@ class CopytradingBot:
     - Mirrors trades with configurable size scaling
     - Tracks copied trades to avoid duplicates
     - Supports market filtering
+    - Telegram notifications for trades and status
     """
 
     def __init__(
@@ -62,6 +63,7 @@ class CopytradingBot:
         max_position: float = 100.0,
         min_trade_size: float = 1.0,
         market_filter: Optional[List[str]] = None,
+        telegram: Optional[TelegramBot] = None,
     ):
         """
         Initialize copytrading bot.
@@ -74,6 +76,7 @@ class CopytradingBot:
             max_position: Maximum position size per outcome
             min_trade_size: Minimum trade size to copy
             market_filter: List of market slugs/IDs to filter (None = all)
+            telegram: Optional TelegramBot for notifications
         """
         self.exchange = exchange
         self.target_wallet = target_wallet
@@ -82,6 +85,7 @@ class CopytradingBot:
         self.max_position = max_position
         self.min_trade_size = min_trade_size
         self.market_filter = market_filter
+        self.telegram = telegram
 
         self.is_running = False
         self.copied_trades: Set[str] = set()
@@ -160,6 +164,11 @@ class CopytradingBot:
         market = self._get_market(trade)
         if not market:
             logger.error(f"Cannot find market for trade: {trade.condition_id}")
+            if self.telegram:
+                self.telegram.send_error(
+                    f"Cannot find market: {trade.condition_id}",
+                    context="execute_copy_trade",
+                )
             return False
 
         outcome = trade.outcome
@@ -199,10 +208,23 @@ class CopytradingBot:
                 f"{Colors.magenta(outcome[:20])} @ {Colors.yellow(f'{price:.4f}')} "
                 f"[{Colors.gray(order.id[:8] + '...')}]"
             )
+
+            if self.telegram:
+                self.telegram.send_trade_notification(
+                    side=side.value,
+                    size=size,
+                    outcome=outcome,
+                    price=price,
+                    market=trade.slug or trade.event_slug or "",
+                    is_copy=True,
+                )
+
             return True
 
         except Exception as e:
             logger.error(f"Failed to execute copy trade: {e}")
+            if self.telegram:
+                self.telegram.send_error(str(e), context="execute_copy_trade")
             return False
 
     def _poll_trades(self) -> List[PublicTrade]:
@@ -243,6 +265,16 @@ class CopytradingBot:
                 f"@ {Colors.yellow(f'{trade.price:.4f}')} [{Colors.gray(trade.slug or '')}]"
             )
 
+            if self.telegram:
+                self.telegram.send_trade_notification(
+                    side=side_str,
+                    size=trade.size,
+                    outcome=outcome_str,
+                    price=trade.price,
+                    market=trade.slug or trade.event_slug or "",
+                    is_copy=False,
+                )
+
             if self._execute_copy_trade(trade):
                 self.copied_trades.add(trade_id)
                 self.stats.trades_copied += 1
@@ -250,10 +282,14 @@ class CopytradingBot:
             else:
                 self.stats.trades_failed += 1
 
+    def _get_uptime_str(self) -> str:
+        """Get formatted uptime string"""
+        elapsed = (datetime.now(timezone.utc) - self.stats.start_time).total_seconds()
+        return f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
+
     def log_status(self):
         """Log current status"""
-        elapsed = (datetime.now(timezone.utc) - self.stats.start_time).total_seconds()
-        elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
+        uptime_str = self._get_uptime_str()
 
         logger.info(
             f"\n[{time.strftime('%H:%M:%S')}] "
@@ -263,7 +299,7 @@ class CopytradingBot:
             f"Skipped: {Colors.gray(str(self.stats.trades_skipped))} | "
             f"Failed: {Colors.red(str(self.stats.trades_failed))} | "
             f"Volume: {Colors.yellow(f'${self.stats.total_volume:.2f}')} | "
-            f"Uptime: {Colors.gray(elapsed_str)}"
+            f"Uptime: {Colors.gray(uptime_str)}"
         )
 
     def run(self, duration_minutes: Optional[int] = None):
@@ -277,16 +313,27 @@ class CopytradingBot:
         if self.market_filter:
             logger.info(f"Markets: {Colors.magenta(', '.join(self.market_filter))}")
 
+        if self.telegram and self.telegram.enabled:
+            logger.info(f"Telegram: {Colors.green('Enabled')}")
+
         address = getattr(self.exchange, "_address", None)
         if address:
             logger.info(f"Bot Address: {Colors.cyan(address)}")
 
+        usdc = 0.0
         try:
             balance = self.exchange.fetch_balance()
             usdc = balance.get("USDC", 0.0)
             logger.info(f"Balance: {Colors.green(f'${usdc:,.2f}')} USDC")
         except Exception as e:
             logger.warning(f"Failed to fetch balance: {e}")
+
+        if self.telegram:
+            self.telegram.send_startup(
+                target_wallet=self.target_wallet,
+                scale_factor=self.scale_factor,
+                balance=usdc,
+            )
 
         logger.info(f"\n{Colors.gray('Waiting for trades...')}")
 
@@ -316,15 +363,23 @@ class CopytradingBot:
 
     def _log_summary(self):
         """Log final summary"""
-        elapsed = (datetime.now(timezone.utc) - self.stats.start_time).total_seconds()
+        duration_str = self._get_uptime_str()
 
         logger.info(f"\n{Colors.bold('Session Summary')}")
-        logger.info(f"Duration: {int(elapsed // 60)}m {int(elapsed % 60)}s")
+        logger.info(f"Duration: {duration_str}")
         logger.info(f"Trades Detected: {self.stats.trades_detected}")
         logger.info(f"Trades Copied: {Colors.green(str(self.stats.trades_copied))}")
         logger.info(f"Trades Skipped: {self.stats.trades_skipped}")
         logger.info(f"Trades Failed: {Colors.red(str(self.stats.trades_failed))}")
         logger.info(f"Total Volume: {Colors.yellow(f'${self.stats.total_volume:.2f}')}")
+
+        if self.telegram:
+            self.telegram.send_shutdown({
+                "copied": self.stats.trades_copied,
+                "failed": self.stats.trades_failed,
+                "volume": self.stats.total_volume,
+                "duration": duration_str,
+            })
 
     def stop(self):
         """Stop the bot"""
@@ -380,6 +435,21 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Duration in minutes (default: indefinite)",
     )
+    parser.add_argument(
+        "--telegram",
+        action="store_true",
+        help="Enable Telegram notifications",
+    )
+    parser.add_argument(
+        "--telegram-token",
+        default=os.getenv("TELEGRAM_BOT_TOKEN"),
+        help="Telegram bot token (or set TELEGRAM_BOT_TOKEN)",
+    )
+    parser.add_argument(
+        "--telegram-chat-id",
+        default=os.getenv("TELEGRAM_CHAT_ID"),
+        help="Telegram chat ID (or set TELEGRAM_CHAT_ID)",
+    )
     return parser.parse_args()
 
 
@@ -405,6 +475,19 @@ def main() -> int:
         logger.error(f"Failed to initialize exchange: {e}")
         return 1
 
+    telegram = None
+    if args.telegram:
+        if not args.telegram_token or not args.telegram_chat_id:
+            logger.error("Telegram enabled but TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set")
+            return 1
+        telegram = TelegramBot(
+            token=args.telegram_token,
+            chat_id=args.telegram_chat_id,
+        )
+        if not telegram.enabled:
+            logger.warning("Telegram bot not properly configured")
+            telegram = None
+
     bot = CopytradingBot(
         exchange=exchange,
         target_wallet=args.target,
@@ -413,6 +496,7 @@ def main() -> int:
         max_position=args.max_position,
         min_trade_size=args.min_size,
         market_filter=args.markets,
+        telegram=telegram,
     )
 
     bot.run(duration_minutes=args.duration)
