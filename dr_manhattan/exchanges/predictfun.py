@@ -116,7 +116,7 @@ class PredictFun(Exchange):
 
     @property
     def id(self) -> str:
-        return "predictfun"
+        return "predict.fun"
 
     @property
     def name(self) -> str:

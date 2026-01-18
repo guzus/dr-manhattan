@@ -9,7 +9,6 @@ from typing import Any, Dict, Optional
 from ..base.errors import NetworkError, RateLimitError
 from ..models.crypto_hourly import CryptoHourlyMarket
 from ..models.market import Market
-from ..models.nav import NAV, PositionBreakdown
 from ..models.order import Order, OrderSide, OrderTimeInForce
 from ..models.position import Position
 

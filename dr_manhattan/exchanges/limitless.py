@@ -660,9 +660,7 @@ class Limitless(Exchange):
 
         # Validate time_in_force - Limitless only supports GTC and FOK
         if time_in_force == OrderTimeInForce.IOC:
-            raise InvalidOrder(
-                "Limitless does not support IOC orders. Use GTC or FOK instead."
-            )
+            raise InvalidOrder("Limitless does not support IOC orders. Use GTC or FOK instead.")
 
         extra_params = params or {}
         token_id = extra_params.get("token_id")
