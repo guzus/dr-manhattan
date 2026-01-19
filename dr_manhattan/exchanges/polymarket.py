@@ -99,6 +99,7 @@ class Polymarket(Exchange):
         """Normalize token symbol to standard format (e.g., BITCOIN -> BTC)"""
         token_upper = token.upper()
         return Polymarket.TOKEN_ALIASES.get(token_upper, token_upper)
+
     @staticmethod
     def normalize_orderbook_levels(levels):
         """
