@@ -99,7 +99,6 @@ class Polymarket(Exchange):
         """Normalize token symbol to standard format (e.g., BITCOIN -> BTC)"""
         token_upper = token.upper()
         return Polymarket.TOKEN_ALIASES.get(token_upper, token_upper)
-    
     @staticmethod
     def normalize_orderbook_levels(levels):
         """
@@ -112,12 +111,10 @@ class Polymarket(Exchange):
         ----------
         levels : list[dict] | None
             Raw order book levels from CLOB API.
-
         Returns
         -------
         list[tuple[float, float]]
                 List of (price, size) tuples.
-                
         """
         out = []
         for lvl in levels or []:
@@ -434,8 +431,6 @@ class Polymarket(Exchange):
             if self.verbose:
                 print(f"Failed to fetch orderbook: {e}")
             return {"bids": [], "asks": []}
-    
-
 
     def _parse_sampling_market(self, data: Dict[str, Any]) -> Optional[Market]:
         """Parse market data from CLOB sampling-markets API response"""
