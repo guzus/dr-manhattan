@@ -408,6 +408,34 @@ class Polymarket(Exchange):
                 print(f"Failed to fetch orderbook: {e}")
             return {"bids": [], "asks": []}
 
+    @staticmethod
+    def normalize_orderbook_levels(levels):
+        """
+        Convert raw order book levels into a list of (price, size) floats.
+
+        Args:
+            levels: List of order book levels, where each level is a dict with 'price' and 'size' keys
+                   (typically strings from the API response)
+
+        Returns:
+            List of tuples (price, size) as floats
+
+        Example:
+            >>> raw_bids = [{'price': '0.52', 'size': '100.5'}, {'price': '0.51', 'size': '200'}]
+            >>> normalized = Polymarket.normalize_orderbook_levels(raw_bids)
+            >>> normalized
+            [(0.52, 100.5), (0.51, 200.0)]
+        """
+        normalized = []
+        for level in levels:
+            try:
+                price = float(level.get('price', 0))
+                size = float(level.get('size', 0))
+                normalized.append((price, size))
+            except (ValueError, TypeError, AttributeError):
+                continue
+        return normalized
+
     def _parse_sampling_market(self, data: Dict[str, Any]) -> Optional[Market]:
         """Parse market data from CLOB sampling-markets API response"""
         try:
