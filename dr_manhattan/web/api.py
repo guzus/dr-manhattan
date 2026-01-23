@@ -50,13 +50,15 @@ async def list_strategies() -> List[Dict[str, str]]:
             except ValueError:
                 start_time_str = timestamp_str
 
-            strategies.append({
-                "id": csv_file.stem,
-                "name": strategy_name,
-                "market_id": market_id,
-                "start_time": start_time_str,
-                "filename": csv_file.name,
-            })
+            strategies.append(
+                {
+                    "id": csv_file.stem,
+                    "name": strategy_name,
+                    "market_id": market_id,
+                    "start_time": start_time_str,
+                    "filename": csv_file.name,
+                }
+            )
 
     # Sort by start_time descending (newest first)
     strategies.sort(key=lambda x: x["start_time"], reverse=True)
