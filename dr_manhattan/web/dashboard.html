@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dr. Manhattan Strategy Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-900 text-gray-100">
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="text-4xl font-bold mb-2">Dr. Manhattan Strategy Dashboard</h1>
+            <p class="text-gray-400">Real-time monitoring of strategy execution</p>
+        </div>
+
+        <!-- Strategy Selector -->
+        <div class="mb-8">
+            <label for="strategy-select" class="block text-sm font-medium mb-2">Select Strategy</label>
+            <select id="strategy-select" class="w-full md:w-96 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Loading strategies...</option>
+            </select>
+        </div>
+
+        <!-- Stats Cards -->
+        <div id="stats-section" class="hidden mb-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <p class="text-gray-400 text-sm mb-1">Initial NAV</p>
+                    <p id="stat-initial-nav" class="text-xl font-bold text-gray-300">-</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <p class="text-gray-400 text-sm mb-1">Current NAV</p>
+                    <p id="stat-nav" class="text-xl font-bold text-green-400">-</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <p class="text-gray-400 text-sm mb-1">PnL</p>
+                    <p id="stat-pnl" class="text-xl font-bold">-</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <p class="text-gray-400 text-sm mb-1">PnL %</p>
+                    <p id="stat-pnl-pct" class="text-xl font-bold">-</p>
+                </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4">
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <p class="text-gray-400 text-sm mb-1">Max NAV</p>
+                    <p id="stat-max-nav" class="text-xl font-bold text-blue-400">-</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <p class="text-gray-400 text-sm mb-1">Min NAV</p>
+                    <p id="stat-min-nav" class="text-xl font-bold text-red-400">-</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <p class="text-gray-400 text-sm mb-1">Avg Delta</p>
+                    <p id="stat-avg-delta" class="text-xl font-bold text-purple-400">-</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div id="charts-section" class="hidden space-y-4">
+            <!-- NAV Chart -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-sm font-bold mb-3 text-gray-400">Net Asset Value (NAV)</h2>
+                <div style="height: 350px;">
+                    <canvas id="nav-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Positions Chart -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-sm font-bold mb-3 text-gray-400">Positions Quantity</h2>
+                <div style="height: 350px;">
+                    <canvas id="positions-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Delta Chart -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-sm font-bold mb-3 text-gray-400">Delta</h2>
+                <div style="height: 350px;">
+                    <canvas id="delta-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading/Error States -->
+        <div id="loading" class="hidden text-center py-12">
+            <p class="text-gray-400">Loading data...</p>
+        </div>
+        <div id="error" class="hidden text-center py-12">
+            <p class="text-red-400">Error loading data. Please try again.</p>
+        </div>
+    </div>
+
+    <script>
+        let navChart, positionsChart, deltaChart;
+
+        // Fetch strategies on load
+        async function loadStrategies() {
+            try {
+                const response = await fetch('/api/strategies');
+                const strategies = await response.json();
+
+                const select = document.getElementById('strategy-select');
+                select.innerHTML = '<option value="">Select a strategy...</option>';
+
+                strategies.forEach(strategy => {
+                    const option = document.createElement('option');
+                    option.value = strategy.id;
+                    option.textContent = `${strategy.name} - ${strategy.market_id} (${strategy.start_time})`;
+                    select.appendChild(option);
+                });
+
+                // Auto-select first strategy if available
+                if (strategies.length > 0) {
+                    select.value = strategies[0].id;
+                    loadStrategyData(strategies[0].id);
+                }
+            } catch (error) {
+                console.error('Error loading strategies:', error);
+            }
+        }
+
+        // Load strategy data
+        async function loadStrategyData(strategyId) {
+            if (!strategyId) return;
+
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('stats-section').classList.add('hidden');
+            document.getElementById('charts-section').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+
+            try {
+                const response = await fetch(`/api/strategy/${strategyId}/data`);
+                const data = await response.json();
+
+                displayStats(data.stats, data.nav);
+                renderCharts(data);
+
+                document.getElementById('stats-section').classList.remove('hidden');
+                document.getElementById('charts-section').classList.remove('hidden');
+            } catch (error) {
+                console.error('Error loading strategy data:', error);
+                document.getElementById('error').classList.remove('hidden');
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        }
+
+        // Display statistics
+        function displayStats(stats, navData) {
+            document.getElementById('stat-initial-nav').textContent = `$${stats.initial_nav.toFixed(2)}`;
+            document.getElementById('stat-nav').textContent = `$${stats.current_nav.toFixed(2)}`;
+            document.getElementById('stat-pnl').textContent = `$${stats.pnl.toFixed(2)}`;
+            document.getElementById('stat-pnl').className = stats.pnl >= 0 ? 'text-xl font-bold text-green-400' : 'text-xl font-bold text-red-400';
+            document.getElementById('stat-pnl-pct').textContent = `${stats.pnl_pct.toFixed(2)}%`;
+            document.getElementById('stat-pnl-pct').className = stats.pnl_pct >= 0 ? 'text-xl font-bold text-green-400' : 'text-xl font-bold text-red-400';
+            document.getElementById('stat-max-nav').textContent = `$${stats.max_nav.toFixed(2)}`;
+            document.getElementById('stat-min-nav').textContent = `$${stats.min_nav.toFixed(2)}`;
+            document.getElementById('stat-avg-delta').textContent = stats.avg_delta.toFixed(2);
+        }
+
+        // Render charts
+        function renderCharts(data) {
+            const timestamps = data.timestamps.map(ts => new Date(ts).toLocaleTimeString());
+
+            // Destroy existing charts
+            if (navChart) navChart.destroy();
+            if (positionsChart) positionsChart.destroy();
+            if (deltaChart) deltaChart.destroy();
+
+            // NAV Chart
+            const navCtx = document.getElementById('nav-chart').getContext('2d');
+            navChart = new Chart(navCtx, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: [
+                        {
+                            label: 'NAV',
+                            data: data.nav,
+                            borderColor: 'rgb(34, 197, 94)',
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Cash',
+                            data: data.cash,
+                            borderColor: 'rgb(59, 130, 246)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Positions Value',
+                            data: data.positions_value,
+                            borderColor: 'rgb(168, 85, 247)',
+                            backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            align: 'end',
+                            labels: {
+                                color: 'rgb(229, 231, 235)',
+                                boxWidth: 12,
+                                padding: 10,
+                                font: { size: 11 }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: 'rgb(156, 163, 175)' }, grid: { color: 'rgba(75, 85, 99, 0.3)' } },
+                        y: { ticks: { color: 'rgb(156, 163, 175)' }, grid: { color: 'rgba(75, 85, 99, 0.3)' } }
+                    }
+                }
+            });
+
+            // Positions Chart
+            const posCtx = document.getElementById('positions-chart').getContext('2d');
+            const positionDatasets = Object.entries(data.positions).map(([outcome, values], index) => {
+                const colors = [
+                    'rgb(239, 68, 68)', 'rgb(59, 130, 246)', 'rgb(34, 197, 94)',
+                    'rgb(168, 85, 247)', 'rgb(251, 146, 60)', 'rgb(236, 72, 153)'
+                ];
+                const color = colors[index % colors.length];
+                return {
+                    label: outcome,
+                    data: values,
+                    borderColor: color,
+                    backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                    tension: 0.1
+                };
+            });
+
+            positionsChart = new Chart(posCtx, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: positionDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: 'rgb(229, 231, 235)' }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: 'rgb(156, 163, 175)' }, grid: { color: 'rgba(75, 85, 99, 0.3)' } },
+                        y: { ticks: { color: 'rgb(156, 163, 175)' }, grid: { color: 'rgba(75, 85, 99, 0.3)' } }
+                    }
+                }
+            });
+
+            // Delta Chart
+            const deltaCtx = document.getElementById('delta-chart').getContext('2d');
+            deltaChart = new Chart(deltaCtx, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: [{
+                        label: 'Delta',
+                        data: data.delta,
+                        borderColor: 'rgb(168, 85, 247)',
+                        backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: 'rgb(229, 231, 235)' }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: 'rgb(156, 163, 175)' }, grid: { color: 'rgba(75, 85, 99, 0.3)' } },
+                        y: { ticks: { color: 'rgb(156, 163, 175)' }, grid: { color: 'rgba(75, 85, 99, 0.3)' } }
+                    }
+                }
+            });
+        }
+
+        // Event listeners
+        document.getElementById('strategy-select').addEventListener('change', (e) => {
+            loadStrategyData(e.target.value);
+        });
+
+        // Load on page load
+        loadStrategies();
+    </script>
+</body>
+</html>
