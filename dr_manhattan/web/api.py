@@ -1,12 +1,13 @@
 """FastAPI server for strategy dashboard."""
 
 import csv
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse
 
 app = FastAPI(title="Dr. Manhattan Strategy Dashboard")
 
@@ -62,6 +63,11 @@ async def list_strategies() -> List[Dict[str, str]]:
     return strategies
 
 
+def _validate_strategy_id(strategy_id: str) -> bool:
+    """Validate strategy_id to prevent path traversal attacks."""
+    return bool(re.match(r"^[a-zA-Z0-9_-]+$", strategy_id))
+
+
 @app.get("/api/strategy/{strategy_id}/data")
 async def get_strategy_data(strategy_id: str) -> Dict:
     """
@@ -73,6 +79,9 @@ async def get_strategy_data(strategy_id: str) -> Dict:
     Returns:
         Dict with timestamps and data arrays
     """
+    if not _validate_strategy_id(strategy_id):
+        raise HTTPException(status_code=400, detail="Invalid strategy ID")
+
     csv_file = LOGS_DIR / f"{strategy_id}.csv"
     if not csv_file.exists():
         raise HTTPException(status_code=404, detail="Strategy not found")
@@ -144,7 +153,7 @@ def main():
 
     print("Starting Dr. Manhattan Strategy Dashboard...")
     print("Open http://localhost:8000 in your browser")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
 
 
 if __name__ == "__main__":

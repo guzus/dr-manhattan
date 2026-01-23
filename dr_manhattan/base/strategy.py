@@ -91,7 +91,7 @@ class Strategy(ABC):
 
         # Runtime state
         self.is_running = False
-        self.csv_logger: Optional["CSVLogger"] = None
+        self.csv_logger = None
 
         # Cached state (updated each tick)
         self._positions: Dict[str, float] = {}
