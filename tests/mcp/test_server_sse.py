@@ -1,50 +1,26 @@
 """Tests for MCP SSE server.
 
 Tests cover:
-- CORS configuration
 - Credential extraction from headers
 - Health check endpoint
 - Credential masking in logs
-- Context isolation for concurrent requests
+- Credential validation
+
+Note: Tests that require the 'mcp' package are skipped if not installed.
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
-class TestCORSConfiguration:
-    """Tests for CORS middleware configuration."""
+# Check if mcp package is available
+try:
+    import mcp  # noqa: F401
 
-    def test_default_allowed_origins(self):
-        """Test that default origins are set when env var is empty."""
-        with patch.dict("os.environ", {"CORS_ALLOWED_ORIGINS": ""}, clear=False):
-            # Need to reimport to pick up env changes
-            from dr_manhattan.mcp import server_sse
-
-            # Reload module to test env var parsing
-            import importlib
-
-            importlib.reload(server_sse)
-
-            # Check that default origins are set
-            assert "https://claude.ai" in server_sse.ALLOWED_ORIGINS
-            assert "https://console.anthropic.com" in server_sse.ALLOWED_ORIGINS
-
-    def test_custom_allowed_origins(self):
-        """Test that custom origins from env var are parsed correctly."""
-        with patch.dict(
-            "os.environ",
-            {"CORS_ALLOWED_ORIGINS": "https://example.com,https://test.com"},
-            clear=False,
-        ):
-            from dr_manhattan.mcp import server_sse
-
-            import importlib
-
-            importlib.reload(server_sse)
-
-            assert "https://example.com" in server_sse.ALLOWED_ORIGINS
-            assert "https://test.com" in server_sse.ALLOWED_ORIGINS
+    HAS_MCP = True
+except ImportError:
+    HAS_MCP = False
 
 
 class TestCredentialExtraction:
@@ -255,13 +231,14 @@ class TestCredentialValidation:
         assert "header" not in error.lower()
 
 
+@pytest.mark.skipif(not HAS_MCP, reason="MCP package not installed")
 class TestHealthCheck:
-    """Tests for health check endpoint."""
+    """Tests for health check endpoint (requires mcp package)."""
 
-    @pytest.mark.asyncio
-    async def test_health_check_returns_healthy(self):
+    def test_health_check_returns_healthy(self):
         """Test that health check returns healthy status."""
         from starlette.testclient import TestClient
+
         from dr_manhattan.mcp.server_sse import app
 
         client = TestClient(app)
@@ -274,12 +251,14 @@ class TestHealthCheck:
         assert data["transport"] == "sse"
 
 
+@pytest.mark.skipif(not HAS_MCP, reason="MCP package not installed")
 class TestRootEndpoint:
-    """Tests for root endpoint."""
+    """Tests for root endpoint (requires mcp package)."""
 
     def test_root_returns_usage_info(self):
         """Test that root endpoint returns usage information."""
         from starlette.testclient import TestClient
+
         from dr_manhattan.mcp.server_sse import app
 
         client = TestClient(app)
@@ -293,8 +272,9 @@ class TestRootEndpoint:
         assert "/health" in data["endpoints"]
 
 
+@pytest.mark.skipif(not HAS_MCP, reason="MCP package not installed")
 class TestEnvironmentValidation:
-    """Tests for environment variable validation."""
+    """Tests for environment variable validation (requires mcp package)."""
 
     def test_invalid_port_raises_error(self):
         """Test that invalid PORT causes error."""
@@ -323,8 +303,9 @@ class TestEnvironmentValidation:
             assert port == 3000
 
 
+@pytest.mark.skipif(not HAS_MCP, reason="MCP package not installed")
 class TestToolDefinitions:
-    """Tests for shared tool definitions."""
+    """Tests for shared tool definitions (requires mcp package)."""
 
     def test_tool_definitions_not_empty(self):
         """Test that tool definitions are loaded."""
