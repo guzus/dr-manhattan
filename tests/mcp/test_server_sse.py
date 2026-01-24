@@ -9,10 +9,10 @@ Tests cover:
 Note: Tests that require the 'mcp' package are skipped if not installed.
 """
 
+# isort: skip_file
 from unittest.mock import patch
 
 import pytest
-
 
 # Check if mcp package is available
 try:
