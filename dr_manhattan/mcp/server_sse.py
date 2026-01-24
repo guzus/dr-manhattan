@@ -555,9 +555,7 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
     """Handle tool execution with rate limiting."""
     try:
         if not check_rate_limit():
-            raise ValueError(
-                "Rate limit exceeded. Please wait before making more requests."
-            )
+            raise ValueError("Rate limit exceeded. Please wait before making more requests.")
 
         if name not in TOOL_DISPATCH:
             raise ValueError(f"Unknown tool: {name}")
@@ -593,9 +591,7 @@ async def handle_sse(request: Request) -> Response:
         async with sse_transport.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
-            await mcp_app.run(
-                streams[0], streams[1], mcp_app.create_initialization_options()
-            )
+            await mcp_app.run(streams[0], streams[1], mcp_app.create_initialization_options())
     finally:
         _request_credentials.reset(token)
 
@@ -610,41 +606,47 @@ async def handle_messages(request: Request) -> Response:
     token = _request_credentials.set(credentials)
 
     try:
-        return await sse_transport.handle_post_message(request.scope, request.receive, request._send)
+        return await sse_transport.handle_post_message(
+            request.scope, request.receive, request._send
+        )
     finally:
         _request_credentials.reset(token)
 
 
 async def health_check(request: Request) -> JSONResponse:
     """Health check endpoint."""
-    return JSONResponse({
-        "status": "healthy",
-        "service": "dr-manhattan-mcp",
-        "transport": "sse",
-        "version": "0.0.2",
-    })
+    return JSONResponse(
+        {
+            "status": "healthy",
+            "service": "dr-manhattan-mcp",
+            "transport": "sse",
+            "version": "0.0.2",
+        }
+    )
 
 
 async def root(request: Request) -> JSONResponse:
     """Root endpoint with usage info."""
-    return JSONResponse({
-        "service": "Dr. Manhattan MCP Server",
-        "transport": "SSE",
-        "endpoints": {
-            "/sse": "MCP SSE connection endpoint",
-            "/messages/": "MCP message handling",
-            "/health": "Health check",
-        },
-        "usage": {
-            "claude_config": {
-                "url": "https://<your-domain>/sse",
-                "headers": {
-                    "X-Polymarket-Private-Key": "<your-private-key>",
-                    "X-Polymarket-Funder": "<your-funder-address>",
-                },
-            }
-        },
-    })
+    return JSONResponse(
+        {
+            "service": "Dr. Manhattan MCP Server",
+            "transport": "SSE",
+            "endpoints": {
+                "/sse": "MCP SSE connection endpoint",
+                "/messages/": "MCP message handling",
+                "/health": "Health check",
+            },
+            "usage": {
+                "claude_config": {
+                    "url": "https://<your-domain>/sse",
+                    "headers": {
+                        "X-Polymarket-Private-Key": "<your-private-key>",
+                        "X-Polymarket-Funder": "<your-funder-address>",
+                    },
+                }
+            },
+        }
+    )
 
 
 # =============================================================================

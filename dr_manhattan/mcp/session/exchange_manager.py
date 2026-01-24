@@ -39,6 +39,7 @@ def get_context_credentials() -> Optional[Dict[str, Any]]:
         return _context_credentials_getter()
     return None
 
+
 # Lock for credential operations (thread-safe access to MCP_CREDENTIALS)
 _CREDENTIALS_LOCK = threading.Lock()
 
