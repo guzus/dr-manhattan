@@ -76,7 +76,7 @@ from starlette.middleware import Middleware  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.requests import Request  # noqa: E402
 from starlette.responses import JSONResponse, Response  # noqa: E402
-from starlette.routing import Mount, Route  # noqa: E402
+from starlette.routing import Route  # noqa: E402
 
 # Load environment variables
 env_path = Path(__file__).parent.parent.parent / ".env"
