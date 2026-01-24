@@ -72,22 +72,20 @@ def sanitize_headers_for_logging(headers: Dict[str, str]) -> Dict[str, str]:
     """
     Sanitize headers for safe logging.
 
-    Replaces sensitive header values with masked placeholders.
+    Replaces sensitive header values with fully masked placeholders.
+    Does NOT expose any characters to prevent brute force hints.
 
     Args:
         headers: Original headers dict
 
     Returns:
-        Headers dict with sensitive values masked
+        Headers dict with sensitive values fully masked
     """
     sanitized = {}
     for key, value in headers.items():
         if is_sensitive_header(key):
-            # Show first 4 and last 4 chars for debugging, mask the rest
-            if value and len(value) > 12:
-                sanitized[key] = f"{value[:4]}...{value[-4:]} (masked)"
-            else:
-                sanitized[key] = "*** (masked)"
+            # Fully mask - do not expose any characters (security best practice)
+            sanitized[key] = "[REDACTED]" if value else "[EMPTY]"
         else:
             sanitized[key] = value
     return sanitized
@@ -155,6 +153,9 @@ def validate_credentials_present(
     """
     Validate that required credentials are present for an exchange.
 
+    Returns transport-agnostic error messages. The transport layer (SSE, stdio)
+    should add transport-specific hints if needed.
+
     Args:
         credentials: Credentials dict for the exchange
         exchange: Exchange name
@@ -174,17 +175,31 @@ def validate_credentials_present(
     missing = [field for field in required if not credentials.get(field)]
 
     if missing:
-        header_hints = []
-        header_map = HEADER_CREDENTIAL_MAP.get(exchange.lower(), {})
-        for field in missing:
-            for header, cred_key in header_map.items():
-                if cred_key == field:
-                    header_hints.append(header.upper().replace("-", "_"))
-                    break
-
-        return False, f"Missing required credentials for {exchange}: {', '.join(header_hints)}"
+        # Transport-agnostic message (no HTTP header references)
+        return False, f"Missing required credentials for {exchange}: {', '.join(missing)}"
 
     return True, None
+
+
+def get_header_hint_for_credential(exchange: str, credential: str) -> Optional[str]:
+    """
+    Get the HTTP header name hint for a credential.
+
+    This is a helper for SSE transport to provide user-friendly error messages.
+
+    Args:
+        exchange: Exchange name
+        credential: Credential field name (e.g., 'private_key')
+
+    Returns:
+        Header name (e.g., 'X-Polymarket-Private-Key') or None
+    """
+    header_map = HEADER_CREDENTIAL_MAP.get(exchange.lower(), {})
+    for header, cred_key in header_map.items():
+        if cred_key == credential:
+            # Convert to title case for display (x-polymarket-private-key -> X-Polymarket-Private-Key)
+            return "-".join(word.title() for word in header.split("-"))
+    return None
 
 
 def has_any_credentials(headers: Dict[str, str]) -> bool:

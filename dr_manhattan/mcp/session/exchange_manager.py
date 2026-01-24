@@ -300,23 +300,23 @@ class ExchangeSessionManager:
         if context_creds:
             exchange_creds = context_creds.get(exchange_name.lower())
             if exchange_creds:
-                # Validate required credentials
+                # Validate required credentials (transport-agnostic messages)
                 if exchange_name.lower() == "polymarket":
                     if not exchange_creds.get("private_key"):
                         raise ValueError(
-                            "Missing X-Polymarket-Private-Key header. "
-                            "Please include your private key in the request headers."
+                            f"Missing private_key credential for {exchange_name}. "
+                            "Please provide your private key."
                         )
                     if not exchange_creds.get("funder"):
                         raise ValueError(
-                            "Missing X-Polymarket-Funder header. "
-                            "Please include your funder address in the request headers."
+                            f"Missing funder credential for {exchange_name}. "
+                            "Please provide your funder address."
                         )
                 elif exchange_name.lower() in ("limitless", "opinion"):
                     if not exchange_creds.get("private_key"):
                         raise ValueError(
-                            f"Missing X-{exchange_name.title()}-Private-Key header. "
-                            "Please include your private key in the request headers."
+                            f"Missing private_key credential for {exchange_name}. "
+                            "Please provide your private key."
                         )
 
                 logger.info(f"Using context credentials for {exchange_name} (SSE mode)")
