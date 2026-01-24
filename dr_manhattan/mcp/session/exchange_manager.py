@@ -4,12 +4,40 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from dr_manhattan.base import Exchange, ExchangeClient, create_exchange
 from dr_manhattan.utils import setup_logger
 
 logger = setup_logger(__name__)
+
+# Callback to get credentials from request context (set by SSE server)
+_context_credentials_getter: Optional[Callable[[], Optional[Dict[str, Any]]]] = None
+
+
+def set_context_credentials_getter(getter: Optional[Callable[[], Optional[Dict[str, Any]]]]):
+    """
+    Set the callback function for getting credentials from request context.
+
+    Used by SSE server to provide per-request credentials.
+
+    Args:
+        getter: Function that returns credentials dict or None
+    """
+    global _context_credentials_getter
+    _context_credentials_getter = getter
+
+
+def get_context_credentials() -> Optional[Dict[str, Any]]:
+    """
+    Get credentials from current request context if available.
+
+    Returns:
+        Credentials dict or None if not in SSE context
+    """
+    if _context_credentials_getter is not None:
+        return _context_credentials_getter()
+    return None
 
 # Lock for credential operations (thread-safe access to MCP_CREDENTIALS)
 _CREDENTIALS_LOCK = threading.Lock()
@@ -204,11 +232,56 @@ class ExchangeSessionManager:
         """No-op: initialization done in __new__ to prevent race conditions."""
         pass
 
+    def _create_exchange_with_credentials(
+        self, exchange_name: str, config_dict: Dict[str, Any]
+    ) -> Exchange:
+        """
+        Create exchange instance with specific credentials.
+
+        Internal method - does not cache the instance.
+
+        Args:
+            exchange_name: Exchange name
+            config_dict: Credentials dictionary
+
+        Returns:
+            Exchange instance
+        """
+        from ...exchanges.limitless import Limitless
+        from ...exchanges.opinion import Opinion
+        from ...exchanges.polymarket import Polymarket
+
+        exchange_classes = {
+            "polymarket": Polymarket,
+            "opinion": Opinion,
+            "limitless": Limitless,
+        }
+
+        exchange_class = exchange_classes.get(exchange_name.lower())
+        if not exchange_class:
+            raise ValueError(f"Unknown exchange: {exchange_name}")
+
+        # Ensure verbose is False for MCP
+        config_dict["verbose"] = DEFAULT_VERBOSE
+
+        logger.info(f"Initializing {exchange_name} with provided credentials...")
+        exchange = _run_with_timeout(
+            exchange_class,
+            args=(config_dict,),
+            timeout=EXCHANGE_INIT_TIMEOUT,
+            description=f"{exchange_name} initialization",
+        )
+        logger.info(f"{exchange_name} initialized successfully")
+        return exchange
+
     def get_exchange(
         self, exchange_name: str, use_env: bool = True, validate: bool = True
     ) -> Exchange:
         """
         Get or create exchange instance.
+
+        Checks for context credentials first (SSE mode), then falls back
+        to environment credentials (local mode).
 
         Args:
             exchange_name: Exchange name (polymarket, opinion, limitless)
@@ -221,6 +294,35 @@ class ExchangeSessionManager:
         Raises:
             ValueError: If exchange unknown or credentials invalid
         """
+        # Check for context credentials (SSE mode - per-request credentials)
+        context_creds = get_context_credentials()
+        if context_creds:
+            exchange_creds = context_creds.get(exchange_name.lower())
+            if exchange_creds:
+                # Validate required credentials
+                if exchange_name.lower() == "polymarket":
+                    if not exchange_creds.get("private_key"):
+                        raise ValueError(
+                            "Missing X-Polymarket-Private-Key header. "
+                            "Please include your private key in the request headers."
+                        )
+                    if not exchange_creds.get("funder"):
+                        raise ValueError(
+                            "Missing X-Polymarket-Funder header. "
+                            "Please include your funder address in the request headers."
+                        )
+                elif exchange_name.lower() in ("limitless", "opinion"):
+                    if not exchange_creds.get("private_key"):
+                        raise ValueError(
+                            f"Missing X-{exchange_name.title()}-Private-Key header. "
+                            "Please include your private key in the request headers."
+                        )
+
+                logger.info(f"Using context credentials for {exchange_name} (SSE mode)")
+                # Create exchange without caching (each user has different credentials)
+                return self._create_exchange_with_credentials(exchange_name, exchange_creds)
+
+        # Fall back to cached exchange with environment credentials (local mode)
         with self._instance_lock:
             if exchange_name not in self._exchanges:
                 logger.info(f"Creating new exchange instance: {exchange_name}")
@@ -241,30 +343,7 @@ class ExchangeSessionManager:
                                 "Please set it in your .env file or environment."
                             )
                     logger.info(f"Using MCP credentials for {exchange_name}")
-                    # Create exchange directly with dict config (MCP-specific)
-                    from ...exchanges.limitless import Limitless
-                    from ...exchanges.opinion import Opinion
-                    from ...exchanges.polymarket import Polymarket
-
-                    exchange_classes = {
-                        "polymarket": Polymarket,
-                        "opinion": Opinion,
-                        "limitless": Limitless,
-                    }
-
-                    exchange_class = exchange_classes.get(exchange_name.lower())
-                    if not exchange_class:
-                        raise ValueError(f"Unknown exchange: {exchange_name}")
-
-                    # Initialize with timeout to avoid blocking
-                    logger.info(f"Initializing {exchange_name} (this may take a moment)...")
-                    exchange = _run_with_timeout(
-                        exchange_class,
-                        args=(config_dict,),
-                        timeout=EXCHANGE_INIT_TIMEOUT,
-                        description=f"{exchange_name} initialization",
-                    )
-                    logger.info(f"{exchange_name} initialized successfully")
+                    exchange = self._create_exchange_with_credentials(exchange_name, config_dict)
                 else:
                     exchange = create_exchange(exchange_name, use_env=use_env, validate=validate)
 

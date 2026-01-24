@@ -2,6 +2,14 @@
 
 from .errors import McpError, translate_error
 from .rate_limiter import RateLimiter, check_rate_limit, get_rate_limiter
+from .security import (
+    SENSITIVE_HEADERS,
+    get_credentials_from_headers,
+    has_any_credentials,
+    sanitize_error_message,
+    sanitize_headers_for_logging,
+    validate_credentials_present,
+)
 from .serializers import serialize_model
 from .validation import (
     SUPPORTED_EXCHANGES,
@@ -25,6 +33,14 @@ __all__ = [
     "RateLimiter",
     "check_rate_limit",
     "get_rate_limiter",
+    # Security
+    "SENSITIVE_HEADERS",
+    "get_credentials_from_headers",
+    "has_any_credentials",
+    "sanitize_error_message",
+    "sanitize_headers_for_logging",
+    "validate_credentials_present",
+    # Validation
     "SUPPORTED_EXCHANGES",
     "validate_exchange",
     "validate_market_id",

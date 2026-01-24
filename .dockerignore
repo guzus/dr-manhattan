@@ -1,0 +1,28 @@
+# Environment and secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+
+# Testing
+.pytest_cache/
+tests/
+
+# Documentation (not needed in container)
+examples/
+wiki/
+
+# Development files
+.dev/
+.claude/
