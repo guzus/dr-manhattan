@@ -1337,6 +1337,451 @@ td code {
   text-align: center;
 }
 
+/* Guide Page */
+.guide-container {
+  min-height: 100vh;
+  background: var(--deep-space);
+}
+
+.guide-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 4rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.guide-content {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 3rem 2rem 4rem;
+}
+
+.guide-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.guide-header h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.75rem;
+}
+
+.guide-subtitle {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+}
+
+.guide-section {
+  margin-bottom: 3rem;
+}
+
+.guide-section h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+.guide-section p {
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: 1rem;
+}
+
+.guide-list {
+  margin: 1rem 0 1.5rem 1.5rem;
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+
+.guide-list li {
+  margin-bottom: 0.5rem;
+}
+
+.guide-list.numbered {
+  list-style-type: decimal;
+}
+
+.guide-list.numbered li {
+  margin-bottom: 1rem;
+  padding-left: 0.5rem;
+}
+
+/* Info Card */
+.info-card {
+  background: rgba(0, 180, 255, 0.05);
+  border: 1px solid rgba(0, 180, 255, 0.2);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+}
+
+.info-card h3 {
+  font-size: 1.1rem;
+  color: var(--manhattan-glow);
+  margin-bottom: 1rem;
+}
+
+.security-note {
+  padding: 1rem;
+  background: rgba(40, 200, 64, 0.08);
+  border-left: 3px solid var(--success);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+/* Security Grid */
+.security-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.security-item {
+  padding: 1.25rem;
+  border-radius: 10px;
+}
+
+.security-item.safe {
+  background: rgba(40, 200, 64, 0.08);
+  border: 1px solid rgba(40, 200, 64, 0.2);
+}
+
+.security-item.restricted {
+  background: rgba(255, 95, 87, 0.08);
+  border: 1px solid rgba(255, 95, 87, 0.2);
+}
+
+.security-item h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.security-item.safe h4 {
+  color: var(--success);
+}
+
+.security-item.restricted h4 {
+  color: var(--error);
+}
+
+.security-item ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.code-link {
+  color: var(--manhattan-glow);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+}
+
+/* Setup Steps */
+.setup-step {
+  background: var(--deep-space);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+  transition: all 0.3s;
+}
+
+.setup-step.locked {
+  opacity: 0.5;
+}
+
+.step-header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.step-number {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--void);
+  border: 2px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.step-number.active {
+  background: var(--manhattan-blue);
+  border-color: var(--manhattan-blue);
+  color: white;
+}
+
+.step-number.completed {
+  background: var(--success);
+  border-color: var(--success);
+}
+
+.step-header h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.step-header p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.step-content {
+  margin-top: 1.25rem;
+  padding-left: 2.75rem;
+}
+
+.step-explanation {
+  margin-bottom: 1.25rem;
+}
+
+.step-explanation p {
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.step-explanation code {
+  background: var(--code-bg);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--manhattan-glow);
+}
+
+.connect-wrapper {
+  margin-bottom: 1rem;
+}
+
+.step-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.step-status.success {
+  background: rgba(40, 200, 64, 0.1);
+  color: var(--success);
+}
+
+.btn-small {
+  padding: 0.4rem 0.8rem;
+  background: var(--manhattan-blue);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-small:hover {
+  background: var(--manhattan-glow);
+}
+
+/* Contract Details */
+.contract-details {
+  background: var(--code-bg);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.detail-row {
+  display: flex;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-row span:first-child {
+  color: var(--text-muted);
+  min-width: 80px;
+}
+
+.detail-row a {
+  color: var(--manhattan-glow);
+  text-decoration: none;
+}
+
+.detail-row a:hover {
+  text-decoration: underline;
+}
+
+.detail-row code {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-secondary);
+}
+
+/* Config Block */
+.config-block {
+  background: var(--code-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.config-block .config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.config-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.config-code {
+  padding: 1.25rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  overflow-x: auto;
+}
+
+/* Final Steps */
+.final-steps {
+  background: rgba(0, 180, 255, 0.05);
+  border: 1px solid rgba(0, 180, 255, 0.15);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+
+.final-steps h4 {
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+  color: var(--text-primary);
+}
+
+.final-steps ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+
+.final-steps code {
+  background: var(--code-bg);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+}
+
+/* Revoke Confirm */
+.revoke-confirm {
+  background: rgba(255, 95, 87, 0.08);
+  border: 1px solid rgba(255, 95, 87, 0.2);
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-top: 1rem;
+}
+
+.revoke-confirm p {
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+.revoke-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.btn-outline-danger {
+  padding: 0.6rem 1.25rem;
+  background: transparent;
+  border: 1px solid rgba(255, 95, 87, 0.4);
+  border-radius: 8px;
+  color: var(--error);
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-outline-danger:hover {
+  background: rgba(255, 95, 87, 0.1);
+  border-color: var(--error);
+}
+
+/* FAQ */
+.faq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.faq-item {
+  background: var(--deep-space);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+
+.faq-item h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.faq-item p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.faq-item a {
+  color: var(--manhattan-glow);
+}
+
+/* Guide Footer */
+.guide-footer {
+  text-align: center;
+  padding: 2rem;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
   .sidebar {
@@ -1416,5 +1861,33 @@ td code {
 
   .docs-content .code-block pre {
     font-size: 0.75rem;
+  }
+
+  /* Guide page responsive */
+  .guide-nav {
+    padding: 1rem 1.5rem;
+  }
+
+  .guide-content {
+    padding: 2rem 1.5rem;
+  }
+
+  .guide-header h1 {
+    font-size: 1.75rem;
+  }
+
+  .security-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .step-content {
+    padding-left: 0;
+    margin-top: 1rem;
+  }
+
+  .config-block .config-header {
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-start;
   }
 }
