@@ -8,7 +8,19 @@ Connect to Dr. Manhattan from Claude Desktop or Claude Code without local instal
 
 ### Claude Code
 
-Add to `~/.claude/settings.json` or project `.mcp.json`:
+#### Option 1: CLI Command (Recommended)
+
+```bash
+claude mcp add dr-manhattan \
+  --transport sse \
+  --url "https://dr-manhattan-mcp-production.up.railway.app/sse" \
+  --header "X-Polymarket-Private-Key: 0x_your_private_key" \
+  --header "X-Polymarket-Funder: 0x_your_funder_address"
+```
+
+#### Option 2: Global Configuration
+
+Edit `~/.claude/settings.json`:
 
 ```json
 {
@@ -24,6 +36,35 @@ Add to `~/.claude/settings.json` or project `.mcp.json`:
   }
 }
 ```
+
+#### Option 3: Project Configuration
+
+Create `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "dr-manhattan": {
+      "type": "sse",
+      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
+      "headers": {
+        "X-Polymarket-Private-Key": "0x_your_private_key",
+        "X-Polymarket-Funder": "0x_your_funder_address"
+      }
+    }
+  }
+}
+```
+
+#### Verify Connection
+
+After configuration, restart Claude Code and run:
+
+```
+/mcp
+```
+
+You should see `dr-manhattan` listed with available tools like `fetch_markets`, `create_order`, etc.
 
 ### Claude Desktop
 
