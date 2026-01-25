@@ -4,7 +4,11 @@ Provides functions for handling sensitive data safely in remote MCP environments
 """
 
 import re
+import time
 from typing import Any, Dict, List, Optional
+
+from eth_account.messages import encode_defunct
+from web3 import Web3
 
 # Sensitive header names that should never be logged
 SENSITIVE_HEADERS: List[str] = [
@@ -12,6 +16,8 @@ SENSITIVE_HEADERS: List[str] = [
     "x-polymarket-api-key",
     "x-polymarket-api-secret",
     "x-polymarket-passphrase",
+    # Operator mode authentication
+    "x-polymarket-auth-signature",
     # Generic
     "authorization",
     "x-api-key",
@@ -19,18 +25,33 @@ SENSITIVE_HEADERS: List[str] = [
 
 # Header to credential mapping for each exchange
 # SSE server supports Polymarket via:
-# 1. Operator mode: user provides wallet address, server signs on behalf
+# 1. Operator mode: user provides wallet address + signature, server signs on behalf
 # 2. Builder profile: user provides api_key, api_secret, api_passphrase
 HEADER_CREDENTIAL_MAP: Dict[str, Dict[str, str]] = {
     "polymarket": {
-        # Operator mode (preferred for SSE)
+        # Operator mode (preferred for SSE) - requires signature for security
         "x-polymarket-wallet-address": "user_address",
+        "x-polymarket-auth-signature": "auth_signature",
+        "x-polymarket-auth-timestamp": "auth_timestamp",
+        "x-polymarket-auth-expiry": "auth_expiry",
         # Builder profile (alternative)
         "x-polymarket-api-key": "api_key",
         "x-polymarket-api-secret": "api_secret",
         "x-polymarket-passphrase": "api_passphrase",
     },
 }
+
+# Authentication message prefix (must match frontend)
+AUTH_MESSAGE_PREFIX = "I authorize Dr. Manhattan to trade on Polymarket on my behalf."
+
+# Default signature validity (24 hours) - can be overridden by user
+DEFAULT_SIGNATURE_VALIDITY_SECONDS = 86400
+
+# Maximum allowed expiry (90 days) - security limit
+MAX_SIGNATURE_VALIDITY_SECONDS = 7776000
+
+# Allowed expiry options (must match frontend)
+ALLOWED_EXPIRY_OPTIONS = [86400, 604800, 2592000, 7776000]  # 24h, 7d, 30d, 90d
 
 # Write operations that modify state (require credentials)
 WRITE_OPERATIONS: List[str] = [
@@ -235,3 +256,99 @@ def has_any_credentials(headers: Dict[str, str]) -> bool:
     """Check if headers contain any exchange credentials."""
     normalized = {k.lower() for k in headers.keys()}
     return any(h in normalized for h in SENSITIVE_HEADERS if h != "authorization")
+
+
+def verify_wallet_signature(
+    wallet_address: str, signature: str, timestamp: str, expiry: Optional[str] = None
+) -> tuple[bool, Optional[str]]:
+    """
+    Verify that a signature proves ownership of a wallet address.
+
+    The user must sign a message containing their wallet address, timestamp, and expiry.
+    This prevents replay attacks and proves wallet ownership.
+
+    Args:
+        wallet_address: The claimed wallet address
+        signature: The signature of the auth message
+        timestamp: Unix timestamp when the message was signed
+        expiry: Expiry duration in seconds (optional, defaults to 24 hours)
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    try:
+        # Parse and validate timestamp
+        ts = int(timestamp)
+        current_time = int(time.time())
+
+        # Parse and validate expiry
+        if expiry:
+            try:
+                expiry_seconds = int(expiry)
+                # Validate expiry is one of the allowed options
+                if expiry_seconds not in ALLOWED_EXPIRY_OPTIONS:
+                    return False, f"Invalid expiry duration. Allowed: {ALLOWED_EXPIRY_OPTIONS}"
+                # Cap at maximum for security
+                expiry_seconds = min(expiry_seconds, MAX_SIGNATURE_VALIDITY_SECONDS)
+            except ValueError:
+                return False, "Invalid expiry format."
+        else:
+            expiry_seconds = DEFAULT_SIGNATURE_VALIDITY_SECONDS
+
+        # Check if signature has expired
+        if current_time - ts > expiry_seconds:
+            return False, "Signature has expired. Please re-authenticate."
+
+        # Check if timestamp is in the future (clock skew tolerance: 5 minutes)
+        if ts > current_time + 300:
+            return False, "Invalid timestamp (in future)."
+
+        # Reconstruct the message that was signed (must match frontend format)
+        if expiry:
+            message = f"{AUTH_MESSAGE_PREFIX}\n\nWallet: {wallet_address}\nTimestamp: {timestamp}\nExpiry: {expiry}"
+        else:
+            # Legacy format without expiry (for backwards compatibility)
+            message = f"{AUTH_MESSAGE_PREFIX}\n\nWallet: {wallet_address}\nTimestamp: {timestamp}"
+
+        # Verify the signature
+        w3 = Web3()
+        message_hash = encode_defunct(text=message)
+        recovered_address = w3.eth.account.recover_message(message_hash, signature=signature)
+
+        # Compare addresses (case-insensitive)
+        if recovered_address.lower() != wallet_address.lower():
+            return False, "Signature does not match wallet address."
+
+        return True, None
+
+    except ValueError as e:
+        return False, f"Invalid timestamp format: {e}"
+    except Exception as e:
+        return False, f"Signature verification failed: {e}"
+
+
+def validate_operator_credentials(credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+    """
+    Validate operator mode credentials (wallet address + signature).
+
+    Args:
+        credentials: Credentials dict containing user_address, auth_signature, auth_timestamp, auth_expiry
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    user_address = credentials.get("user_address")
+    signature = credentials.get("auth_signature")
+    timestamp = credentials.get("auth_timestamp")
+    expiry = credentials.get("auth_expiry")
+
+    if not user_address:
+        return False, "Missing wallet address."
+
+    if not signature or not timestamp:
+        return (
+            False,
+            "Missing authentication signature. Please authenticate at dr-manhattan.io/approve",
+        )
+
+    return verify_wallet_signature(user_address, signature, timestamp, expiry)

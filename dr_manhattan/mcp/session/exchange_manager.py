@@ -338,7 +338,7 @@ class ExchangeSessionManager:
                 # Validate required credentials (transport-agnostic messages)
                 if exchange_name.lower() == "polymarket":
                     # SSE mode supports two authentication methods:
-                    # 1. Operator mode: user provides wallet address, server signs on behalf
+                    # 1. Operator mode: user provides wallet address + signature
                     # 2. Builder profile: user provides api_key, api_secret, api_passphrase
                     has_user_address = exchange_creds.get("user_address")
                     has_builder_creds = all(
@@ -349,10 +349,16 @@ class ExchangeSessionManager:
                     if not has_user_address and not has_builder_creds and not has_private_key:
                         raise ValueError(
                             f"Missing credentials for {exchange_name}. "
-                            "Please provide either: "
-                            "(1) your wallet address (X-Polymarket-Wallet-Address header), or "
-                            "(2) Builder profile credentials (api_key, api_secret, api_passphrase)."
+                            "Please authenticate at dr-manhattan.io/approve"
                         )
+
+                    # Validate signature for operator mode (security check)
+                    if has_user_address and not has_private_key and not has_builder_creds:
+                        from ..utils.security import validate_operator_credentials
+
+                        is_valid, error = validate_operator_credentials(exchange_creds)
+                        if not is_valid:
+                            raise ValueError(error)
                 elif exchange_name.lower() in ("limitless", "opinion"):
                     # Other exchanges still require private_key (not supported in SSE write mode)
                     if not exchange_creds.get("private_key"):

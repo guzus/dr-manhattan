@@ -6,34 +6,22 @@ Connect to Dr. Manhattan from Claude Desktop or Claude Code without local instal
 
 **Server URL:** `https://dr-manhattan-mcp-production.up.railway.app/sse`
 
-### Step 1: Approve Server as Operator
+### Step 1: Connect Your Wallet
 
-Before trading, approve the server's address as an operator on Polymarket (one-time on-chain transaction).
+Go to [dr-manhattan.io/approve](https://dr-manhattan.io/approve) to:
+1. Connect your Polymarket wallet
+2. Approve Dr. Manhattan as an operator (one-time on-chain transaction)
+3. Sign an authentication message (free, proves wallet ownership)
+4. Copy your configuration
 
-Server operator address: `[To be announced]`
+### Step 2: Add Configuration
 
-**How to approve:**
-1. Go to [CTF Contract on PolygonScan](https://polygonscan.com/address/0x4d97dcd97ec945f40cf65f87097ace5ea0476045#writeContract)
-2. Click **"Connect to Web3"** and connect your wallet
-3. Find **`setApprovalForAll`** function
-4. Enter:
-   - `operator`: `[server operator address]`
-   - `approved`: `true`
-5. Click **"Write"** and confirm in your wallet
+Paste the configuration into your Claude settings:
 
-### Step 2: Configure Your Client
+**Claude Code:** `~/.claude/settings.json`
+**Claude Desktop:** `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
-#### Claude Code
-
-```bash
-claude mcp add dr-manhattan \
-  --transport sse \
-  --url "https://dr-manhattan-mcp-production.up.railway.app/sse" \
-  --header "X-Polymarket-Wallet-Address: 0xYourWalletAddress"
-```
-
-Or edit `~/.claude/settings.json`:
-
+Example configuration:
 ```json
 {
   "mcpServers": {
@@ -41,46 +29,22 @@ Or edit `~/.claude/settings.json`:
       "type": "sse",
       "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
       "headers": {
-        "X-Polymarket-Wallet-Address": "0xYourWalletAddress"
+        "X-Polymarket-Wallet-Address": "0xYourWalletAddress",
+        "X-Polymarket-Auth-Signature": "0xYourSignature...",
+        "X-Polymarket-Auth-Timestamp": "1706123456"
       }
     }
   }
 }
 ```
-
-#### Claude Desktop
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
-
-```json
-{
-  "mcpServers": {
-    "dr-manhattan": {
-      "type": "sse",
-      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
-      "headers": {
-        "X-Polymarket-Wallet-Address": "0xYourWalletAddress"
-      }
-    }
-  }
-}
-```
-
-Restart Claude after configuration.
 
 ### Step 3: Verify Connection
 
-In Claude Code, run:
-
-```
-/mcp
-```
-
-You should see `dr-manhattan` listed with available tools.
+Restart Claude and run `/mcp` to see available tools.
 
 ## Read-Only Mode
 
-You can connect without any credentials to use read-only features:
+You can connect without any credentials to browse markets:
 
 ```bash
 claude mcp add dr-manhattan \
@@ -96,15 +60,17 @@ Available without credentials:
 
 ## How It Works
 
-1. You provide your wallet address via the `X-Polymarket-Wallet-Address` header
-2. You approve the server as an operator on Polymarket (one-time)
-3. The server signs orders on your behalf
-4. Orders execute from your account
+1. You connect your wallet and approve Dr. Manhattan as an operator
+2. You sign a message proving wallet ownership (no gas, free)
+3. The signature is included in your configuration
+4. The server verifies your signature on each request
+5. Orders execute from your account
 
 **Security:**
 - Your private key never leaves your wallet
-- You can revoke access anytime by calling `revokeOperator()`
-- Each order is executed from your account, not the server's
+- Signatures expire after 24 hours (re-authenticate if needed)
+- You can revoke operator access anytime on-chain
+- Each order executes from your account, not the server's
 
 ## Available Operations
 
@@ -132,9 +98,17 @@ Available without credentials:
 
 ## Troubleshooting
 
+### "Signature has expired"
+
+Your authentication signature is valid for 24 hours. Re-authenticate at [dr-manhattan.io/approve](https://dr-manhattan.io/approve).
+
 ### "User has not approved operator"
 
-You need to approve the server address as an operator on Polymarket. See Step 1 above.
+You need to approve the server address as an operator on Polymarket. Visit [dr-manhattan.io/approve](https://dr-manhattan.io/approve) and complete Step 1.
+
+### "Signature does not match wallet address"
+
+Make sure you're using the same wallet that you authenticated with. Re-authenticate if needed.
 
 ### "Write operations are not supported for X"
 
@@ -179,7 +153,7 @@ uv run python -m dr_manhattan.mcp.server_sse
 
 ## Alternative: Builder Profile
 
-If you prefer to use your own API credentials instead of operator mode, you can use Polymarket's Builder profile.
+If you prefer to use your own API credentials instead of operator mode.
 
 ### Getting Credentials
 
@@ -197,22 +171,4 @@ claude mcp add dr-manhattan \
   --header "X-Polymarket-Api-Key: your_api_key" \
   --header "X-Polymarket-Api-Secret: your_api_secret" \
   --header "X-Polymarket-Passphrase: your_passphrase"
-```
-
-Or in JSON config:
-
-```json
-{
-  "mcpServers": {
-    "dr-manhattan": {
-      "type": "sse",
-      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
-      "headers": {
-        "X-Polymarket-Api-Key": "your_api_key",
-        "X-Polymarket-Api-Secret": "your_api_secret",
-        "X-Polymarket-Passphrase": "your_passphrase"
-      }
-    }
-  }
-}
 ```
