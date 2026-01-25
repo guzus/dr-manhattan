@@ -251,6 +251,24 @@ class ExchangeSessionManager:
         from ...exchanges.limitless import Limitless
         from ...exchanges.opinion import Opinion
         from ...exchanges.polymarket import Polymarket
+        from ...exchanges.polymarket_builder import PolymarketBuilder
+
+        # For Polymarket, use Builder profile if api_key is present (no private_key)
+        if exchange_name.lower() == "polymarket":
+            has_builder_creds = all(
+                config_dict.get(k) for k in ("api_key", "api_secret", "api_passphrase")
+            )
+            has_private_key = config_dict.get("private_key")
+
+            if has_builder_creds and not has_private_key:
+                logger.info(f"Using PolymarketBuilder for {exchange_name} (Builder profile)")
+                config_dict["verbose"] = DEFAULT_VERBOSE
+                return _run_with_timeout(
+                    PolymarketBuilder,
+                    args=(config_dict,),
+                    timeout=EXCHANGE_INIT_TIMEOUT,
+                    description=f"{exchange_name} Builder initialization",
+                )
 
         exchange_classes = {
             "polymarket": Polymarket,
@@ -302,17 +320,21 @@ class ExchangeSessionManager:
             if exchange_creds:
                 # Validate required credentials (transport-agnostic messages)
                 if exchange_name.lower() == "polymarket":
-                    if not exchange_creds.get("private_key"):
+                    # SSE mode: Polymarket uses Builder profile (api_key, api_secret, api_passphrase)
+                    # This allows trading without exposing private keys
+                    has_builder_creds = all(
+                        exchange_creds.get(k) for k in ("api_key", "api_secret", "api_passphrase")
+                    )
+                    has_private_key = exchange_creds.get("private_key")
+
+                    if not has_builder_creds and not has_private_key:
                         raise ValueError(
-                            f"Missing private_key credential for {exchange_name}. "
-                            "Please provide your private key."
-                        )
-                    if not exchange_creds.get("funder"):
-                        raise ValueError(
-                            f"Missing funder credential for {exchange_name}. "
-                            "Please provide your funder address."
+                            f"Missing credentials for {exchange_name}. "
+                            "Please provide Builder profile credentials "
+                            "(api_key, api_secret, api_passphrase)."
                         )
                 elif exchange_name.lower() in ("limitless", "opinion"):
+                    # Other exchanges still require private_key (not supported in SSE write mode)
                     if not exchange_creds.get("private_key"):
                         raise ValueError(
                             f"Missing private_key credential for {exchange_name}. "

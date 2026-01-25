@@ -137,10 +137,23 @@ The remote server uses Polymarket's Builder profile for secure trading without e
 
 ### Getting Credentials
 
+To get your Polymarket API credentials:
+
 1. Go to [Polymarket](https://polymarket.com) and connect your wallet
-2. Navigate to your account settings
-3. Generate API credentials (API Key, Secret, Passphrase)
-4. Use these credentials in the headers above
+2. Click on your profile icon in the top right corner
+3. Select **Settings** from the dropdown menu
+4. Navigate to the **API Keys** section
+5. Click **Create API Key**
+6. Set a passphrase (you'll need to remember this)
+7. Copy and save your credentials:
+   - **API Key** - Your unique identifier
+   - **API Secret** - Your secret key (shown only once)
+   - **Passphrase** - The passphrase you set
+
+**Important:**
+- The API Secret is only shown once when created. Save it securely.
+- Keep your credentials private. Never share them publicly.
+- You can create multiple API keys and revoke them anytime.
 
 ### Required Headers
 
