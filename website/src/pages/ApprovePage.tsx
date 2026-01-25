@@ -139,11 +139,57 @@ export default function ApprovePage() {
           </ul>
         </section>
 
-        {/* How it Works */}
+        {/* Read-Only Mode */}
         <section className="guide-section">
-          <h2>How Does It Work?</h2>
+          <h2>Quick Start: Read-Only Mode</h2>
           <p>
-            Dr. Manhattan uses <strong>Operator Mode</strong>, a secure delegation mechanism built into Polymarket's
+            Want to explore market data without connecting a wallet? Use read-only mode to fetch markets,
+            prices, and orderbooks without any authentication.
+          </p>
+          <div className="config-block">
+            <div className="config-header">
+              <span>~/.claude/settings.json</span>
+              <button className="copy-btn" onClick={() => {
+                navigator.clipboard.writeText(`{
+  "mcpServers": {
+    "dr-manhattan": {
+      "type": "sse",
+      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse"
+    }
+  }
+}`)
+              }}>
+                Copy
+              </button>
+            </div>
+            <pre className="config-code">{`{
+  "mcpServers": {
+    "dr-manhattan": {
+      "type": "sse",
+      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse"
+    }
+  }
+}`}</pre>
+          </div>
+          <div className="read-only-features">
+            <h4>Available in read-only mode:</h4>
+            <ul className="guide-list">
+              <li>Search and browse all Polymarket markets</li>
+              <li>Get real-time prices and orderbooks</li>
+              <li>View market details and resolution criteria</li>
+              <li>Analyze trading volume and liquidity</li>
+            </ul>
+          </div>
+          <p className="info-text">
+            To place trades or view your positions, continue with the full setup below.
+          </p>
+        </section>
+
+        {/* How it Works - Trading Mode */}
+        <section className="guide-section">
+          <h2>Trading Mode Setup</h2>
+          <p>
+            To place trades, Dr. Manhattan uses <strong>Operator Mode</strong>, a secure delegation mechanism built into Polymarket's
             smart contracts. Here's how it works:
           </p>
           <div className="info-card">

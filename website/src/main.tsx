@@ -23,7 +23,7 @@ function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/docs" element={<DocsPage />} />
-              <Route path="/approve" element={<ApprovePage />} />
+              <Route path="/mcp" element={<ApprovePage />} />
             </Routes>
           </BrowserRouter>
         </RainbowKitProvider>

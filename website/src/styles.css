@@ -1436,6 +1436,31 @@ td code {
   font-size: 0.95rem;
 }
 
+/* Read-Only Features */
+.read-only-features {
+  background: rgba(0, 180, 255, 0.05);
+  border: 1px solid rgba(0, 180, 255, 0.15);
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin: 1rem 0;
+}
+
+.read-only-features h4 {
+  font-size: 0.95rem;
+  color: var(--manhattan-glow);
+  margin-bottom: 0.75rem;
+}
+
+.read-only-features .guide-list {
+  margin: 0;
+}
+
+.info-text {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* Security Grid */
 .security-grid {
   display: grid;
