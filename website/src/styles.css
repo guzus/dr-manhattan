@@ -492,8 +492,15 @@ nav {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.9rem;
   line-height: 1.8;
-  color: var(--manhattan-glow);
+  color: var(--text-secondary);
 }
+
+/* Syntax Highlighting */
+.code-block .kw { color: #c792ea; } /* keywords: import, for, in */
+.code-block .fn { color: #82aaff; } /* functions */
+.code-block .st { color: #c3e88d; } /* strings */
+.code-block .nu { color: #f78c6c; } /* numbers */
+.code-block .cm { color: #546e7a; } /* comments */
 
 /* Features Section */
 .features-section {

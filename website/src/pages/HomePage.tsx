@@ -49,7 +49,7 @@ export default function HomePage() {
           <h1><span className="glow">dr-manhattan</span></h1>
           <p className="hero-tagline">CCXT for prediction markets. Simple, scalable, and easy to extend.</p>
           <div className="hero-actions">
-            <Link to="/docs#mcp-server" className="btn-primary">Integrate MCP Server</Link>
+            <Link to="/approve" className="btn-primary">Integrate MCP Server</Link>
             <a href="https://github.com/guzus/dr-manhattan" className="btn-secondary" target="_blank" rel="noreferrer">
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
               View on GitHub
@@ -83,18 +83,19 @@ export default function HomePage() {
             <span className="code-filename">example.py</span>
           </div>
           <div className="code-block">
-            <pre>{`import dr_manhattan
-
-# Initialize any exchange with the same interface
-polymarket = dr_manhattan.Polymarket({'timeout': 30})
-opinion = dr_manhattan.Opinion({'timeout': 30})
-limitless = dr_manhattan.Limitless({'timeout': 30})
-
-# Fetch markets from any platform
-markets = polymarket.fetch_markets()
-
-for market in markets:
-    print(f"{market.question}: {market.prices}")`}</pre>
+            <pre>
+<span className="kw">import</span> dr_manhattan{'\n'}
+{'\n'}
+<span className="cm"># Initialize any exchange with the same interface</span>{'\n'}
+polymarket = dr_manhattan.<span className="fn">Polymarket</span>({'{'}<span className="st">'timeout'</span>: <span className="nu">30</span>{'}'}){'\n'}
+opinion = dr_manhattan.<span className="fn">Opinion</span>({'{'}<span className="st">'timeout'</span>: <span className="nu">30</span>{'}'}){'\n'}
+limitless = dr_manhattan.<span className="fn">Limitless</span>({'{'}<span className="st">'timeout'</span>: <span className="nu">30</span>{'}'}){'\n'}
+{'\n'}
+<span className="cm"># Fetch markets from any platform</span>{'\n'}
+markets = polymarket.<span className="fn">fetch_markets</span>(){'\n'}
+{'\n'}
+<span className="kw">for</span> market <span className="kw">in</span> markets:{'\n'}
+    <span className="fn">print</span>(<span className="st">f"</span>{'{'}market.question{'}'}: {'{'}market.prices{'}'}<span className="st">"</span>)</pre>
           </div>
         </div>
       </section>
