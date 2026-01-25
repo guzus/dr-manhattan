@@ -12,7 +12,9 @@ Environment:
     LOG_LEVEL: Logging level (default: INFO)
 
 Security:
-    - Credentials passed via HTTP headers (X-{Exchange}-{Credential})
+    - Write operations only supported for Polymarket (via Builder profile)
+    - Other exchanges are read-only (no private keys on server)
+    - Polymarket credentials: API key, secret, passphrase (no private key)
     - Sensitive headers never logged
     - HTTPS required in production (handled by Railway/hosting)
 """
@@ -115,6 +117,7 @@ from .utils import (  # noqa: E402
     get_credentials_from_headers,
     sanitize_headers_for_logging,
     translate_error,
+    validate_write_operation,
 )
 
 # Fix loggers immediately after imports
@@ -161,13 +164,19 @@ async def list_tools() -> List[Tool]:
 
 @mcp_app.call_tool()
 async def call_tool(name: str, arguments: Any) -> List[TextContent]:
-    """Handle tool execution with rate limiting."""
+    """Handle tool execution with rate limiting and write operation validation."""
     try:
         if not check_rate_limit():
             raise ValueError("Rate limit exceeded. Please wait before making more requests.")
 
         if name not in TOOL_DISPATCH:
             raise ValueError(f"Unknown tool: {name}")
+
+        # Validate write operations - only Polymarket allowed via Builder profile
+        exchange = arguments.get("exchange") if isinstance(arguments, dict) else None
+        is_allowed, error_msg = validate_write_operation(name, exchange)
+        if not is_allowed:
+            raise ValueError(error_msg)
 
         handler, requires_args = TOOL_DISPATCH[name]
         result = handler(**arguments) if requires_args else handler()
@@ -245,14 +254,24 @@ async def root(request: Request) -> JSONResponse:
                 "/messages/": "MCP message handling",
                 "/health": "Health check",
             },
+            "security": {
+                "write_operations": "Polymarket only (via Builder profile)",
+                "other_exchanges": "Read-only (fetch_markets, fetch_orderbook, etc.)",
+            },
             "usage": {
-                "claude_config": {
+                "read_only": {
+                    "url": "https://<your-domain>/sse",
+                    "note": "No headers needed for read-only access",
+                },
+                "polymarket_trading": {
                     "url": "https://<your-domain>/sse",
                     "headers": {
-                        "X-Polymarket-Private-Key": "<your-private-key>",
-                        "X-Polymarket-Funder": "<your-funder-address>",
+                        "X-Polymarket-Api-Key": "<your-api-key>",
+                        "X-Polymarket-Api-Secret": "<your-api-secret>",
+                        "X-Polymarket-Passphrase": "<your-passphrase>",
                     },
-                }
+                    "note": "Get credentials from Polymarket Builder profile",
+                },
             },
         }
     )

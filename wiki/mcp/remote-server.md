@@ -2,13 +2,22 @@
 
 Connect to Dr. Manhattan from Claude Desktop or Claude Code without local installation.
 
+## Security Model
+
+The remote server uses a security-first approach:
+
+- **Polymarket**: Full read/write via Builder profile (no private key needed)
+- **Other exchanges**: Read-only (no private keys on server)
+
+For write operations on non-Polymarket exchanges, use the [local MCP server](../../README.md#mcp-server).
+
 ## Quick Start
 
 **Server URL:** `https://dr-manhattan-mcp-production.up.railway.app/sse`
 
 ### Read-Only Mode (No Credentials)
 
-You can connect without any credentials to use read-only features:
+You can connect without any credentials to use read-only features on all exchanges:
 
 ```bash
 claude mcp add dr-manhattan \
@@ -20,19 +29,27 @@ Available without credentials:
 - `fetch_markets` - Browse all prediction markets
 - `fetch_market` - Get market details and prices
 - `fetch_orderbook` - View order book depth
-
-Trading operations (`create_order`, `cancel_order`, `fetch_balance`, etc.) require credentials.
+- `search_markets` - Search markets by keyword
 
 ### Claude Code
 
 #### Option 1: CLI Command (Recommended)
 
+**Read-only:**
+```bash
+claude mcp add dr-manhattan \
+  --transport sse \
+  --url "https://dr-manhattan-mcp-production.up.railway.app/sse"
+```
+
+**With Polymarket trading:**
 ```bash
 claude mcp add dr-manhattan \
   --transport sse \
   --url "https://dr-manhattan-mcp-production.up.railway.app/sse" \
-  --header "X-Polymarket-Private-Key: 0x_your_private_key" \
-  --header "X-Polymarket-Funder: 0x_your_funder_address"
+  --header "X-Polymarket-Api-Key: your_api_key" \
+  --header "X-Polymarket-Api-Secret: your_api_secret" \
+  --header "X-Polymarket-Passphrase: your_passphrase"
 ```
 
 #### Option 2: Global Configuration
@@ -46,8 +63,9 @@ Edit `~/.claude/settings.json`:
       "type": "sse",
       "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
       "headers": {
-        "X-Polymarket-Private-Key": "0x_your_private_key",
-        "X-Polymarket-Funder": "0x_your_funder_address"
+        "X-Polymarket-Api-Key": "your_api_key",
+        "X-Polymarket-Api-Secret": "your_api_secret",
+        "X-Polymarket-Passphrase": "your_passphrase"
       }
     }
   }
@@ -65,8 +83,9 @@ Create `.mcp.json` in your project root:
       "type": "sse",
       "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
       "headers": {
-        "X-Polymarket-Private-Key": "0x_your_private_key",
-        "X-Polymarket-Funder": "0x_your_funder_address"
+        "X-Polymarket-Api-Key": "your_api_key",
+        "X-Polymarket-Api-Secret": "your_api_secret",
+        "X-Polymarket-Passphrase": "your_passphrase"
       }
     }
   }
@@ -94,8 +113,9 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
       "type": "sse",
       "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
       "headers": {
-        "X-Polymarket-Private-Key": "0x_your_private_key",
-        "X-Polymarket-Funder": "0x_your_funder_address"
+        "X-Polymarket-Api-Key": "your_api_key",
+        "X-Polymarket-Api-Secret": "your_api_secret",
+        "X-Polymarket-Passphrase": "your_passphrase"
       }
     }
   }
@@ -104,68 +124,55 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
 Restart Claude after configuration.
 
-## Credential Headers
+## Polymarket Builder Profile
 
-Pass credentials via HTTP headers. Only include headers for exchanges you want to use.
+The remote server uses Polymarket's Builder profile for secure trading without exposing your private key.
 
-### Polymarket
+### How It Works
 
-| Header | Required | Description |
-|--------|----------|-------------|
-| `X-Polymarket-Private-Key` | Yes | Ethereum private key (0x...) |
-| `X-Polymarket-Funder` | Yes | Funder address (0x...) |
-| `X-Polymarket-Proxy-Wallet` | No | Proxy wallet address |
-| `X-Polymarket-Signature-Type` | No | 0 = EOA (default), 1 = Poly Proxy, 2 = Gnosis |
+1. You register as a trader on Polymarket and get Builder API credentials
+2. These credentials allow the server to submit orders on your behalf
+3. Your private key never leaves your machine
+4. You can revoke access anytime from Polymarket
 
-### Limitless
+### Getting Credentials
 
-| Header | Required | Description |
-|--------|----------|-------------|
-| `X-Limitless-Private-Key` | Yes | Ethereum private key (0x...) |
+1. Go to [Polymarket](https://polymarket.com) and connect your wallet
+2. Navigate to your account settings
+3. Generate API credentials (API Key, Secret, Passphrase)
+4. Use these credentials in the headers above
 
-### Kalshi
+### Required Headers
 
-| Header | Required | Description |
-|--------|----------|-------------|
-| `X-Kalshi-Api-Key` | Yes | Kalshi API key ID |
-| `X-Kalshi-Private-Key` | Yes | Kalshi RSA private key (base64 or PEM) |
+| Header | Description |
+|--------|-------------|
+| `X-Polymarket-Api-Key` | Your Polymarket API key |
+| `X-Polymarket-Api-Secret` | Your Polymarket API secret |
+| `X-Polymarket-Passphrase` | Your Polymarket passphrase |
 
-### Opinion
+## Available Operations
 
-| Header | Required | Description |
-|--------|----------|-------------|
-| `X-Opinion-Private-Key` | Yes | Ethereum private key (0x...) |
-| `X-Opinion-Api-Key` | No | Opinion API key |
-| `X-Opinion-Multi-Sig-Addr` | No | Multi-sig address |
+### Read Operations (All Exchanges)
 
-### Predict.fun
+| Tool | Description |
+|------|-------------|
+| `list_exchanges` | List available exchanges |
+| `fetch_markets` | Browse all markets |
+| `search_markets` | Search by keyword |
+| `fetch_market` | Get market details |
+| `fetch_orderbook` | View order book |
+| `fetch_token_ids` | Get token IDs |
 
-| Header | Required | Description |
-|--------|----------|-------------|
-| `X-Predictfun-Private-Key` | Yes | Ethereum private key (0x...) |
-| `X-Predictfun-Api-Key` | No | Predict.fun API key |
+### Write Operations (Polymarket Only)
 
-## Multi-Exchange Configuration
-
-Configure multiple exchanges by including all their headers:
-
-```json
-{
-  "mcpServers": {
-    "dr-manhattan": {
-      "type": "sse",
-      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
-      "headers": {
-        "X-Polymarket-Private-Key": "0x...",
-        "X-Polymarket-Funder": "0x...",
-        "X-Limitless-Private-Key": "0x...",
-        "X-Kalshi-Api-Key": "your_api_key",
-        "X-Kalshi-Private-Key": "your_private_key"
-      }
-    }
-  }
-}
-```
+| Tool | Description |
+|------|-------------|
+| `create_order` | Place an order |
+| `cancel_order` | Cancel an order |
+| `cancel_all_orders` | Cancel all orders |
+| `fetch_balance` | Check balance |
+| `fetch_positions` | View positions |
+| `fetch_open_orders` | List open orders |
 
 ## Endpoints
 
@@ -177,33 +184,35 @@ Configure multiple exchanges by including all their headers:
 
 ## Security
 
-- All traffic encrypted via HTTPS
-- Credentials passed per-request, not stored on server
-- Sensitive headers never logged
-- Private keys exist in server memory only during request processing
+- **No private keys**: Server never receives your private key
+- **Builder profile**: Uses Polymarket's official delegation system
+- **Read-only for others**: Other exchanges cannot perform write operations
+- **HTTPS only**: All traffic encrypted
+- **Revocable**: You can revoke API access anytime on Polymarket
 
 ### Best Practices
 
-1. Use a dedicated wallet with limited funds for trading
+1. Use separate API credentials for the remote server
 2. Never commit configuration files with real credentials
 3. Consider using environment variables for credentials
-4. For large funds, prefer the [local MCP server](../README.md#mcp-server)
+4. Monitor your Polymarket activity regularly
 
 ## Troubleshooting
 
-### "Missing required credentials"
+### "Write operations are not supported for X"
 
-Ensure you've included all required headers for the exchange. Check the tables above.
+Write operations (create_order, cancel_order, etc.) are only available for Polymarket. For other exchanges, use the local MCP server.
+
+### "Missing required credentials for polymarket"
+
+Ensure you've included all three Polymarket headers:
+- `X-Polymarket-Api-Key`
+- `X-Polymarket-Api-Secret`
+- `X-Polymarket-Passphrase`
 
 ### Connection timeout
 
 The server may be cold-starting. Wait 10-30 seconds and retry.
-
-### "Invalid credentials"
-
-Verify your private key format:
-- Ethereum keys: Must be 64 hex characters (with or without 0x prefix)
-- Kalshi keys: Base64-encoded RSA private key
 
 ### Check server status
 
@@ -246,9 +255,10 @@ docker run -p 8080:8080 dr-manhattan-mcp
 | Feature | Local Server | Remote Server (SSE) |
 |---------|-------------|---------------------|
 | Setup | Requires Python, uv | None |
-| Credentials | In .env file | Via HTTP headers |
-| Security | Keys stay local | Keys sent to server |
+| Polymarket | Full access | Full access (Builder profile) |
+| Other exchanges | Full access | Read-only |
+| Security | Keys stay local | No private keys needed |
 | Latency | Faster | Slightly slower |
 | Availability | When machine is on | Always on |
 
-**Recommendation:** Use local server for significant funds, remote for convenience/testing.
+**Recommendation:** Use remote server for Polymarket trading and market research. Use local server if you need write operations on other exchanges.

@@ -8,52 +8,38 @@ from typing import Any, Dict, List, Optional
 
 # Sensitive header names that should never be logged
 SENSITIVE_HEADERS: List[str] = [
-    # Polymarket
-    "x-polymarket-private-key",
-    "x-polymarket-funder",
-    "x-polymarket-proxy-wallet",
-    # Limitless
-    "x-limitless-private-key",
-    # Opinion
-    "x-opinion-private-key",
-    "x-opinion-api-key",
-    "x-opinion-multi-sig-addr",
-    # Kalshi
-    "x-kalshi-api-key",
-    "x-kalshi-private-key",
-    # Predict.fun
-    "x-predictfun-private-key",
-    "x-predictfun-api-key",
+    # Polymarket (Builder profile - no private key needed)
+    "x-polymarket-api-key",
+    "x-polymarket-api-secret",
+    "x-polymarket-passphrase",
     # Generic
     "authorization",
     "x-api-key",
 ]
 
 # Header to credential mapping for each exchange
+# SSE server only supports Polymarket write operations via Builder profile
 HEADER_CREDENTIAL_MAP: Dict[str, Dict[str, str]] = {
     "polymarket": {
-        "x-polymarket-private-key": "private_key",
-        "x-polymarket-funder": "funder",
-        "x-polymarket-proxy-wallet": "proxy_wallet",
-        "x-polymarket-signature-type": "signature_type",
-    },
-    "limitless": {
-        "x-limitless-private-key": "private_key",
-    },
-    "opinion": {
-        "x-opinion-private-key": "private_key",
-        "x-opinion-api-key": "api_key",
-        "x-opinion-multi-sig-addr": "multi_sig_addr",
-    },
-    "kalshi": {
-        "x-kalshi-api-key": "api_key_id",
-        "x-kalshi-private-key": "private_key",
-    },
-    "predictfun": {
-        "x-predictfun-private-key": "private_key",
-        "x-predictfun-api-key": "api_key",
+        "x-polymarket-api-key": "api_key",
+        "x-polymarket-api-secret": "api_secret",
+        "x-polymarket-passphrase": "api_passphrase",
     },
 }
+
+# Write operations that modify state (require credentials)
+WRITE_OPERATIONS: List[str] = [
+    "create_order",
+    "cancel_order",
+    "cancel_all_orders",
+    "create_strategy_session",
+    "stop_strategy",
+    "pause_strategy",
+    "resume_strategy",
+]
+
+# Exchanges that support write operations via SSE (Builder profile)
+SSE_WRITE_ENABLED_EXCHANGES: List[str] = ["polymarket"]
 
 # Patterns that look like private keys or sensitive data
 SENSITIVE_PATTERNS = [
@@ -163,12 +149,9 @@ def validate_credentials_present(
     Returns:
         Tuple of (is_valid, error_message)
     """
+    # SSE server only supports Polymarket via Builder profile
     required_fields = {
-        "polymarket": ["private_key", "funder"],
-        "limitless": ["private_key"],
-        "opinion": ["private_key"],
-        "kalshi": ["api_key_id", "private_key"],
-        "predictfun": ["private_key"],
+        "polymarket": ["api_key", "api_secret", "api_passphrase"],
     }
 
     required = required_fields.get(exchange.lower(), [])
@@ -177,6 +160,47 @@ def validate_credentials_present(
     if missing:
         # Transport-agnostic message (no HTTP header references)
         return False, f"Missing required credentials for {exchange}: {', '.join(missing)}"
+
+    return True, None
+
+
+def is_write_operation(tool_name: str) -> bool:
+    """Check if a tool is a write operation."""
+    return tool_name in WRITE_OPERATIONS
+
+
+def is_write_allowed_for_exchange(exchange: str) -> bool:
+    """Check if write operations are allowed for an exchange via SSE."""
+    return exchange.lower() in SSE_WRITE_ENABLED_EXCHANGES
+
+
+def validate_write_operation(tool_name: str, exchange: Optional[str]) -> tuple[bool, Optional[str]]:
+    """
+    Validate that a write operation is allowed.
+
+    SSE server only allows write operations for Polymarket (via Builder profile).
+    Other exchanges are read-only for security (no private keys on server).
+
+    Args:
+        tool_name: The MCP tool being called
+        exchange: The target exchange (if applicable)
+
+    Returns:
+        Tuple of (is_allowed, error_message)
+    """
+    if not is_write_operation(tool_name):
+        return True, None
+
+    if not exchange:
+        return False, f"Write operation '{tool_name}' requires an exchange parameter"
+
+    if not is_write_allowed_for_exchange(exchange):
+        return (
+            False,
+            f"Write operations are not supported for '{exchange}' via remote server. "
+            f"Only Polymarket is supported (via Builder profile). "
+            f"For other exchanges, use the local MCP server.",
+        )
 
     return True, None
 

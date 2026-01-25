@@ -1,10 +1,11 @@
 """Tests for MCP SSE server.
 
 Tests cover:
-- Credential extraction from headers
+- Credential extraction from headers (Polymarket Builder profile only)
 - Health check endpoint
 - Credential masking in logs
 - Credential validation
+- Write operation restrictions
 
 Note: Tests that require the 'mcp' package are skipped if not installed.
 """
@@ -27,64 +28,37 @@ class TestCredentialExtraction:
     """Tests for extracting credentials from HTTP headers."""
 
     def test_extract_polymarket_credentials(self):
-        """Test extraction of Polymarket credentials from headers."""
+        """Test extraction of Polymarket Builder profile credentials."""
         from dr_manhattan.mcp.utils.security import get_credentials_from_headers
 
         headers = {
-            "X-Polymarket-Private-Key": "0x1234567890abcdef",
-            "X-Polymarket-Funder": "0xfunder123",
-            "X-Polymarket-Proxy-Wallet": "0xproxy456",
+            "X-Polymarket-Api-Key": "api_key_123",
+            "X-Polymarket-Api-Secret": "api_secret_456",
+            "X-Polymarket-Passphrase": "passphrase_789",
         }
 
         credentials = get_credentials_from_headers(headers)
 
         assert "polymarket" in credentials
-        assert credentials["polymarket"]["private_key"] == "0x1234567890abcdef"
-        assert credentials["polymarket"]["funder"] == "0xfunder123"
-        assert credentials["polymarket"]["proxy_wallet"] == "0xproxy456"
-
-    def test_extract_limitless_credentials(self):
-        """Test extraction of Limitless credentials from headers."""
-        from dr_manhattan.mcp.utils.security import get_credentials_from_headers
-
-        headers = {"X-Limitless-Private-Key": "0xprivatekey"}
-
-        credentials = get_credentials_from_headers(headers)
-
-        assert "limitless" in credentials
-        assert credentials["limitless"]["private_key"] == "0xprivatekey"
-
-    def test_extract_multiple_exchanges(self):
-        """Test extraction of credentials for multiple exchanges."""
-        from dr_manhattan.mcp.utils.security import get_credentials_from_headers
-
-        headers = {
-            "X-Polymarket-Private-Key": "0xpoly",
-            "X-Polymarket-Funder": "0xfunder",
-            "X-Limitless-Private-Key": "0xlimitless",
-            "X-Opinion-Private-Key": "0xopinion",
-        }
-
-        credentials = get_credentials_from_headers(headers)
-
-        assert len(credentials) == 3
-        assert "polymarket" in credentials
-        assert "limitless" in credentials
-        assert "opinion" in credentials
+        assert credentials["polymarket"]["api_key"] == "api_key_123"
+        assert credentials["polymarket"]["api_secret"] == "api_secret_456"
+        assert credentials["polymarket"]["api_passphrase"] == "passphrase_789"
 
     def test_case_insensitive_headers(self):
         """Test that header extraction is case-insensitive."""
         from dr_manhattan.mcp.utils.security import get_credentials_from_headers
 
         headers = {
-            "x-polymarket-private-key": "0xkey",
-            "X-POLYMARKET-FUNDER": "0xfunder",
+            "x-polymarket-api-key": "key",
+            "X-POLYMARKET-API-SECRET": "secret",
+            "X-Polymarket-Passphrase": "pass",
         }
 
         credentials = get_credentials_from_headers(headers)
 
-        assert credentials["polymarket"]["private_key"] == "0xkey"
-        assert credentials["polymarket"]["funder"] == "0xfunder"
+        assert credentials["polymarket"]["api_key"] == "key"
+        assert credentials["polymarket"]["api_secret"] == "secret"
+        assert credentials["polymarket"]["api_passphrase"] == "pass"
 
     def test_empty_headers(self):
         """Test extraction with no credential headers."""
@@ -96,33 +70,18 @@ class TestCredentialExtraction:
 
         assert credentials == {}
 
-    def test_signature_type_conversion(self):
-        """Test that signature_type is converted to int."""
+    def test_partial_credentials(self):
+        """Test extraction with only some Polymarket headers."""
         from dr_manhattan.mcp.utils.security import get_credentials_from_headers
 
-        headers = {
-            "X-Polymarket-Private-Key": "0xkey",
-            "X-Polymarket-Funder": "0xfunder",
-            "X-Polymarket-Signature-Type": "1",
-        }
+        headers = {"X-Polymarket-Api-Key": "key_only"}
 
         credentials = get_credentials_from_headers(headers)
 
-        assert credentials["polymarket"]["signature_type"] == 1
-
-    def test_invalid_signature_type_defaults_to_zero(self):
-        """Test that invalid signature_type defaults to 0."""
-        from dr_manhattan.mcp.utils.security import get_credentials_from_headers
-
-        headers = {
-            "X-Polymarket-Private-Key": "0xkey",
-            "X-Polymarket-Funder": "0xfunder",
-            "X-Polymarket-Signature-Type": "invalid",
-        }
-
-        credentials = get_credentials_from_headers(headers)
-
-        assert credentials["polymarket"]["signature_type"] == 0
+        # Should still extract partial credentials
+        assert "polymarket" in credentials
+        assert credentials["polymarket"]["api_key"] == "key_only"
+        assert "api_secret" not in credentials["polymarket"]
 
 
 class TestCredentialMasking:
@@ -133,25 +92,25 @@ class TestCredentialMasking:
         from dr_manhattan.mcp.utils.security import sanitize_headers_for_logging
 
         headers = {
-            "X-Polymarket-Private-Key": "0x1234567890abcdef1234567890abcdef",
+            "X-Polymarket-Api-Key": "api_key_1234567890",
             "Content-Type": "application/json",
         }
 
         sanitized = sanitize_headers_for_logging(headers)
 
         # Should be fully redacted, not showing first/last chars
-        assert sanitized["X-Polymarket-Private-Key"] == "[REDACTED]"
+        assert sanitized["X-Polymarket-Api-Key"] == "[REDACTED]"
         assert sanitized["Content-Type"] == "application/json"
 
     def test_empty_sensitive_header_marked(self):
         """Test that empty sensitive headers are marked as empty."""
         from dr_manhattan.mcp.utils.security import sanitize_headers_for_logging
 
-        headers = {"X-Polymarket-Private-Key": "", "Content-Type": "application/json"}
+        headers = {"X-Polymarket-Api-Key": "", "Content-Type": "application/json"}
 
         sanitized = sanitize_headers_for_logging(headers)
 
-        assert sanitized["X-Polymarket-Private-Key"] == "[EMPTY]"
+        assert sanitized["X-Polymarket-Api-Key"] == "[EMPTY]"
 
     def test_all_sensitive_headers_masked(self):
         """Test that all known sensitive headers are masked."""
@@ -177,7 +136,11 @@ class TestCredentialValidation:
         """Test validation passes with all required Polymarket credentials."""
         from dr_manhattan.mcp.utils.security import validate_credentials_present
 
-        credentials = {"private_key": "0xkey", "funder": "0xfunder"}
+        credentials = {
+            "api_key": "key",
+            "api_secret": "secret",
+            "api_passphrase": "pass",
+        }
 
         is_valid, error = validate_credentials_present(credentials, "polymarket")
 
@@ -185,33 +148,34 @@ class TestCredentialValidation:
         assert error is None
 
     def test_validate_polymarket_credentials_missing_key(self):
-        """Test validation fails when private_key is missing."""
+        """Test validation fails when api_key is missing."""
         from dr_manhattan.mcp.utils.security import validate_credentials_present
 
-        credentials = {"funder": "0xfunder"}
+        credentials = {"api_secret": "secret", "api_passphrase": "pass"}
 
         is_valid, error = validate_credentials_present(credentials, "polymarket")
 
         assert is_valid is False
-        assert "private_key" in error
+        assert "api_key" in error
 
-    def test_validate_polymarket_credentials_missing_funder(self):
-        """Test validation fails when funder is missing."""
+    def test_validate_polymarket_credentials_missing_secret(self):
+        """Test validation fails when api_secret is missing."""
         from dr_manhattan.mcp.utils.security import validate_credentials_present
 
-        credentials = {"private_key": "0xkey"}
+        credentials = {"api_key": "key", "api_passphrase": "pass"}
 
         is_valid, error = validate_credentials_present(credentials, "polymarket")
 
         assert is_valid is False
-        assert "funder" in error
+        assert "api_secret" in error
 
-    def test_validate_limitless_credentials(self):
-        """Test validation for Limitless (only needs private_key)."""
+    def test_validate_unknown_exchange(self):
+        """Test validation for unknown exchange (no required fields)."""
         from dr_manhattan.mcp.utils.security import validate_credentials_present
 
-        credentials = {"private_key": "0xkey"}
+        credentials = {"some_key": "value"}
 
+        # Unknown exchanges have no requirements in SSE mode
         is_valid, error = validate_credentials_present(credentials, "limitless")
 
         assert is_valid is True
@@ -226,9 +190,62 @@ class TestCredentialValidation:
         is_valid, error = validate_credentials_present(credentials, "polymarket")
 
         assert is_valid is False
-        # Should NOT contain HTTP header names like X-Polymarket-Private-Key
+        # Should NOT contain HTTP header names like X-Polymarket-Api-Key
         assert "X-" not in error
         assert "header" not in error.lower()
+
+
+class TestWriteOperationValidation:
+    """Tests for write operation restrictions."""
+
+    def test_write_operation_allowed_for_polymarket(self):
+        """Test that write operations are allowed for Polymarket."""
+        from dr_manhattan.mcp.utils.security import validate_write_operation
+
+        is_allowed, error = validate_write_operation("create_order", "polymarket")
+
+        assert is_allowed is True
+        assert error is None
+
+    def test_write_operation_blocked_for_other_exchanges(self):
+        """Test that write operations are blocked for non-Polymarket exchanges."""
+        from dr_manhattan.mcp.utils.security import validate_write_operation
+
+        for exchange in ["limitless", "opinion", "kalshi", "predictfun"]:
+            is_allowed, error = validate_write_operation("create_order", exchange)
+
+            assert is_allowed is False
+            assert "not supported" in error
+            assert "Builder profile" in error
+
+    def test_read_operation_allowed_for_all_exchanges(self):
+        """Test that read operations are allowed for all exchanges."""
+        from dr_manhattan.mcp.utils.security import validate_write_operation
+
+        for exchange in ["polymarket", "limitless", "opinion", "kalshi"]:
+            is_allowed, error = validate_write_operation("fetch_markets", exchange)
+
+            assert is_allowed is True
+            assert error is None
+
+    def test_all_write_operations_blocked_for_other_exchanges(self):
+        """Test that all write operations are blocked for non-Polymarket."""
+        from dr_manhattan.mcp.utils.security import WRITE_OPERATIONS, validate_write_operation
+
+        for op in WRITE_OPERATIONS:
+            is_allowed, error = validate_write_operation(op, "limitless")
+
+            assert is_allowed is False
+            assert error is not None
+
+    def test_write_operation_without_exchange(self):
+        """Test write operation without exchange parameter."""
+        from dr_manhattan.mcp.utils.security import validate_write_operation
+
+        is_allowed, error = validate_write_operation("create_order", None)
+
+        assert is_allowed is False
+        assert "requires an exchange" in error
 
 
 @pytest.mark.skipif(not HAS_MCP, reason="MCP package not installed")
@@ -270,6 +287,19 @@ class TestRootEndpoint:
         assert "endpoints" in data
         assert "/sse" in data["endpoints"]
         assert "/health" in data["endpoints"]
+
+    def test_root_shows_security_model(self):
+        """Test that root endpoint shows security model."""
+        from starlette.testclient import TestClient
+
+        from dr_manhattan.mcp.server_sse import app
+
+        client = TestClient(app)
+        response = client.get("/")
+
+        data = response.json()
+        assert "security" in data
+        assert "Polymarket" in data["security"]["write_operations"]
 
 
 @pytest.mark.skipif(not HAS_MCP, reason="MCP package not installed")
