@@ -1,0 +1,245 @@
+# Documentation Translation Workflow
+#
+# Automatically translates documentation to multiple languages when English docs change.
+# Only English documentation should be edited by humans:
+#   - wiki/*.md, wiki/**/*.md (excluding language folders)
+#   - website/docs.html
+# All other language files are auto-generated:
+#   - wiki/ko/, wiki/zh/, wiki/ja/, wiki/es/, wiki/pt/
+#   - website/docs-ko.html, website/docs-zh.html, etc.
+#
+# Supported languages:
+#   - ko (Korean) - Strong crypto/prediction market community
+#   - zh (Chinese) - Largest developer population
+#   - ja (Japanese) - Strong tech community
+#   - es (Spanish) - Large global developer population
+#   - pt (Portuguese) - Large Brazilian developer community
+
+name: Translate Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'wiki/**/*.md'
+      - 'website/docs.html'
+      - '!wiki/ko/**'
+      - '!wiki/zh/**'
+      - '!wiki/ja/**'
+      - '!wiki/es/**'
+      - '!wiki/pt/**'
+  workflow_dispatch:
+    inputs:
+      force_translate:
+        description: 'Force translate all documents'
+        required: false
+        default: 'false'
+        type: boolean
+      languages:
+        description: 'Languages to translate (comma-separated, e.g., ko,zh,ja)'
+        required: false
+        default: 'ko,zh,ja,es,pt'
+        type: string
+
+env:
+  SUPPORTED_LANGUAGES: 'ko,zh,ja,es,pt'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      wiki_files: ${{ steps.changes.outputs.wiki_files }}
+      docs_html: ${{ steps.changes.outputs.docs_html }}
+      has_changes: ${{ steps.changes.outputs.has_changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed English documentation
+        id: changes
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.force_translate }}" == "true" ]]; then
+            # Force translate: get all English docs
+            WIKI_FILES=$(find wiki -name "*.md" -type f | grep -v -E "wiki/(ko|zh|ja|es|pt)/" | tr '\n' ',')
+            echo "wiki_files=$WIKI_FILES" >> $GITHUB_OUTPUT
+            echo "docs_html=website/docs.html" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            # Get changed files from the push
+            WIKI_CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'wiki/**/*.md' | grep -v -E "wiki/(ko|zh|ja|es|pt)/" || true)
+            DOCS_CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'website/docs.html' || true)
+
+            if [ -n "$WIKI_CHANGED" ] || [ -n "$DOCS_CHANGED" ]; then
+              WIKI_FILES=$(echo "$WIKI_CHANGED" | tr '\n' ',' | sed 's/,$//')
+              echo "wiki_files=$WIKI_FILES" >> $GITHUB_OUTPUT
+              echo "docs_html=$DOCS_CHANGED" >> $GITHUB_OUTPUT
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            else
+              echo "wiki_files=" >> $GITHUB_OUTPUT
+              echo "docs_html=" >> $GITHUB_OUTPUT
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  translate:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    strategy:
+      matrix:
+        lang: [ko, zh, ja, es, pt]
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check if language should be translated
+        id: check_lang
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            LANGS="${{ inputs.languages }}"
+          else
+            LANGS="${{ env.SUPPORTED_LANGUAGES }}"
+          fi
+          if echo ",$LANGS," | grep -q ",${{ matrix.lang }},"; then
+            echo "should_translate=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_translate=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create translation prompt
+        if: steps.check_lang.outputs.should_translate == 'true'
+        id: prompt
+        run: |
+          LANG="${{ matrix.lang }}"
+          WIKI_FILES="${{ needs.detect-changes.outputs.wiki_files }}"
+          DOCS_HTML="${{ needs.detect-changes.outputs.docs_html }}"
+
+          case $LANG in
+            ko) LANG_NAME="Korean" ;;
+            zh) LANG_NAME="Chinese (Simplified)" ;;
+            ja) LANG_NAME="Japanese" ;;
+            es) LANG_NAME="Spanish" ;;
+            pt) LANG_NAME="Portuguese (Brazilian)" ;;
+          esac
+
+          cat << 'PROMPT_EOF' > /tmp/translate_prompt.txt
+          Translate documentation to TARGET_LANG.
+
+          IMPORTANT TRANSLATION RULES:
+          1. Preserve all formatting exactly (markdown, HTML structure, code blocks)
+          2. DO NOT translate:
+             - Code snippets inside code blocks or <pre> tags
+             - Variable names, function names, class names
+             - File paths and URLs
+             - CSS class names and HTML attributes
+             - Technical terms commonly kept in English (API, WebSocket, SDK, etc.)
+          3. Translate:
+             - Prose text, descriptions, and visible UI text
+             - Comments inside code blocks (marked with # or //)
+             - Table descriptions (but not technical column names)
+             - HTML title and meta description
+          4. Use natural, fluent TARGET_LANG that a native developer would use
+          5. Keep technical accuracy - don't change the meaning
+
+          TASK 1 - Wiki Markdown Files:
+          For each wiki file in WIKI_FILES (if any):
+          1. Read the English source file from wiki/
+          2. Create the translated version in wiki/LANG_CODE/<same_relative_path>
+          3. Ensure directory structure is mirrored (e.g., wiki/exchanges/foo.md -> wiki/LANG_CODE/exchanges/foo.md)
+
+          TASK 2 - Website Documentation HTML:
+          If DOCS_HTML is not empty:
+          1. Read website/docs.html
+          2. Create translated version at website/docs-LANG_CODE.html
+          3. Update the <html lang="en"> to <html lang="LANG_CODE">
+          4. Keep the language selector working (don't modify the JavaScript)
+
+          Wiki files to translate: WIKI_FILES
+          Docs HTML to translate: DOCS_HTML
+          Target language code: LANG_CODE
+          Target language name: TARGET_LANG
+          PROMPT_EOF
+
+          sed -i "s/TARGET_LANG/$LANG_NAME/g" /tmp/translate_prompt.txt
+          sed -i "s/LANG_CODE/$LANG/g" /tmp/translate_prompt.txt
+          sed -i "s|WIKI_FILES|$WIKI_FILES|g" /tmp/translate_prompt.txt
+          sed -i "s|DOCS_HTML|$DOCS_HTML|g" /tmp/translate_prompt.txt
+
+          PROMPT=$(cat /tmp/translate_prompt.txt)
+          echo "prompt<<EOF" >> $GITHUB_OUTPUT
+          echo "$PROMPT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code for translation
+        if: steps.check_lang.outputs.should_translate == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          direct_prompt: ${{ steps.prompt.outputs.prompt }}
+          allowed_tools: |
+            Read
+            Write
+            Glob
+            Grep
+          timeout_minutes: 30
+
+  create-pr:
+    needs: [detect-changes, translate]
+    if: always() && needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check for translation changes
+        id: check_changes
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "has_translations=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_translations=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.check_changes.outputs.has_translations == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "docs: auto-translate documentation"
+          title: "docs: Update translated documentation"
+          body: |
+            ## Automated Documentation Translation
+
+            This PR contains automatically translated documentation for the following languages:
+            - Korean (ko)
+            - Chinese (zh)
+            - Japanese (ja)
+            - Spanish (es)
+            - Portuguese (pt)
+
+            ### Changed English files:
+            **Wiki files:** ${{ needs.detect-changes.outputs.wiki_files || 'none' }}
+            **Docs HTML:** ${{ needs.detect-changes.outputs.docs_html || 'none' }}
+
+            ---
+            *Generated automatically by the translation workflow*
+          branch: docs/auto-translate
+          delete-branch: true
+          labels: documentation,automated

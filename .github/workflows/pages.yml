@@ -30,7 +30,13 @@ jobs:
         run: cp -r assets website/assets
 
       - name: Update asset paths
-        run: sed -i 's|\.\./assets/|assets/|g' website/index.html website/docs.html
+        run: |
+          # Update asset paths in all HTML files
+          for file in website/*.html; do
+            if [ -f "$file" ]; then
+              sed -i 's|\.\./assets/|assets/|g' "$file"
+            fi
+          done
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
