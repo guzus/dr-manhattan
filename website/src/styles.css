@@ -1344,11 +1344,13 @@ td code {
 }
 
 .guide-nav {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 1.5rem 4rem;
   border-bottom: 1px solid var(--border-subtle);
+  background: var(--deep-space);
 }
 
 .guide-content {
