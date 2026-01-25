@@ -18,9 +18,14 @@ SENSITIVE_HEADERS: List[str] = [
 ]
 
 # Header to credential mapping for each exchange
-# SSE server only supports Polymarket write operations via Builder profile
+# SSE server supports Polymarket via:
+# 1. Operator mode: user provides wallet address, server signs on behalf
+# 2. Builder profile: user provides api_key, api_secret, api_passphrase
 HEADER_CREDENTIAL_MAP: Dict[str, Dict[str, str]] = {
     "polymarket": {
+        # Operator mode (preferred for SSE)
+        "x-polymarket-wallet-address": "user_address",
+        # Builder profile (alternative)
         "x-polymarket-api-key": "api_key",
         "x-polymarket-api-secret": "api_secret",
         "x-polymarket-passphrase": "api_passphrase",

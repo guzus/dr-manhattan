@@ -6,7 +6,9 @@ Connect to Dr. Manhattan from Claude Desktop or Claude Code without local instal
 
 The remote server uses a security-first approach:
 
-- **Polymarket**: Full read/write via Builder profile (no private key needed)
+- **Polymarket**: Full read/write via two authentication modes:
+  - **Operator Mode** (Recommended): Provide your wallet address, server signs on your behalf
+  - **Builder Profile**: Provide your API credentials (api_key, api_secret, passphrase)
 - **Other exchanges**: Read-only (no private keys on server)
 
 For write operations on non-Polymarket exchanges, use the [local MCP server](../../README.md#mcp-server).
@@ -42,7 +44,15 @@ claude mcp add dr-manhattan \
   --url "https://dr-manhattan-mcp-production.up.railway.app/sse"
 ```
 
-**With Polymarket trading:**
+**With Polymarket trading (Operator Mode - Recommended):**
+```bash
+claude mcp add dr-manhattan \
+  --transport sse \
+  --url "https://dr-manhattan-mcp-production.up.railway.app/sse" \
+  --header "X-Polymarket-Wallet-Address: your_wallet_address"
+```
+
+**With Polymarket trading (Builder Profile):**
 ```bash
 claude mcp add dr-manhattan \
   --transport sse \
@@ -56,6 +66,22 @@ claude mcp add dr-manhattan \
 
 Edit `~/.claude/settings.json`:
 
+**Operator Mode (Recommended):**
+```json
+{
+  "mcpServers": {
+    "dr-manhattan": {
+      "type": "sse",
+      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
+      "headers": {
+        "X-Polymarket-Wallet-Address": "your_wallet_address"
+      }
+    }
+  }
+}
+```
+
+**Builder Profile:**
 ```json
 {
   "mcpServers": {
@@ -76,6 +102,22 @@ Edit `~/.claude/settings.json`:
 
 Create `.mcp.json` in your project root:
 
+**Operator Mode (Recommended):**
+```json
+{
+  "mcpServers": {
+    "dr-manhattan": {
+      "type": "sse",
+      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
+      "headers": {
+        "X-Polymarket-Wallet-Address": "your_wallet_address"
+      }
+    }
+  }
+}
+```
+
+**Builder Profile:**
 ```json
 {
   "mcpServers": {
@@ -106,6 +148,22 @@ You should see `dr-manhattan` listed with available tools like `fetch_markets`, 
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
+**Operator Mode (Recommended):**
+```json
+{
+  "mcpServers": {
+    "dr-manhattan": {
+      "type": "sse",
+      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
+      "headers": {
+        "X-Polymarket-Wallet-Address": "your_wallet_address"
+      }
+    }
+  }
+}
+```
+
+**Builder Profile:**
 ```json
 {
   "mcpServers": {
@@ -124,9 +182,64 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
 Restart Claude after configuration.
 
-## Polymarket Builder Profile
+## Polymarket Operator Mode (Recommended)
 
-The remote server uses Polymarket's Builder profile for secure trading without exposing your private key.
+The server acts as an operator that signs orders on your behalf. This is the simplest and most secure authentication method.
+
+### How It Works
+
+1. You provide your wallet address to the server
+2. You approve the server's address as an operator on Polymarket (one-time setup)
+3. The server signs orders using its own key, with your address as the funder
+4. You can revoke access anytime via the Polymarket contract
+
+### Setup
+
+**Step 1: Get Your Wallet Address**
+
+Your wallet address is the public address of your Polymarket account (e.g., `0x1234...abcd`). You can find it in:
+- MetaMask or other wallet extension
+- Polymarket profile settings
+
+**Step 2: Approve Server as Operator**
+
+Before trading, you must approve the server's address as an operator on Polymarket. This is a one-time on-chain transaction.
+
+Server operator address: `[To be announced]`
+
+**How to approve:**
+1. Go to [Polymarket](https://polymarket.com) and connect your wallet
+2. Visit the CTF Exchange contract on PolygonScan
+3. Call `approveOperator(server_address)`
+4. Confirm the transaction in your wallet
+
+**Step 3: Configure the Header**
+
+Add your wallet address to the `X-Polymarket-Wallet-Address` header:
+
+```bash
+claude mcp add dr-manhattan \
+  --transport sse \
+  --url "https://dr-manhattan-mcp-production.up.railway.app/sse" \
+  --header "X-Polymarket-Wallet-Address: 0xYourWalletAddress"
+```
+
+### Required Header
+
+| Header | Description |
+|--------|-------------|
+| `X-Polymarket-Wallet-Address` | Your wallet address (the account to trade for) |
+
+### Security
+
+- Your private key never leaves your wallet
+- Server only signs orders on your behalf
+- You can revoke approval anytime by calling `revokeOperator()`
+- Each order is executed from your account, not the server's
+
+## Polymarket Builder Profile (Alternative)
+
+If you prefer to use your own API credentials instead of operator mode.
 
 ### How It Works
 
