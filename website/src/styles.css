@@ -359,8 +359,8 @@ nav {
   align-items: center;
   gap: 0.5rem;
   padding: 0.9rem 2rem;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
+  background: rgba(0, 180, 255, 0.08);
+  border: 1px solid rgba(0, 180, 255, 0.4);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 1rem;
