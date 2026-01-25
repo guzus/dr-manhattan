@@ -210,6 +210,28 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
 }
 ```
 
+#### Remote Server (No Installation Required)
+
+Connect to the hosted MCP server via SSE. No private keys needed - uses Polymarket Builder profile:
+
+```json
+{
+  "mcpServers": {
+    "dr-manhattan": {
+      "type": "sse",
+      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
+      "headers": {
+        "X-Polymarket-Api-Key": "your_api_key",
+        "X-Polymarket-Api-Secret": "your_api_secret",
+        "X-Polymarket-Passphrase": "your_passphrase"
+      }
+    }
+  }
+}
+```
+
+**Note:** Remote server supports Polymarket trading only. Other exchanges are read-only for security. See [wiki/mcp/remote-server.md](wiki/mcp/remote-server.md) for details.
+
 After restarting, you can:
 - "Show my Polymarket balance"
 - "Find active prediction markets"
