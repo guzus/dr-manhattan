@@ -6,6 +6,23 @@ Connect to Dr. Manhattan from Claude Desktop or Claude Code without local instal
 
 **Server URL:** `https://dr-manhattan-mcp-production.up.railway.app/sse`
 
+### Read-Only Mode (No Credentials)
+
+You can connect without any credentials to use read-only features:
+
+```bash
+claude mcp add dr-manhattan \
+  --transport sse \
+  --url "https://dr-manhattan-mcp-production.up.railway.app/sse"
+```
+
+Available without credentials:
+- `fetch_markets` - Browse all prediction markets
+- `fetch_market` - Get market details and prices
+- `fetch_orderbook` - View order book depth
+
+Trading operations (`create_order`, `cancel_order`, `fetch_balance`, etc.) require credentials.
+
 ### Claude Code
 
 #### Option 1: CLI Command (Recommended)
