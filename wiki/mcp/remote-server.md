@@ -13,10 +13,13 @@ Before trading, approve the server's address as an operator on Polymarket (one-t
 Server operator address: `[To be announced]`
 
 **How to approve:**
-1. Go to [Polymarket](https://polymarket.com) and connect your wallet
-2. Visit the CTF Exchange contract on PolygonScan
-3. Call `approveOperator(server_address)`
-4. Confirm the transaction in your wallet
+1. Go to [CTF Contract on PolygonScan](https://polygonscan.com/address/0x4d97dcd97ec945f40cf65f87097ace5ea0476045#writeContract)
+2. Click **"Connect to Web3"** and connect your wallet
+3. Find **`setApprovalForAll`** function
+4. Enter:
+   - `operator`: `[server operator address]`
+   - `approved`: `true`
+5. Click **"Write"** and confirm in your wallet
 
 ### Step 2: Configure Your Client
 
