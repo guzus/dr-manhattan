@@ -210,6 +210,27 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
 }
 ```
 
+#### Remote Server (No Installation Required)
+
+Connect to the hosted MCP server via SSE:
+
+```json
+{
+  "mcpServers": {
+    "dr-manhattan": {
+      "type": "sse",
+      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
+      "headers": {
+        "X-Polymarket-Private-Key": "0x_your_private_key",
+        "X-Polymarket-Funder": "0x_your_funder_address"
+      }
+    }
+  }
+}
+```
+
+See [wiki/mcp/remote-server.md](wiki/mcp/remote-server.md) for full header reference and multi-exchange setup.
+
 After restarting, you can:
 - "Show my Polymarket balance"
 - "Find active prediction markets"
