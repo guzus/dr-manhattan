@@ -52,7 +52,9 @@ Thumbs.db
 
 # Project specific
 *.log
+*.csv
 .cache/
+logs/
 
 # Development/Testing files (not for commit)
 .dev/
@@ -65,4 +67,4 @@ Thumbs.db
 .swarm/
 memory/
 .mcp.json
-claude-flow
+claude-flowlogs/
