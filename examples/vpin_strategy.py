@@ -71,15 +71,6 @@ class VPINState:
         self.last_withdraw_time: float = 0.0
         self.last_resume_time: float = 0.0
 
-        # Optional: tick-rule trade tracking (fallback if orderbook unreliable)
-        self.seen_trades: deque = deque(maxlen=5000)
-        self.seen_trades_set: set = set()
-        self.last_trade_ts: int = 0
-        self.last_trade_price: Optional[float] = None
-        self.total_trades_processed: int = 0
-        self.tick_buy_count: int = 0  # Trades with upward tick
-        self.tick_sell_count: int = 0  # Trades with downward tick
-
 
 class VPINBBOStrategy(Strategy):
     """
@@ -106,9 +97,6 @@ class VPINBBOStrategy(Strategy):
         vpin_threshold: float = 0.80,
         resume_threshold: Optional[float] = None,
         cooldown_seconds: float = 60.0,
-        # Trade polling (optional for tick-rule fallback)
-        trade_poll_interval: float = 2.0,
-        enable_trade_polling: bool = False,  # Disabled by default (not needed for price-spread metric)
     ):
         super().__init__(
             exchange=exchange,
@@ -132,38 +120,28 @@ class VPINBBOStrategy(Strategy):
         )  # 12.5% hysteresis by default
         self.cooldown_seconds = float(cooldown_seconds)
 
-        # Trade polling (optional)
-        self.trade_poll_interval = float(trade_poll_interval)
-        self.enable_trade_polling = enable_trade_polling
-
         # State
         self.vpin_state = VPINState()
         self.state_lock = threading.Lock()
-        self.trade_lock = threading.Lock()
 
         # Logging control
         self.tick_count = 0
         self.log_interval = 6  # Log VPIN every 6 ticks (~30s if check_interval=5s)
 
-        # Background thread
-        self.trade_thread: Optional[threading.Thread] = None
-        self.trade_thread_running = False
-
     def setup(self) -> bool:
-        """Setup market and start trade polling thread (if enabled)"""
+        """Setup market and validate binary market assumption"""
         if not super().setup():
             return False
 
-        self._log_vpin_config()
+        # Validate binary market assumption
+        if not self.outcome_tokens or len(self.outcome_tokens) != 2:
+            logger.error(
+                f"{Colors.red('ERROR:')} This strategy requires a binary market (2 outcomes). "
+                f"Found {len(self.outcome_tokens) if self.outcome_tokens else 0} outcomes."
+            )
+            return False
 
-        # Start trade polling thread only if enabled (for tick-rule fallback)
-        if self.enable_trade_polling:
-            self.trade_thread = threading.Thread(target=self._trade_poll_loop, daemon=True)
-            self.trade_thread_running = True
-            self.trade_thread.start()
-            logger.info(f"{Colors.cyan('Trade polling:')} enabled (tick-rule fallback)")
-        else:
-            logger.info(f"{Colors.gray('Trade polling:')} disabled (using orderbook-only metric)")
+        self._log_vpin_config()
 
         # Wait for initial orderbook data
         time.sleep(3)
@@ -279,133 +257,6 @@ class VPINBBOStrategy(Strategy):
         with self.state_lock:
             return self.vpin_state.update_count >= self.warmup_ticks
 
-    # Trade Polling
-
-    def _trade_poll_loop(self):
-        if not hasattr(self.exchange, "DATA_API_URL"):
-            logger.warning("Exchange does not support trade polling - VPIN disabled")
-            return
-
-        condition_id = self.market.metadata.get("conditionId", self.market.id)
-        url = f"{self.exchange.DATA_API_URL}/trades"
-        logger.info(f"Starting trade polling: {url} (market={str(condition_id)[:8]}...)")
-
-        poll_count = 0
-        while self.trade_thread_running:
-            if not getattr(self, "is_running", False):
-                time.sleep(0.2)
-                continue
-
-            poll_count += 1
-            try:
-                params = {"market": condition_id, "limit": 200, "offset": 0, "takerOnly": "true"}
-                resp = requests.get(url, params=params, timeout=5)
-                resp.raise_for_status()
-                data = resp.json()
-
-                if isinstance(data, list):
-                    self._process_trades(data)
-            except Exception as e:
-                logger.debug(f"Trade poll #{poll_count} failed: {e}")
-
-            time.sleep(self.trade_poll_interval)
-
-    def _process_trades(self, trades: List[Dict]):
-        """Process trades from API response with de-duplication"""
-        new_rows = []
-
-        for row in trades:
-            # Extract trade fields
-            ts = row.get("timestamp")
-            tx = row.get("transactionHash") or row.get("transaction_hash")
-            side = row.get("side")
-            price = row.get("price")
-            size = row.get("size")
-
-            # Create de-duplication key
-            key = (tx, ts, side, price, size)
-
-            with self.trade_lock:
-                # Skip if already seen
-                if key in self.vpin_state.seen_trades_set:
-                    continue
-
-            # Parse timestamp
-            try:
-                ts_int = int(ts) if ts is not None else 0
-            except Exception:
-                ts_int = 0
-
-            # Only accept newer trades
-            with self.trade_lock:
-                if ts_int < self.vpin_state.last_trade_ts:
-                    continue
-
-            new_rows.append((ts_int, key, row))
-
-        # Sort by timestamp (chronological order)
-        new_rows.sort(key=lambda x: x[0])
-
-        # Ingest trades
-        for ts_int, key, row in new_rows:
-            with self.trade_lock:
-                # Update seen trades
-                if len(self.vpin_state.seen_trades) == self.vpin_state.seen_trades.maxlen:
-                    old_key = self.vpin_state.seen_trades.popleft()
-                    self.vpin_state.seen_trades_set.discard(old_key)
-
-                self.vpin_state.seen_trades.append(key)
-                self.vpin_state.seen_trades_set.add(key)
-                self.vpin_state.last_trade_ts = max(self.vpin_state.last_trade_ts, ts_int)
-
-            self._handle_trade(row)
-
-    def _handle_trade(self, trade: Dict):
-        """
-        Ingest a single trade using tick rule for direction inference.
-
-        This is optional (only runs if trade polling enabled).
-        Can be used as fallback metric or for additional analysis.
-        """
-        price_raw = trade.get("price")
-        size_raw = trade.get("size")
-
-        try:
-            price = float(price_raw)
-            size = float(size_raw)
-            if size <= 0:
-                return
-        except Exception:
-            return
-
-        with self.state_lock:
-            self.vpin_state.total_trades_processed += 1
-
-            # Tick rule: infer direction from price change
-            if self.vpin_state.last_trade_price is not None:
-                if price > self.vpin_state.last_trade_price:
-                    # Upward tick -> inferred BUY
-                    self.vpin_state.tick_buy_count += 1
-                    inferred_side = "BUY"
-                elif price < self.vpin_state.last_trade_price:
-                    # Downward tick -> inferred SELL
-                    self.vpin_state.tick_sell_count += 1
-                    inferred_side = "SELL"
-                else:
-                    # No change -> use last direction (not implemented, skip)
-                    inferred_side = "NEUTRAL"
-            else:
-                inferred_side = "UNKNOWN"
-
-            self.vpin_state.last_trade_price = price
-
-        # Log occasionally
-        if self.vpin_state.total_trades_processed <= 5 or self.vpin_state.total_trades_processed % 20 == 0:
-            logger.debug(
-                f"{Colors.gray(f'Trade #{self.vpin_state.total_trades_processed}')}: "
-                f"{size:.2f} @ {price:.4f} (tick: {inferred_side})"
-            )
-
     # BBO Market Making with VPIN Gating
 
     def on_tick(self):
@@ -453,7 +304,6 @@ class VPINBBOStrategy(Strategy):
             update_count = self.vpin_state.update_count
             ema_velocity = self.vpin_state.ema_velocity
             ema_spread = self.vpin_state.ema_spread
-            total_trades = self.vpin_state.total_trades_processed
 
         status_parts = [
             f"VPIN: {Colors.yellow(f'{vpin:.4f}')}",
@@ -481,10 +331,6 @@ class VPINBBOStrategy(Strategy):
             recent = list(self.vpin_state.toxicity_history)[-5:]
             recent_avg = sum(recent) / len(recent)
             status_parts.append(f"avg5: {Colors.gray(f'{recent_avg:.4f}')}")
-
-        # Optional: trade count if polling enabled
-        if self.enable_trade_polling and total_trades > 0:
-            status_parts.append(f"trades: {Colors.gray(str(total_trades))}")
 
         logger.info(" | ".join(status_parts))
 
@@ -631,13 +477,8 @@ class VPINBBOStrategy(Strategy):
     # Cleanup
 
     def cleanup(self):
-        """Stop trade thread and cleanup"""
+        """Cleanup strategy resources"""
         logger.info(f"\n{Colors.bold('Shutting down...')}")
-
-        # Stop trade polling
-        self.trade_thread_running = False
-        if self.trade_thread:
-            self.trade_thread.join(timeout=5)
 
         # Standard cleanup
         super().cleanup()
@@ -670,7 +511,8 @@ def find_market_id(
                 if not page_markets:
                     break
                 all_markets.extend(page_markets)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Error fetching markets page {page}: {e}")
                 break
 
         markets = [m for m in all_markets if all(k in m.question.lower() for k in keyword_parts)]
@@ -812,19 +654,6 @@ def parse_args() -> argparse.Namespace:
         help="Cooldown seconds after withdrawal before resuming",
     )
 
-    # Trade polling (optional, for tick-rule fallback)
-    parser.add_argument(
-        "--enable-trade-polling",
-        action="store_true",
-        help="Enable trade polling (tick-rule fallback, not needed for orderbook metric)",
-    )
-    parser.add_argument(
-        "--trade-poll-interval",
-        type=float,
-        default=2.0,
-        help="Seconds between trade API polls (if enabled)",
-    )
-
     return parser.parse_args()
 
 
@@ -867,8 +696,6 @@ def main() -> int:
         vpin_threshold=args.vpin_threshold,
         resume_threshold=args.resume_threshold,
         cooldown_seconds=args.cooldown,
-        trade_poll_interval=args.trade_poll_interval,
-        enable_trade_polling=args.enable_trade_polling,
     )
 
     try:

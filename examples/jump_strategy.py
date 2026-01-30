@@ -178,8 +178,8 @@ class DefensiveCapitalPreservationStrategy(Strategy):
         logger.info(f"\n{Colors.bold('Shutting down...')}")
         try:
             self.cancel_all_orders()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error canceling orders during shutdown: {e}")
 
     # ---------- main loop ----------
     def on_tick(self) -> None:
@@ -431,39 +431,42 @@ class DefensiveCapitalPreservationStrategy(Strategy):
         self.state.inventory_shares = actual
         self._last_synced_inventory = actual
 
-        if outcome:
-            priced_qty = float(self._vwap_priced_qty.get(outcome, 0.0))
-            if actual < priced_qty:
-                self._vwap_priced_qty[outcome] = actual
-                priced_qty = actual
+        # Atomic critical section: fill queue access, VWAP calculation, state updates
+        with self._fills_lock:
+            if outcome:
+                priced_qty = float(self._vwap_priced_qty.get(outcome, 0.0))
+                if actual < priced_qty:
+                    self._vwap_priced_qty[outcome] = actual
+                    priced_qty = actual
 
-            self._reconcile_fallback_with_fills(outcome)
+                self._reconcile_fallback_with_fills(outcome)
 
-            unpriced_qty = max(0.0, actual - priced_qty)
-            if unpriced_qty > 0:
-                unpriced_qty = self._consume_buy_fills(outcome, unpriced_qty)
+                unpriced_qty = max(0.0, actual - priced_qty)
+                if unpriced_qty > 0:
+                    unpriced_qty = self._consume_buy_fills(outcome, unpriced_qty)
 
-            if unpriced_qty > 0:
-                if self._pending_buy_price is not None:
-                    self._apply_fallback_price(outcome, self._pending_buy_price, unpriced_qty)
-                    self._clear_pending_buy()
-                else:
-                    logger.warning("WARN: VWAP fallback used because fill price unavailable")
-                    self._recover_vwap_fallback("fill price unavailable")
-                    if self.state.vwap_entry is not None:
-                        self._vwap_priced_qty[outcome] = actual
+                if unpriced_qty > 0:
+                    if self._pending_buy_price is not None:
+                        self._apply_fallback_price(outcome, self._pending_buy_price, unpriced_qty)
+                        self._clear_pending_buy()
+                    else:
+                        logger.warning("WARN: VWAP fallback used because fill price unavailable")
+                        self._recover_vwap_fallback("fill price unavailable")
+                        if self.state.vwap_entry is not None:
+                            self._vwap_priced_qty[outcome] = actual
 
-        # Inventory fully closed, cooldown is allowed and vwap reset
-        if actual <= 0:
-            if not self._has_pending_buy():  # Keep vwap if buy is pending
-                self.state.vwap_entry = None
-                self._pos_open_ts = None
-                if outcome:
-                    self._vwap_priced_qty[outcome] = 0.0
-                    self._fallback_priced_queue[outcome].clear()
-            # If in EXITING phase and position is closed, transition to COOLDOWN
-            if self.state.phase == Phase.EXITING:
-                self._enter_cooldown(time.time(), reason="Position closed -> COOLDOWN")
+            # Inventory fully closed, cooldown is allowed and vwap reset
+            if actual <= 0:
+                if self._pending_buy_price is None:  # Keep vwap if buy is pending
+                    self.state.vwap_entry = None
+                    self._pos_open_ts = None
+                    if outcome:
+                        self._vwap_priced_qty[outcome] = 0.0
+                        self._fallback_priced_queue[outcome].clear()
+
+        # Check phase transition outside lock (to avoid holding lock during transition)
+        if actual <= 0 and self.state.phase == Phase.EXITING:
+            self._enter_cooldown(time.time(), reason="Position closed -> COOLDOWN")
 
     def _update_vwap_on_fill(self, fill_price: float, fill_qty: float, inv_before: float) -> None:
         if fill_qty <= 0 or fill_price <= 0:
@@ -491,12 +494,12 @@ class DefensiveCapitalPreservationStrategy(Strategy):
                 self._sell_fill_queue.setdefault(outcome, deque()).append((fill_price, fill_qty))
 
     def _consume_buy_fills(self, outcome: str, target_qty: float) -> float:
+        """Consume fills from queue. Caller must hold _fills_lock."""
         if target_qty <= 0:
             return 0.0
 
-        with self._fills_lock:
-            q = self._buy_fill_queue.get(outcome)
-            while q and target_qty > 0:
+        q = self._buy_fill_queue.get(outcome)
+        while q and target_qty > 0:
                 fill_price, fill_qty = q[0]
                 take_qty = min(fill_qty, target_qty)
                 inv_before = float(self._vwap_priced_qty.get(outcome, 0.0))
@@ -753,7 +756,8 @@ def find_market_id(exchange: Exchange, slug: str, market_index: Optional[int] = 
                 if not page_markets:
                     break
                 all_markets.extend(page_markets)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Error fetching markets page {page}: {e}")
                 break
         markets = [m for m in all_markets if all(k in m.question.lower() for k in keyword_parts)]
 

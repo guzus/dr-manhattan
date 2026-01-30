@@ -10,15 +10,12 @@ Leg 1:
 Leg 2:
 - Buy the opposite outcome when:
   leg1_entry_price + opposite_best_ask <= sum_target
-
-Modes:
-- --test (default): logs simulated orders, does not place real orders
-- --live: places real orders
 """
 
 import argparse
 import os
 import sys
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -42,6 +39,8 @@ class CycleState:
     leg1_outcome: Optional[str] = None
     leg1_entry_price: Optional[float] = None
     leg1_time: float = 0.0
+    leg1_expected_qty: float = 0.0
+    leg1_filled_qty: float = 0.0
     leg2_done: bool = False
 
 
@@ -61,7 +60,6 @@ class DumpHedgeStrategy(Strategy):
         dump_window_seconds: float = 3.0,
         max_position: float = 200.0,
         check_interval: float = 1.0,
-        test_mode: bool = True,
     ):
         super().__init__(
             exchange=exchange,
@@ -78,21 +76,30 @@ class DumpHedgeStrategy(Strategy):
         self.move_pct = float(move_pct)
         self.window_min = float(window_min)
         self.dump_window_seconds = float(dump_window_seconds)
-        self.test_mode = bool(test_mode)
 
         self.round_start_ts: float = 0.0
         self.ask_history: Dict[str, Deque[Tuple[float, float]]] = {}
         self.cycle = CycleState()
+        self.cycle_lock = threading.Lock()
 
     def on_start(self) -> None:
+        # Validate binary market assumption
+        if len(self.outcomes) != 2:
+            logger.error(
+                f"{Colors.red('ERROR:')} This strategy requires a binary market (2 outcomes). "
+                f"Found {len(self.outcomes)} outcomes: {self.outcomes}"
+            )
+            raise ValueError(f"Binary market required, found {len(self.outcomes)} outcomes")
+
         self.round_start_ts = time.time()
         self.ask_history = {o: deque(maxlen=50) for o in self.outcomes}
         self.cycle = CycleState()
 
-        mode = "TEST" if self.test_mode else "LIVE"
+        # Register fill callback to track Leg 1 fills
+        self.client.on_fill(self._handle_fill_event)
+
         logger.info(
             f"\n{Colors.bold('DumpHedge Strategy Config:')}\n"
-            f"  Mode: {Colors.yellow(mode)}\n"
             f"  Shares: {Colors.cyan(str(self.shares))}\n"
             f"  sumTarget: {Colors.yellow(str(self.sum_target))} | "
             f"movePct: {Colors.yellow(f'{self.move_pct * 100:.1f}%')} | "
@@ -103,11 +110,10 @@ class DumpHedgeStrategy(Strategy):
 
     def on_stop(self) -> None:
         logger.info(f"\n{Colors.bold('Shutting down...')}")
-        if not self.test_mode:
-            try:
-                self.cancel_all_orders()
-            except Exception:
-                pass
+        try:
+            self.cancel_all_orders()
+        except Exception as e:
+            logger.error(f"Error canceling orders during shutdown: {e}")
 
     def on_tick(self) -> None:
         self.refresh_state()
@@ -181,23 +187,32 @@ class DumpHedgeStrategy(Strategy):
         if not self._place_order(outcome, OrderSide.BUY, entry_price, self.shares, token_id):
             return
 
-        self.cycle = CycleState(
-            in_cycle=True,
-            leg1_outcome=outcome,
-            leg1_entry_price=float(entry_price),
-            leg1_time=time.time(),
-            leg2_done=False,
-        )
+        with self.cycle_lock:
+            self.cycle = CycleState(
+                in_cycle=True,
+                leg1_outcome=outcome,
+                leg1_entry_price=float(entry_price),
+                leg1_time=time.time(),
+                leg1_expected_qty=self.shares,
+                leg1_filled_qty=0.0,
+                leg2_done=False,
+            )
 
     def _maybe_execute_leg2(self) -> None:
-        if not self.cycle.in_cycle or self.cycle.leg2_done:
-            return
-        if not self.cycle.leg1_outcome or self.cycle.leg1_entry_price is None:
-            return
-        if len(self.outcomes) != 2:
-            return
+        # Check conditions with lock
+        with self.cycle_lock:
+            if not self.cycle.in_cycle or self.cycle.leg2_done:
+                return
+            if not self.cycle.leg1_outcome or self.cycle.leg1_entry_price is None:
+                return
 
-        leg1 = self.cycle.leg1_outcome
+            # Only execute Leg 2 if Leg 1 order is fully filled
+            if self.cycle.leg1_filled_qty < self.cycle.leg1_expected_qty:
+                return
+
+            leg1 = self.cycle.leg1_outcome
+            leg1_entry = self.cycle.leg1_entry_price
+
         opp = self.outcomes[0] if self.outcomes[1] == leg1 else self.outcomes[1]
 
         opp_token = self.get_token_id(opp)
@@ -209,7 +224,7 @@ class DumpHedgeStrategy(Strategy):
             return
 
         opp_ask = float(opp_ask)
-        condition_value = float(self.cycle.leg1_entry_price) + opp_ask
+        condition_value = float(leg1_entry) + opp_ask
         if condition_value > self.sum_target:
             return
 
@@ -217,7 +232,7 @@ class DumpHedgeStrategy(Strategy):
 
         logger.info(
             f"  {Colors.bold('LEG2')} {Colors.magenta(opp)} "
-            f"(leg1 {self.cycle.leg1_entry_price:.4f} + opp {opp_ask:.4f} = "
+            f"(leg1 {leg1_entry:.4f} + opp {opp_ask:.4f} = "
             f"{Colors.green(f'{condition_value:.4f}')} <= {self.sum_target}) "
             f"-> BUY {Colors.cyan(str(self.shares))} @ {Colors.yellow(f'{hedge_price:.4f}')}"
         )
@@ -225,13 +240,40 @@ class DumpHedgeStrategy(Strategy):
         if not self._place_order(opp, OrderSide.BUY, hedge_price, self.shares, opp_token):
             return
 
-        self.cycle.leg2_done = True
-        self.cycle.in_cycle = False
-        self.cycle.leg1_outcome = None
-        self.cycle.leg1_entry_price = None
+        # Update cycle state with lock
+        with self.cycle_lock:
+            self.cycle.leg2_done = True
+            self.cycle.in_cycle = False
+            self.cycle.leg1_outcome = None
+            self.cycle.leg1_entry_price = None
 
         for o in self.outcomes:
             self.ask_history[o].clear()
+
+    def _handle_fill_event(self, event, order, fill_size: float) -> None:
+        """Track fills for Leg 1 orders (thread-safe)"""
+        if order.market_id != self.market_id:
+            return
+
+        with self.cycle_lock:
+            if not self.cycle.in_cycle or self.cycle.leg2_done:
+                return
+            if order.outcome != self.cycle.leg1_outcome:
+                return
+            if order.side != OrderSide.BUY:
+                return
+
+            fill_qty = float(fill_size)
+            if fill_qty > 0:
+                self.cycle.leg1_filled_qty += fill_qty
+                filled = self.cycle.leg1_filled_qty
+                expected = self.cycle.leg1_expected_qty
+
+        if fill_qty > 0:
+            logger.info(
+                f"  {Colors.green('LEG1 FILL:')} {fill_qty:.2f} shares "
+                f"(total: {filled:.2f}/{expected:.2f})"
+            )
 
     def _place_order(
         self,
@@ -241,13 +283,6 @@ class DumpHedgeStrategy(Strategy):
         shares: float,
         token_id: str,
     ) -> bool:
-        if self.test_mode:
-            logger.info(
-                f"  {Colors.gray('[TEST ORDER]')} {side.name} {Colors.magenta(outcome)} "
-                f"{Colors.cyan(str(shares))} @ {Colors.yellow(f'{price:.4f}')}"
-            )
-            return True
-
         try:
             self.create_order(outcome, side, price, shares, token_id)
             return True
@@ -261,11 +296,9 @@ class DumpHedgeStrategy(Strategy):
             f"cycle=LEG2_WAIT({self.cycle.leg1_outcome})" if self.cycle.in_cycle else "cycle=IDLE"
         )
 
-        mode = "TEST" if self.test_mode else "LIVE"
         cash_str = f"{self.cash:.2f}" if isinstance(self.cash, (int, float)) else "N/A"
 
         logger.info(
-            f"  {Colors.gray('mode')}: {Colors.gray(mode)} | "
             f"{Colors.gray('window_left')}: {Colors.gray(f'{window_left:5.1f}s')} | "
             f"{Colors.gray('watch')}: {Colors.gray('ON' if in_watch_window else 'OFF')} | "
             f"{Colors.gray(cycle_state)} | "
@@ -294,7 +327,8 @@ def find_market_id(
                 if not page_markets:
                     break
                 all_markets.extend(page_markets)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Error fetching markets page {page}: {e}")
                 break
 
         markets = [m for m in all_markets if all(k in m.question.lower() for k in keyword_parts)]
@@ -338,8 +372,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--duration", type=int, default=None, help="Duration in minutes")
 
-    parser.add_argument("--test", action="store_true", help="Test mode (default)")
-    parser.add_argument("--live", action="store_true", help="Live mode (places real orders)")
     return parser.parse_args()
 
 
@@ -365,10 +397,6 @@ def main() -> int:
         if not market_id:
             return 1
 
-    test_mode = True
-    if args.live:
-        test_mode = False
-
     strategy = DumpHedgeStrategy(
         exchange=exchange,
         market_id=market_id,
@@ -379,7 +407,6 @@ def main() -> int:
         dump_window_seconds=args.dump_window,
         max_position=args.max_position,
         check_interval=args.interval,
-        test_mode=test_mode,
     )
 
     try:
