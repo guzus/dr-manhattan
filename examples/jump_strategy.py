@@ -1,19 +1,7 @@
-"""
-Defensive Step Jump Capture Strategy (ACCUMULATE -> HOLD -> EXITING -> COOLDOWN -> ACCUMULATE)
-
-Goals (defensive):
-- Never spam orders when balance/allowance is insufficient.
-- Sync inventory from actual positions every tick (avoid state drift).
-- Take-profit only when:
-    (1) Step-up jump is detected, AND
-    (2) Profit condition is satisfied (bid >= vwap*(1+tp_pct) OR min_profit_abs).
-- Always stop-loss if price dumps too much (bid <= vwap*(1-sl_pct)) or "drop" detected.
-- Backoff / cooldown when repeated order failures happen.
-"""
-
 import argparse
 import os
 import sys
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -44,21 +32,20 @@ class State:
     target_outcome: Optional[str] = None
 
     inventory_shares: float = 0.0
-    vwap_entry: Optional[float] = None  # best-effort estimate (see notes)
+    vwap_entry: Optional[float] = None  # Updated ONLY on confirmed fills
     round_start_ts: float = 0.0
 
     last_buy_ts: float = 0.0
     last_sell_ts: float = 0.0
     phase_start_ts: float = 0.0
 
-    # defensive bookkeeping
     consecutive_order_failures: int = 0
     last_failure_ts: float = 0.0
     last_tp_ts: float = 0.0
     last_sl_ts: float = 0.0
 
 
-class DefensiveJumpCaptureStrategy(Strategy):
+class DefensiveCapitalPreservationStrategy(Strategy):
     def __init__(
         self,
         exchange: Exchange,
@@ -66,32 +53,19 @@ class DefensiveJumpCaptureStrategy(Strategy):
         target_outcome: Optional[str] = None,
         shares: float = 5.0,
         max_inventory: float = 50.0,
-
-        # Entry conditions
         buy_band_low: float = 0.30,
         buy_band_high: float = 0.50,
         buy_cooldown_seconds: float = 10.0,
-        min_cash_buffer: float = 1.0,  # keep some cash unspent
-
-        # Jump/Drop detectors (use rolling window)
-        window_seconds: float = 30.0,
-        jump_up_pct: float = 0.15,   # e.g. +15% from min ask in window
-        drop_down_pct: float = 0.15, # e.g. -15% from max bid in window
-
-        # Exit (take profit / stop loss)
-        take_profit_pct: float = 0.03,     # require bid >= vwap*(1+tp)
-        stop_loss_pct: float = 0.06,       # force exit if bid <= vwap*(1-sl)
-        min_profit_abs: float = 0.0,       # optional absolute profit floor in USDC (best-effort)
-        max_hold_seconds: float = 3600.0,  # time-stop for any position
-
-        # Order pacing
+        min_cash_buffer: float = 1.0,
+        take_profit_pct: float = 0.007,
+        stop_loss_pct: float = 0.035,
+        min_profit_abs: float = 0.0,
+        max_hold_seconds: float = 3600.0,
         sell_cooldown_seconds: float = 2.0,
         check_interval: float = 1.0,
-
-        # Failure handling
         max_consecutive_failures: int = 5,
         failure_cooldown_seconds: float = 60.0,
-
+        post_exit_cooldown_seconds: float = 5.0,
     ):
         super().__init__(
             exchange=exchange,
@@ -111,10 +85,6 @@ class DefensiveJumpCaptureStrategy(Strategy):
         self.buy_cooldown_seconds = float(buy_cooldown_seconds)
         self.min_cash_buffer = float(min_cash_buffer)
 
-        self.window_seconds = float(window_seconds)
-        self.jump_up_pct = float(jump_up_pct)
-        self.drop_down_pct = float(drop_down_pct)
-
         self.take_profit_pct = float(take_profit_pct)
         self.stop_loss_pct = float(stop_loss_pct)
         self.min_profit_abs = float(min_profit_abs)
@@ -124,16 +94,31 @@ class DefensiveJumpCaptureStrategy(Strategy):
 
         self.max_consecutive_failures = int(max_consecutive_failures)
         self.failure_cooldown_seconds = float(failure_cooldown_seconds)
+        self.post_exit_cooldown_seconds = float(post_exit_cooldown_seconds)
 
         self.state = State()
         self._forced_target_outcome = target_outcome
 
-        # histories per outcome
-        self.ask_hist: Dict[str, Deque[Tuple[float, float]]] = {}
         self.bid_hist: Dict[str, Deque[Tuple[float, float]]] = {}
-
-        # if we entered HOLD, remember when
         self._pos_open_ts: Optional[float] = None
+
+        # pending BUY tracking
+        self._pending_buy_price: Optional[float] = None
+        self._pending_buy_qty: float = 0.0
+        self._pending_buy_ts: float = 0.0
+
+        # pending SELL tracking (★ 추가)
+        self._pending_sell_price: Optional[float] = None
+        self._pending_sell_qty: float = 0.0
+        self._pending_sell_ts: float = 0.0
+
+        self._last_synced_inventory: float = 0.0
+        self._pending_order_timeout: float = 60.0
+        self._fills_lock = threading.Lock()
+        self._buy_fill_queue: Dict[str, Deque[Tuple[float, float]]] = {}
+        self._sell_fill_queue: Dict[str, Deque[Tuple[float, float]]] = {}
+        self._fallback_priced_queue: Dict[str, Deque[Tuple[float, float]]] = {}
+        self._vwap_priced_qty: Dict[str, float] = {}
 
     # ---------- lifecycle ----------
     def on_start(self) -> None:
@@ -155,26 +140,37 @@ class DefensiveJumpCaptureStrategy(Strategy):
             last_sl_ts=0.0,
         )
 
-        self.ask_hist = {o: deque(maxlen=600) for o in self.outcomes}
         self.bid_hist = {o: deque(maxlen=600) for o in self.outcomes}
 
+        self._clear_pending_buy()
+        self._clear_pending_sell()
+        self._last_synced_inventory = 0.0
+        self._buy_fill_queue = {o: deque() for o in self.outcomes}
+        self._sell_fill_queue = {o: deque() for o in self.outcomes}
+        self._fallback_priced_queue = {o: deque() for o in self.outcomes}
+        self._vwap_priced_qty = {o: 0.0 for o in self.outcomes}
+
         self._sync_inventory_from_positions()
+
         if self.state.inventory_shares > 0:
             self.state.phase = Phase.HOLD
             self._pos_open_ts = now
+            if self.state.vwap_entry is None:
+                self._recover_vwap_fallback("on_start with existing inventory")
+
+        self.client.on_fill(self._handle_fill_event)
 
         logger.info(
-            f"\n{Colors.bold('DefensiveJumpCapture Config:')}\n"
+            f"\n{Colors.bold('DefensiveCapitalPreservation Config:')}\n"
             f"  TargetOutcome: {Colors.magenta(str(self.state.target_outcome))}\n"
             f"  shares={Colors.cyan(str(self.shares))} maxInv={Colors.cyan(str(self.max_inventory))}\n"
             f"  BuyBand=[{Colors.yellow(f'{self.buy_band_low:.2f}')}, {Colors.yellow(f'{self.buy_band_high:.2f}')}] "
             f"buyCooldown={Colors.gray(f'{self.buy_cooldown_seconds:.0f}s')} cashBuffer={Colors.gray(f'{self.min_cash_buffer:.2f}')}\n"
-            f"  Window={Colors.gray(f'{self.window_seconds:.0f}s')} jumpUp={Colors.yellow(f'{self.jump_up_pct*100:.1f}%')} "
-            f"dropDown={Colors.yellow(f'{self.drop_down_pct*100:.1f}%')}\n"
-            f"  TP={Colors.yellow(f'{self.take_profit_pct*100:.1f}%')} SL={Colors.yellow(f'{self.stop_loss_pct*100:.1f}%')} "
+            f"  TP={Colors.yellow(f'{self.take_profit_pct*100:.2f}%')} SL={Colors.yellow(f'{self.stop_loss_pct*100:.2f}%')} "
             f"maxHold={Colors.gray(f'{self.max_hold_seconds:.0f}s')}\n"
             f"  Failure: maxConsecutive={Colors.gray(str(self.max_consecutive_failures))} "
             f"cooldown={Colors.gray(f'{self.failure_cooldown_seconds:.0f}s')}\n"
+            f"  PostExitCooldown={Colors.gray(f'{self.post_exit_cooldown_seconds:.0f}s')}\n"
             f"  interval={Colors.gray(f'{self.check_interval:.2f}s')}\n"
         )
 
@@ -190,25 +186,29 @@ class DefensiveJumpCaptureStrategy(Strategy):
         self.refresh_state()
         now = time.time()
 
-        # failure cooldown gate (important when you got 403/cloudflare or allowance issues)
         if self._in_failure_cooldown(now):
             self._log_status(extra=f"FAIL_COOLDOWN ({self.failure_cooldown_seconds:.0f}s)")
             return
 
-        # keep histories updated
         self._update_histories(now)
 
-        # ensure target
         if not self.state.target_outcome:
             self.state.target_outcome = self._select_target_outcome()
             if not self.state.target_outcome:
                 self._log_status(extra="No target outcome available")
                 return
 
-        # always sync real inventory
+        # Expire stale pending orders
+        self._expire_pending_orders(now)
+
+        # Always sync inventory (fill detection here)
         self._sync_inventory_from_positions()
 
-        # phase routing
+        # If inv>0 but vwap missing, recover
+        if self.state.inventory_shares > 0 and self.state.vwap_entry is None:
+            self._recover_vwap_fallback("inventory > 0 but vwap is None")
+
+        # Phase routing
         if self.state.phase == Phase.ACCUMULATE:
             if self.state.inventory_shares > 0:
                 self._enter_hold(now, reason="Found existing inventory -> HOLD")
@@ -216,29 +216,32 @@ class DefensiveJumpCaptureStrategy(Strategy):
                 self._accumulate(now)
 
         elif self.state.phase == Phase.HOLD:
-            # time stop
-            if self._pos_open_ts and (now - self._pos_open_ts) >= self.max_hold_seconds:
-                self._enter_exiting(now, reason="MAX_HOLD reached -> EXITING")
+            # ★ 핵심: 포지션이 없으면 exit 로직을 돌지 말고 상태 정리
+            if self.state.inventory_shares <= 0:
+                if self._has_pending_buy():
+                    # 아직 positions 반영/조회가 늦는 중일 수 있음 → 기다림
+                    pass
+                else:
+                    self._enter_accumulate(now, reason="No inventory in HOLD -> ACCUMULATE")
             else:
-                self._maybe_exit(now)
+                if self._pos_open_ts and (now - self._pos_open_ts) >= self.max_hold_seconds:
+                    self._enter_exiting(now, reason="MAX_HOLD reached -> EXITING")
+                else:
+                    self._maybe_exit(now)
 
         elif self.state.phase == Phase.EXITING:
             self._sell_all(now)
 
         elif self.state.phase == Phase.COOLDOWN:
-            # simple cooldown after exits or failure storms
-            if (now - self.state.phase_start_ts) >= 5.0:
+            if (now - self.state.phase_start_ts) >= self.post_exit_cooldown_seconds:
                 self._enter_accumulate(now, reason="COOLDOWN done -> ACCUMULATE")
 
         self._log_status()
 
     # ---------- phase actions ----------
     def _accumulate(self, now: float) -> None:
-        # buy cooldown
         if (now - self.state.last_buy_ts) < self.buy_cooldown_seconds:
             return
-
-        # cap
         if self.state.inventory_shares + self.shares > self.max_inventory:
             return
 
@@ -252,16 +255,14 @@ class DefensiveJumpCaptureStrategy(Strategy):
             return
         ask = float(ask)
 
-        # entry band
         if not (self.buy_band_low <= ask <= self.buy_band_high):
             return
 
         price = self.round_price(ask)
 
-        # balance/allowance sanity: don't even try if cash too low
         est_cost = price * self.shares
         if not self._has_sufficient_cash(est_cost):
-            self._log_status(extra=f"SKIP BUY (cash too low for cost≈{est_cost:.2f})")
+            self._log_status(extra=f"SKIP BUY (cash too low for cost~{est_cost:.2f})")
             return
 
         logger.info(
@@ -269,17 +270,18 @@ class DefensiveJumpCaptureStrategy(Strategy):
             f"band hit -> BUY {Colors.cyan(str(self.shares))} @ {Colors.yellow(f'{price:.4f}')}"
         )
 
+        # Store pending BUY before placing
+        self._pending_buy_price = price
+        self._pending_buy_qty = self.shares
+        self._pending_buy_ts = now
+
         ok = self._place_order(outcome, OrderSide.BUY, price, self.shares, token_id)
         if not ok:
+            self._clear_pending_buy()
             return
 
-        # best-effort vwap tracking (not perfect if partial fills happen)
-        self._update_vwap_on_buy(price, self.shares)
         self.state.last_buy_ts = now
-
-        # after buy attempt, re-sync next tick via positions
-        # but if you want immediate transition:
-        self._enter_hold(now, reason="BUY placed -> HOLD")
+        self._enter_hold(now, reason="BUY placed -> HOLD (awaiting fill)")
 
     def _maybe_exit(self, now: float) -> None:
         outcome = self.state.target_outcome
@@ -287,56 +289,54 @@ class DefensiveJumpCaptureStrategy(Strategy):
         if not token_id:
             return
 
-        bid, ask = self.get_best_bid_ask(token_id)
+        # ★ inv==0이면 exit 판단할 필요 없음
+        if self.state.inventory_shares <= 0:
+            return
+
+        bid, _ask = self.get_best_bid_ask(token_id)
         if bid is None or bid <= 0 or bid > 1.0:
             return
-
         bid = float(bid)
-        ask = float(ask) if ask is not None else None
 
-        vwap = self._get_effective_vwap()
+        vwap = self.state.vwap_entry
         if vwap is None or vwap <= 0:
-            # if we can't estimate entry, be conservative: only stop-loss on large drops
-            if self._detect_drop(outcome):
-                self._enter_exiting(now, reason="DROP detected (no vwap) -> EXITING")
+            # 여기까지 오면 “진짜로” 이상한 상태라서만 warn
+            logger.warning(
+                f"  {Colors.yellow('WARN')} _maybe_exit called with vwap=None "
+                f"(inv={self.state.inventory_shares:.2f})."
+            )
             return
 
-        # stop loss first (defensive)
-        if bid <= vwap * (1.0 - self.stop_loss_pct):
+        stop_price = vwap * (1.0 - self.stop_loss_pct)
+        if bid <= stop_price:
             self.state.last_sl_ts = now
-            self._enter_exiting(now, reason=f"STOP_LOSS hit (bid {bid:.4f} <= vwap {vwap:.4f})")
+            self._enter_exiting(
+                now,
+                reason=f"STOP_LOSS (bid {bid:.4f} <= {stop_price:.4f}, vwap {vwap:.4f})"
+            )
             return
 
-        # drop detector as extra stop trigger
-        if self._detect_drop(outcome):
-            self.state.last_sl_ts = now
-            self._enter_exiting(now, reason="DROP detected -> EXITING")
-            return
-
-        # take profit condition: require jump up + profit condition
-        jumped = self._detect_jump(outcome)
-        if not jumped:
-            return
-
-        profit_ok = bid >= vwap * (1.0 + self.take_profit_pct)
-
-        # optional absolute profit gate (best-effort)
-        if self.min_profit_abs > 0 and profit_ok:
-            # approx pnl = (bid - vwap) * shares
-            approx_pnl = (bid - vwap) * float(self.state.inventory_shares)
-            profit_ok = approx_pnl >= self.min_profit_abs
-
-        if profit_ok:
+        tp_price = vwap * (1.0 + self.take_profit_pct)
+        if bid >= tp_price:
+            if self.min_profit_abs > 0:
+                approx_pnl = (bid - vwap) * float(self.state.inventory_shares)
+                if approx_pnl < self.min_profit_abs:
+                    return
             self.state.last_tp_ts = now
-            self._enter_exiting(now, reason=f"JUMP+TP -> EXITING (bid {bid:.4f} vs vwap {vwap:.4f})")
+            self._enter_exiting(
+                now,
+                reason=f"TAKE_PROFIT (bid {bid:.4f} >= {tp_price:.4f}, vwap {vwap:.4f})"
+            )
 
     def _sell_all(self, now: float) -> None:
-        # sell cooldown
+        if self._has_pending_sell():
+            return
         if (now - self.state.last_sell_ts) < self.sell_cooldown_seconds:
             return
 
         self._sync_inventory_from_positions()
         if self.state.inventory_shares <= 0:
+            # ★ 여기서만 cooldown로
             self._enter_cooldown(now, reason="No inventory -> COOLDOWN")
             return
 
@@ -357,14 +357,21 @@ class DefensiveJumpCaptureStrategy(Strategy):
             f"-> SELL {Colors.cyan(f'{sell_qty:.2f}')} @ {Colors.yellow(f'{sell_price:.4f}')} (best_bid={bid:.4f})"
         )
 
+        # ★ pending SELL 기록
+        self._pending_sell_price = sell_price
+        self._pending_sell_qty = sell_qty
+        self._pending_sell_ts = now
+
         ok = self._place_order(outcome, OrderSide.SELL, sell_price, sell_qty, token_id)
         if not ok:
-            # keep EXITING and retry later; failure handler will backoff if repeated
+            self._clear_pending_sell()
             return
 
         self.state.last_sell_ts = now
-        # inventory will be synced from positions; until then keep cautious
-        self._enter_cooldown(now, reason="SELL placed -> COOLDOWN")
+
+        # ★ 중요: “SELL 넣었다고” COOLDOWN 가지 말고 EXITING 유지
+        # inventory==0 확인될 때만 COOLDOWN로 넘어감
+        return
 
     # ---------- helpers ----------
     def _update_histories(self, now: float) -> None:
@@ -372,42 +379,15 @@ class DefensiveJumpCaptureStrategy(Strategy):
             token_id = self.get_token_id(outcome)
             if not token_id:
                 continue
-            bid, ask = self.get_best_bid_ask(token_id)
-            if ask is not None and 0 < ask <= 1.0:
-                self.ask_hist[outcome].append((now, float(ask)))
+            bid, _ask = self.get_best_bid_ask(token_id)
             if bid is not None and 0 < bid <= 1.0:
                 self.bid_hist[outcome].append((now, float(bid)))
 
-        # prune by window_seconds
+        window = 60.0
         for outcome in self.outcomes:
-            h = self.ask_hist.get(outcome)
-            while h and (now - h[0][0]) > self.window_seconds:
+            h = self.bid_hist.get(outcome)
+            while h and (now - h[0][0]) > window:
                 h.popleft()
-            h2 = self.bid_hist.get(outcome)
-            while h2 and (now - h2[0][0]) > self.window_seconds:
-                h2.popleft()
-
-    def _detect_jump(self, outcome: str) -> bool:
-        h = self.ask_hist.get(outcome)
-        if not h or len(h) < 2:
-            return False
-        min_ask = min(p for _, p in h)
-        cur_ask = h[-1][1]
-        if min_ask <= 0:
-            return False
-        jump = (cur_ask - min_ask) / min_ask
-        return jump >= self.jump_up_pct
-
-    def _detect_drop(self, outcome: str) -> bool:
-        h = self.bid_hist.get(outcome)
-        if not h or len(h) < 2:
-            return False
-        max_bid = max(p for _, p in h)
-        cur_bid = h[-1][1]
-        if max_bid <= 0:
-            return False
-        drop = (max_bid - cur_bid) / max_bid
-        return drop >= self.drop_down_pct
 
     def _select_target_outcome(self) -> Optional[str]:
         if self._forced_target_outcome:
@@ -417,7 +397,6 @@ class DefensiveJumpCaptureStrategy(Strategy):
                 if o.lower() == self._forced_target_outcome.lower():
                     return o
 
-        # choose cheapest ask now
         best: Tuple[Optional[str], float] = (None, 999.0)
         for o in self.outcomes:
             token_id = self.get_token_id(o)
@@ -434,30 +413,227 @@ class DefensiveJumpCaptureStrategy(Strategy):
     def _sync_inventory_from_positions(self) -> None:
         if not self.state.target_outcome:
             return
+
         actual = float(self.positions.get(self.state.target_outcome, 0.0))
+        previous = float(self._last_synced_inventory)
+        outcome = self.state.target_outcome
+
+        # SELL fill detected (inventory decreased)
+        if actual < previous:
+            sold_qty = previous - actual
+            logger.info(
+                f"  {Colors.green('SELL FILL DETECTED')} inventory {previous:.2f} -> {actual:.2f} (-{sold_qty:.2f})"
+            )
+            # pending SELL clear once we see any decrease (pragmatic)
+            if self._pending_sell_price is not None:
+                self._clear_pending_sell()
+
         self.state.inventory_shares = actual
+        self._last_synced_inventory = actual
+
+        if outcome:
+            priced_qty = float(self._vwap_priced_qty.get(outcome, 0.0))
+            if actual < priced_qty:
+                self._vwap_priced_qty[outcome] = actual
+                priced_qty = actual
+
+            self._reconcile_fallback_with_fills(outcome)
+
+            unpriced_qty = max(0.0, actual - priced_qty)
+            if unpriced_qty > 0:
+                unpriced_qty = self._consume_buy_fills(outcome, unpriced_qty)
+
+            if unpriced_qty > 0:
+                if self._pending_buy_price is not None:
+                    self._apply_fallback_price(outcome, self._pending_buy_price, unpriced_qty)
+                    self._clear_pending_buy()
+                else:
+                    logger.warning("WARN: VWAP fallback used because fill price unavailable")
+                    self._recover_vwap_fallback("fill price unavailable")
+                    if self.state.vwap_entry is not None:
+                        self._vwap_priced_qty[outcome] = actual
+
+        # ★ inventory fully closed => now cooldown is allowed + vwap reset
         if actual <= 0:
-            self.state.vwap_entry = None
-            self._pos_open_ts = None
+            if not self._has_pending_buy():  # buy pending이면 vwap 유지
+                self.state.vwap_entry = None
+                self._pos_open_ts = None
+                if outcome:
+                    self._vwap_priced_qty[outcome] = 0.0
+                    self._fallback_priced_queue[outcome].clear()
+            # EXITING 중이고, 포지션 닫혔으면 COOLDOWN로 전환
+            if self.state.phase == Phase.EXITING:
+                self._enter_cooldown(time.time(), reason="Position closed -> COOLDOWN")
 
-    def _get_effective_vwap(self) -> Optional[float]:
-        # best-effort: use tracked vwap_entry
-        # If your framework exposes avg entry price somewhere, you can plug it here.
-        return self.state.vwap_entry
+    def _update_vwap_on_fill(self, fill_price: float, fill_qty: float, inv_before: float) -> None:
+        if fill_qty <= 0 or fill_price <= 0:
+            return
 
-    def _update_vwap_on_buy(self, price: float, qty: float) -> None:
-        if qty <= 0:
+        if self.state.vwap_entry is None or inv_before <= 0:
+            self.state.vwap_entry = float(fill_price)
+        else:
+            vwap = float(self.state.vwap_entry)
+            self.state.vwap_entry = (vwap * inv_before + fill_price * fill_qty) / (inv_before + fill_qty)
+
+    def _handle_fill_event(self, event, order, fill_size: float) -> None:
+        if order.market_id != self.market_id:
             return
-        inv = float(self.state.inventory_shares)
-        # note: inv here is BEFORE sync; best-effort only
-        if self.state.vwap_entry is None or inv <= 0:
-            self.state.vwap_entry = float(price)
+        outcome = order.outcome
+        fill_qty = float(fill_size)
+        fill_price = float(order.price)
+        if fill_qty <= 0 or fill_price <= 0:
             return
-        vwap = float(self.state.vwap_entry)
-        self.state.vwap_entry = (vwap * inv + float(price) * float(qty)) / (inv + float(qty))
+
+        with self._fills_lock:
+            if order.side == OrderSide.BUY:
+                self._buy_fill_queue.setdefault(outcome, deque()).append((fill_price, fill_qty))
+            elif order.side == OrderSide.SELL:
+                self._sell_fill_queue.setdefault(outcome, deque()).append((fill_price, fill_qty))
+
+    def _consume_buy_fills(self, outcome: str, target_qty: float) -> float:
+        if target_qty <= 0:
+            return 0.0
+
+        with self._fills_lock:
+            q = self._buy_fill_queue.get(outcome)
+            while q and target_qty > 0:
+                fill_price, fill_qty = q[0]
+                take_qty = min(fill_qty, target_qty)
+                inv_before = float(self._vwap_priced_qty.get(outcome, 0.0))
+                self._update_vwap_on_fill(fill_price, take_qty, inv_before)
+                self._vwap_priced_qty[outcome] = inv_before + take_qty
+                pending_price = self._pending_buy_price
+                pending_str = f"{pending_price:.4f}" if pending_price is not None else "N/A"
+                logger.info(
+                    f"  {Colors.green('VWAP UPDATED')} using fill_price={fill_price:.4f}, "
+                    f"pending_price={pending_str}, new vwap={self.state.vwap_entry:.4f}"
+                )
+
+                target_qty -= take_qty
+                if take_qty >= fill_qty:
+                    q.popleft()
+                else:
+                    q[0] = (fill_price, fill_qty - take_qty)
+                    break
+
+        return target_qty
+
+    def _apply_fallback_price(self, outcome: str, price: float, qty: float) -> None:
+        if qty <= 0 or price <= 0:
+            return
+        logger.warning("WARN: VWAP fallback used because fill price unavailable")
+        inv_before = float(self._vwap_priced_qty.get(outcome, 0.0))
+        self._update_vwap_on_fill(price, qty, inv_before)
+        self._vwap_priced_qty[outcome] = inv_before + qty
+        self._fallback_priced_queue.setdefault(outcome, deque()).append((price, qty))
+        pending_price = self._pending_buy_price
+        pending_str = f"{pending_price:.4f}" if pending_price is not None else "N/A"
+        logger.info(
+            f"  {Colors.green('VWAP UPDATED')} using fill_price=N/A, "
+            f"pending_price={pending_str}, new vwap={self.state.vwap_entry:.4f}"
+        )
+
+    def _reconcile_fallback_with_fills(self, outcome: str) -> None:
+        with self._fills_lock:
+            fallback_q = self._fallback_priced_queue.get(outcome)
+            fill_q = self._buy_fill_queue.get(outcome)
+            if not fallback_q or not fill_q:
+                return
+
+            while fallback_q and fill_q:
+                fallback_price, fallback_qty = fallback_q[0]
+                fill_price, fill_qty = fill_q[0]
+                replace_qty = min(fallback_qty, fill_qty)
+                priced_qty = float(self._vwap_priced_qty.get(outcome, 0.0))
+                if self.state.vwap_entry is not None and priced_qty > 0:
+                    vwap = float(self.state.vwap_entry)
+                    self.state.vwap_entry = (
+                        (vwap * priced_qty - fallback_price * replace_qty + fill_price * replace_qty)
+                        / priced_qty
+                    )
+                    pending_price = self._pending_buy_price
+                    pending_str = f"{pending_price:.4f}" if pending_price is not None else "N/A"
+                    logger.info(
+                        f"  {Colors.green('VWAP UPDATED')} using fill_price={fill_price:.4f}, "
+                        f"pending_price={pending_str}, new vwap={self.state.vwap_entry:.4f}"
+                    )
+
+                if replace_qty >= fallback_qty:
+                    fallback_q.popleft()
+                else:
+                    fallback_q[0] = (fallback_price, fallback_qty - replace_qty)
+
+                if replace_qty >= fill_qty:
+                    fill_q.popleft()
+                else:
+                    fill_q[0] = (fill_price, fill_qty - replace_qty)
+
+    # ----- pending helpers -----
+    def _has_pending_buy(self) -> bool:
+        return self._pending_buy_price is not None
+
+    def _clear_pending_buy(self) -> None:
+        self._pending_buy_price = None
+        self._pending_buy_qty = 0.0
+        self._pending_buy_ts = 0.0
+
+    def _has_pending_sell(self) -> bool:
+        return self._pending_sell_price is not None
+
+    def _clear_pending_sell(self) -> None:
+        self._pending_sell_price = None
+        self._pending_sell_qty = 0.0
+        self._pending_sell_ts = 0.0
+
+    def _expire_pending_orders(self, now: float) -> None:
+        if self._pending_buy_price is not None and (now - self._pending_buy_ts) > self._pending_order_timeout:
+            logger.warning(
+                f"  {Colors.yellow('WARN')} Pending BUY expired after {self._pending_order_timeout:.0f}s "
+                f"(price={self._pending_buy_price:.4f}, qty={self._pending_buy_qty:.2f})"
+            )
+            self._clear_pending_buy()
+
+        if self._pending_sell_price is not None and (now - self._pending_sell_ts) > self._pending_order_timeout:
+            logger.warning(
+                f"  {Colors.yellow('WARN')} Pending SELL expired after {self._pending_order_timeout:.0f}s "
+                f"(price={self._pending_sell_price:.4f}, qty={self._pending_sell_qty:.2f})"
+            )
+            self._clear_pending_sell()
+
+    def _recover_vwap_fallback(self, reason: str) -> None:
+        if self.state.vwap_entry is not None:
+            return
+        if self.state.inventory_shares <= 0:
+            return
+
+        outcome = self.state.target_outcome
+        if not outcome:
+            return
+
+        token_id = self.get_token_id(outcome)
+        if not token_id:
+            return
+
+        bid, ask = self.get_best_bid_ask(token_id)
+
+        # ★ 보수적으로 bid 우선 (exit 기준으로 더 안전)
+        fallback_price = None
+        if bid is not None and 0 < bid <= 1.0:
+            fallback_price = float(bid)
+        elif ask is not None and 0 < ask <= 1.0:
+            fallback_price = float(ask)
+
+        if fallback_price is not None:
+            self.state.vwap_entry = fallback_price
+            logger.warning(
+                f"  {Colors.yellow('VWAP RECOVERED')} using fallback price {fallback_price:.4f} (reason: {reason})"
+            )
+        else:
+            logger.error(
+                f"  {Colors.red('ERROR')} Cannot recover VWAP - no valid price (reason: {reason})"
+            )
 
     def _has_sufficient_cash(self, est_cost: float) -> bool:
-        # if cash isn't numeric or missing, just allow (some exchanges hide it)
         if not isinstance(self.cash, (int, float)):
             return True
         return float(self.cash) >= (float(est_cost) + self.min_cash_buffer)
@@ -476,7 +652,6 @@ class DefensiveJumpCaptureStrategy(Strategy):
             self.state.consecutive_order_failures += 1
             self.state.last_failure_ts = time.time()
             logger.error(f"  Order failed: {e}")
-            # if failures pile up -> switch to COOLDOWN to avoid spam
             if self.state.consecutive_order_failures >= self.max_consecutive_failures:
                 self._enter_cooldown(self.state.last_failure_ts, reason="Too many failures -> COOLDOWN")
             return False
@@ -502,6 +677,12 @@ class DefensiveJumpCaptureStrategy(Strategy):
         if self.state.phase != Phase.ACCUMULATE:
             self.state.phase = Phase.ACCUMULATE
             self.state.phase_start_ts = now
+
+            # ★ 핵심: inv>0이면 vwap을 리셋하지 않는다
+            if self.state.inventory_shares <= 0 and not self._has_pending_buy():
+                self.state.vwap_entry = None
+
+            self._pos_open_ts = None
             if reason:
                 logger.info(f"  {Colors.green('PHASE')} ACCUMULATE | {Colors.gray(reason)}")
 
@@ -509,6 +690,9 @@ class DefensiveJumpCaptureStrategy(Strategy):
         if self.state.phase != Phase.COOLDOWN:
             self.state.phase = Phase.COOLDOWN
             self.state.phase_start_ts = now
+            # cooldown 들어갈 때 buy/sell pending은 정리
+            self._clear_pending_buy()
+            self._clear_pending_sell()
             if reason:
                 logger.info(f"  {Colors.green('PHASE')} COOLDOWN | {Colors.gray(reason)}")
 
@@ -518,6 +702,25 @@ class DefensiveJumpCaptureStrategy(Strategy):
         outcome = self.state.target_outcome
         inv = self.state.inventory_shares
         vwap = self.state.vwap_entry
+
+        pending_parts = []
+        if self._pending_buy_price is not None:
+            pending_parts.append(Colors.yellow(f"pending_buy@{self._pending_buy_price:.4f}"))
+        if self._pending_sell_price is not None:
+            pending_parts.append(Colors.yellow(f"pending_sell@{self._pending_sell_price:.4f}"))
+        pending_str = f" | {' '.join(pending_parts)}" if pending_parts else ""
+
+        pnl_str = ""
+        if vwap and inv > 0 and outcome:
+            token_id = self.get_token_id(outcome)
+            if token_id:
+                bid, _ = self.get_best_bid_ask(token_id)
+                if bid and bid > 0:
+                    pnl = (float(bid) - vwap) * inv
+                    pnl_pct = ((float(bid) / vwap) - 1) * 100
+                    pnl_color = Colors.green if pnl >= 0 else Colors.red
+                    pnl_str = f" | pnl={pnl_color(f'{pnl:+.4f} ({pnl_pct:+.2f}%)')}"
+
         msg = (
             f"{Colors.gray('phase')}: {Colors.gray(self.state.phase)} | "
             f"{Colors.gray('outcome')}: {Colors.magenta(str(outcome))} | "
@@ -525,6 +728,8 @@ class DefensiveJumpCaptureStrategy(Strategy):
             f"{Colors.gray('vwap')}: {Colors.cyan(f'{vwap:.4f}' if vwap is not None else 'N/A')} | "
             f"cash={Colors.cyan(cash_str)} | "
             f"fails={Colors.gray(str(self.state.consecutive_order_failures))}"
+            f"{pending_str}"
+            f"{pnl_str}"
         )
         if extra:
             msg += f" | {Colors.yellow(extra)}"
@@ -569,7 +774,7 @@ def find_market_id(exchange: Exchange, slug: str, market_index: Optional[int] = 
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Defensive Jump Capture Strategy")
+    p = argparse.ArgumentParser(description="Defensive Capital Preservation Strategy")
     p.add_argument("-e", "--exchange", default=os.getenv("EXCHANGE", "polymarket"))
     p.add_argument("-s", "--slug", default=os.getenv("MARKET_SLUG", ""))
     p.add_argument("-m", "--market-id", default=os.getenv("MARKET_ID", ""))
@@ -584,16 +789,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--buy-cooldown", type=float, default=10.0)
     p.add_argument("--cash-buffer", type=float, default=1.0)
 
-    p.add_argument("--window", type=float, default=30.0)
-    p.add_argument("--jump-up", type=float, default=0.15)
-    p.add_argument("--drop-down", type=float, default=0.15)
-
-    p.add_argument("--tp", type=float, default=0.03)
-    p.add_argument("--sl", type=float, default=0.06)
+    p.add_argument("--tp", type=float, default=0.007)
+    p.add_argument("--sl", type=float, default=0.035)
     p.add_argument("--min-profit-abs", type=float, default=0.0)
     p.add_argument("--max-hold", type=float, default=3600.0)
 
     p.add_argument("--sell-cooldown", type=float, default=2.0)
+    p.add_argument("--post-exit-cooldown", type=float, default=5.0)
     p.add_argument("--interval", type=float, default=float(os.getenv("CHECK_INTERVAL", "1")))
 
     p.add_argument("--max-fails", type=int, default=5)
@@ -622,7 +824,7 @@ def main() -> int:
         if not market_id:
             return 1
 
-    strat = DefensiveJumpCaptureStrategy(
+    strat = DefensiveCapitalPreservationStrategy(
         exchange=exchange,
         market_id=market_id,
         target_outcome=args.outcome,
@@ -632,14 +834,12 @@ def main() -> int:
         buy_band_high=args.buy_band_high,
         buy_cooldown_seconds=args.buy_cooldown,
         min_cash_buffer=args.cash_buffer,
-        window_seconds=args.window,
-        jump_up_pct=args.jump_up,
-        drop_down_pct=args.drop_down,
         take_profit_pct=args.tp,
         stop_loss_pct=args.sl,
         min_profit_abs=args.min_profit_abs,
         max_hold_seconds=args.max_hold,
         sell_cooldown_seconds=args.sell_cooldown,
+        post_exit_cooldown_seconds=args.post_exit_cooldown,
         check_interval=args.interval,
         max_consecutive_failures=args.max_fails,
         failure_cooldown_seconds=args.fail_cooldown,
