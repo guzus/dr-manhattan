@@ -107,7 +107,7 @@ class DefensiveCapitalPreservationStrategy(Strategy):
         self._pending_buy_qty: float = 0.0
         self._pending_buy_ts: float = 0.0
 
-        # pending SELL tracking (★ 추가)
+        # pending SELL tracking
         self._pending_sell_price: Optional[float] = None
         self._pending_sell_qty: float = 0.0
         self._pending_sell_ts: float = 0.0
@@ -216,10 +216,10 @@ class DefensiveCapitalPreservationStrategy(Strategy):
                 self._accumulate(now)
 
         elif self.state.phase == Phase.HOLD:
-            # ★ 핵심: 포지션이 없으면 exit 로직을 돌지 말고 상태 정리
+            # Core logic: if no position, skip exit logic and clean up state
             if self.state.inventory_shares <= 0:
                 if self._has_pending_buy():
-                    # 아직 positions 반영/조회가 늦는 중일 수 있음 → 기다림
+                    # Position update may be delayed, wait for confirmation
                     pass
                 else:
                     self._enter_accumulate(now, reason="No inventory in HOLD -> ACCUMULATE")
@@ -289,7 +289,7 @@ class DefensiveCapitalPreservationStrategy(Strategy):
         if not token_id:
             return
 
-        # ★ inv==0이면 exit 판단할 필요 없음
+        # If inventory is zero, no need to check exit conditions
         if self.state.inventory_shares <= 0:
             return
 
@@ -300,7 +300,7 @@ class DefensiveCapitalPreservationStrategy(Strategy):
 
         vwap = self.state.vwap_entry
         if vwap is None or vwap <= 0:
-            # 여기까지 오면 “진짜로” 이상한 상태라서만 warn
+            # If we reach here with invalid vwap, it's truly an abnormal state
             logger.warning(
                 f"  {Colors.yellow('WARN')} _maybe_exit called with vwap=None "
                 f"(inv={self.state.inventory_shares:.2f})."
@@ -336,7 +336,7 @@ class DefensiveCapitalPreservationStrategy(Strategy):
 
         self._sync_inventory_from_positions()
         if self.state.inventory_shares <= 0:
-            # ★ 여기서만 cooldown로
+            # Only transition to cooldown here
             self._enter_cooldown(now, reason="No inventory -> COOLDOWN")
             return
 
@@ -357,7 +357,7 @@ class DefensiveCapitalPreservationStrategy(Strategy):
             f"-> SELL {Colors.cyan(f'{sell_qty:.2f}')} @ {Colors.yellow(f'{sell_price:.4f}')} (best_bid={bid:.4f})"
         )
 
-        # ★ pending SELL 기록
+        # Record pending SELL
         self._pending_sell_price = sell_price
         self._pending_sell_qty = sell_qty
         self._pending_sell_ts = now
@@ -369,8 +369,8 @@ class DefensiveCapitalPreservationStrategy(Strategy):
 
         self.state.last_sell_ts = now
 
-        # ★ 중요: “SELL 넣었다고” COOLDOWN 가지 말고 EXITING 유지
-        # inventory==0 확인될 때만 COOLDOWN로 넘어감
+        # Important: stay in EXITING phase after placing sell order
+        # Only transition to COOLDOWN when inventory==0 is confirmed
         return
 
     # ---------- helpers ----------
@@ -453,15 +453,15 @@ class DefensiveCapitalPreservationStrategy(Strategy):
                     if self.state.vwap_entry is not None:
                         self._vwap_priced_qty[outcome] = actual
 
-        # ★ inventory fully closed => now cooldown is allowed + vwap reset
+        # Inventory fully closed, cooldown is allowed and vwap reset
         if actual <= 0:
-            if not self._has_pending_buy():  # buy pending이면 vwap 유지
+            if not self._has_pending_buy():  # Keep vwap if buy is pending
                 self.state.vwap_entry = None
                 self._pos_open_ts = None
                 if outcome:
                     self._vwap_priced_qty[outcome] = 0.0
                     self._fallback_priced_queue[outcome].clear()
-            # EXITING 중이고, 포지션 닫혔으면 COOLDOWN로 전환
+            # If in EXITING phase and position is closed, transition to COOLDOWN
             if self.state.phase == Phase.EXITING:
                 self._enter_cooldown(time.time(), reason="Position closed -> COOLDOWN")
 
@@ -616,7 +616,7 @@ class DefensiveCapitalPreservationStrategy(Strategy):
 
         bid, ask = self.get_best_bid_ask(token_id)
 
-        # ★ 보수적으로 bid 우선 (exit 기준으로 더 안전)
+        # Conservative approach: use bid price first (safer for exit calculations)
         fallback_price = None
         if bid is not None and 0 < bid <= 1.0:
             fallback_price = float(bid)
@@ -678,7 +678,7 @@ class DefensiveCapitalPreservationStrategy(Strategy):
             self.state.phase = Phase.ACCUMULATE
             self.state.phase_start_ts = now
 
-            # ★ 핵심: inv>0이면 vwap을 리셋하지 않는다
+            # Core logic: do not reset vwap if inventory > 0
             if self.state.inventory_shares <= 0 and not self._has_pending_buy():
                 self.state.vwap_entry = None
 
@@ -690,7 +690,7 @@ class DefensiveCapitalPreservationStrategy(Strategy):
         if self.state.phase != Phase.COOLDOWN:
             self.state.phase = Phase.COOLDOWN
             self.state.phase_start_ts = now
-            # cooldown 들어갈 때 buy/sell pending은 정리
+            # Clear pending orders when entering cooldown
             self._clear_pending_buy()
             self._clear_pending_sell()
             if reason:

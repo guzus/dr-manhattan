@@ -139,6 +139,7 @@ class VPINBBOStrategy(Strategy):
         # State
         self.vpin_state = VPINState()
         self.state_lock = threading.Lock()
+        self.trade_lock = threading.Lock()
 
         # Logging control
         self.tick_count = 0
