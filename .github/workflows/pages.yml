@@ -29,6 +29,9 @@ jobs:
       - name: Copy assets to website folder
         run: cp -r assets website/assets
 
+      - name: Copy SKILL.md to website folder
+        run: cp SKILL.md website/SKILL.md
+
       - name: Update asset paths
         run: sed -i 's|\.\./assets/|assets/|g' website/index.html website/docs.html
 
