@@ -57,6 +57,8 @@ class Strategy(ABC):
         max_delta: float = 20.0,
         check_interval: float = 5.0,
         track_fills: bool = True,
+        enable_csv_logging: bool = False,
+        log_dir: str = "logs",
     ):
         """
         Initialize strategy.
@@ -69,6 +71,8 @@ class Strategy(ABC):
             max_delta: Maximum position imbalance before reducing exposure
             check_interval: Seconds between strategy ticks
             track_fills: Enable order fill tracking
+            enable_csv_logging: Enable CSV logging of strategy execution
+            log_dir: Directory to store CSV log files
         """
         self.exchange = exchange
         self.client = ExchangeClient(exchange, track_fills=track_fills)
@@ -77,6 +81,8 @@ class Strategy(ABC):
         self.order_size = order_size
         self.max_delta = max_delta
         self.check_interval = check_interval
+        self.enable_csv_logging = enable_csv_logging
+        self.log_dir = log_dir
 
         # Market data (populated by setup())
         self.market: Optional[Market] = None
@@ -85,6 +91,7 @@ class Strategy(ABC):
 
         # Runtime state
         self.is_running = False
+        self.csv_logger = None
 
         # Cached state (updated each tick)
         self._positions: Dict[str, float] = {}
@@ -129,6 +136,19 @@ class Strategy(ABC):
 
         # Load initial positions
         self._positions = self.client.fetch_positions_dict_for_market(self.market)
+
+        # Initialize CSV logger if enabled
+        if self.enable_csv_logging:
+            from ..utils.csv_logger import CSVLogger
+
+            strategy_name = self.__class__.__name__
+            self.csv_logger = CSVLogger(
+                strategy_name=strategy_name,
+                market_id=self.market_id,
+                outcomes=outcomes,
+                log_dir=self.log_dir,
+            )
+            logger.info(f"CSV logging enabled: {self.csv_logger.get_filepath()}")
 
         self._log_trader_profile()
         self._log_market_info()
@@ -650,6 +670,17 @@ class Strategy(ABC):
                     break
 
                 self.on_tick()
+
+                # Log to CSV if enabled
+                if self.csv_logger:
+                    self.refresh_state()
+                    self.csv_logger.log_snapshot(
+                        nav=self._nav,
+                        positions=self._positions,
+                        orders=self._open_orders,
+                        delta=self.delta,
+                    )
+
                 time.sleep(self.check_interval)
 
         except KeyboardInterrupt:

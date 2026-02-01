@@ -940,6 +940,9 @@ def calculate_delta(positions: Dict[str, float]) -> DeltaInfo:
     """
     Calculate delta (position imbalance) from positions.
 
+    For binary markets: delta = first_outcome - second_outcome (signed).
+    Positive delta means long first outcome, negative means long second outcome.
+
     Args:
         positions: Dict mapping outcome name to position size
 
@@ -957,10 +960,15 @@ def calculate_delta(positions: Dict[str, float]) -> DeltaInfo:
     position_values = list(positions.values())
     max_pos = max(position_values)
     min_pos = min(position_values)
-    delta = max_pos - min_pos
+
+    # Signed delta: first outcome - second outcome
+    if len(position_values) >= 2:
+        delta = position_values[0] - position_values[1]
+    else:
+        delta = position_values[0]
 
     max_outcome = None
-    if delta > 0:
+    if delta != 0:
         max_outcome = max(positions, key=positions.get)
 
     return DeltaInfo(
