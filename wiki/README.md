@@ -11,6 +11,12 @@ Exchange-specific documentation:
 - Limitless - Prediction market on Base
 - [Template](exchanges/TEMPLATE.md) - Template for creating new exchange documentation
 
+## MCP Server
+
+Use Dr. Manhattan from Claude Desktop or Claude Code:
+
+- [Remote Server (SSE)](mcp/remote-server.md) - Connect without local installation
+
 ## Strategies
 
 Trading strategy documentation:
