@@ -101,6 +101,31 @@ class Polymarket(Exchange):
         return Polymarket.TOKEN_ALIASES.get(token_upper, token_upper)
 
     @staticmethod
+    def normalize_orderbook_levels(levels):
+        """
+        Convert raw book levels into sorted [(price, size)] lists:
+
+        Normalize raw Polymarket order book levels into
+        a list of (price: float, size: float) tuples.
+
+        Parameters
+        ----------
+        levels : list[dict] | None
+            Raw order book levels from CLOB API.
+        Returns
+        -------
+        list[tuple[float, float]]
+                List of (price, size) tuples.
+        """
+        out = []
+        for lvl in levels or []:
+            try:
+                out.append((float(lvl["price"]), float(lvl["size"])))
+            except Exception:
+                pass
+        return out
+
+    @staticmethod
     def parse_market_identifier(identifier: str) -> str:
         """
         Parse market slug from URL or return slug as-is.
