@@ -145,6 +145,102 @@
             height: 18px;
         }
 
+        /* Language Selector */
+        .lang-selector {
+            position: relative;
+            display: inline-block;
+        }
+
+        .lang-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.9rem;
+            background: transparent;
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: inherit;
+        }
+
+        .lang-btn:hover {
+            border-color: var(--manhattan-blue);
+            background: rgba(0, 180, 255, 0.1);
+        }
+
+        .lang-btn svg {
+            width: 14px;
+            height: 14px;
+            transition: transform 0.2s;
+        }
+
+        .lang-selector.open .lang-btn svg {
+            transform: rotate(180deg);
+        }
+
+        .lang-dropdown {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            min-width: 160px;
+            background: var(--deep-space);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 0.5rem;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.2s;
+            z-index: 200;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .lang-selector.open .lang-dropdown {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .lang-option {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .lang-option:hover {
+            background: rgba(0, 180, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        .lang-option.active {
+            background: rgba(0, 180, 255, 0.15);
+            color: var(--manhattan-glow);
+        }
+
+        .lang-option .flag {
+            font-size: 1.1rem;
+        }
+
+        .lang-option .lang-name {
+            flex: 1;
+        }
+
+        .lang-option .lang-code {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
         /* Main Layout */
         .docs-layout {
             display: flex;
@@ -534,6 +630,45 @@
             <a href="#getting-started">Getting Started</a>
             <a href="#api">API Reference</a>
             <a href="#exchanges">Exchanges</a>
+            <div class="lang-selector" id="langSelector">
+                <button class="lang-btn" onclick="toggleLangDropdown()">
+                    <span id="currentLangFlag">EN</span>
+                    <span id="currentLangName">English</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                <div class="lang-dropdown">
+                    <div class="lang-option active" data-lang="en" onclick="selectLanguage('en')">
+                        <span class="flag">EN</span>
+                        <span class="lang-name">English</span>
+                        <span class="lang-code">en</span>
+                    </div>
+                    <div class="lang-option" data-lang="ko" onclick="selectLanguage('ko')">
+                        <span class="flag">KO</span>
+                        <span class="lang-name">Korean</span>
+                        <span class="lang-code">ko</span>
+                    </div>
+                    <div class="lang-option" data-lang="zh" onclick="selectLanguage('zh')">
+                        <span class="flag">ZH</span>
+                        <span class="lang-name">Chinese</span>
+                        <span class="lang-code">zh</span>
+                    </div>
+                    <div class="lang-option" data-lang="ja" onclick="selectLanguage('ja')">
+                        <span class="flag">JA</span>
+                        <span class="lang-name">Japanese</span>
+                        <span class="lang-code">ja</span>
+                    </div>
+                    <div class="lang-option" data-lang="es" onclick="selectLanguage('es')">
+                        <span class="flag">ES</span>
+                        <span class="lang-name">Spanish</span>
+                        <span class="lang-code">es</span>
+                    </div>
+                    <div class="lang-option" data-lang="pt" onclick="selectLanguage('pt')">
+                        <span class="flag">PT</span>
+                        <span class="lang-name">Portuguese</span>
+                        <span class="lang-code">pt</span>
+                    </div>
+                </div>
+            </div>
             <a href="https://github.com/guzus/dr-manhattan" class="github-btn" target="_blank">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
                 GitHub
@@ -1203,6 +1338,78 @@ cp .env.example .env
 
         window.addEventListener('scroll', highlightActiveSection);
         highlightActiveSection();
+
+        // Language selector functionality
+        const languages = {
+            en: { flag: 'EN', name: 'English' },
+            ko: { flag: 'KO', name: 'Korean' },
+            zh: { flag: 'ZH', name: 'Chinese' },
+            ja: { flag: 'JA', name: 'Japanese' },
+            es: { flag: 'ES', name: 'Spanish' },
+            pt: { flag: 'PT', name: 'Portuguese' }
+        };
+
+        function toggleLangDropdown() {
+            document.getElementById('langSelector').classList.toggle('open');
+        }
+
+        function selectLanguage(lang) {
+            localStorage.setItem('preferredLanguage', lang);
+            updateLanguageUI(lang);
+            document.getElementById('langSelector').classList.remove('open');
+
+            // Redirect to language-specific docs if not English
+            if (lang !== 'en') {
+                const currentPath = window.location.pathname;
+                const basePath = currentPath.replace(/\/docs(-\w+)?\.html$/, '');
+                window.location.href = basePath + '/docs-' + lang + '.html';
+            } else {
+                const currentPath = window.location.pathname;
+                if (currentPath.includes('docs-')) {
+                    const basePath = currentPath.replace(/\/docs(-\w+)?\.html$/, '');
+                    window.location.href = basePath + '/docs.html';
+                }
+            }
+        }
+
+        function updateLanguageUI(lang) {
+            const langData = languages[lang] || languages.en;
+            document.getElementById('currentLangFlag').textContent = langData.flag;
+            document.getElementById('currentLangName').textContent = langData.name;
+
+            document.querySelectorAll('.lang-option').forEach(option => {
+                option.classList.remove('active');
+                if (option.dataset.lang === lang) {
+                    option.classList.add('active');
+                }
+            });
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            const selector = document.getElementById('langSelector');
+            if (!selector.contains(e.target)) {
+                selector.classList.remove('open');
+            }
+        });
+
+        // Initialize language from localStorage or URL
+        (function initLanguage() {
+            const path = window.location.pathname;
+            const match = path.match(/docs-(\w+)\.html/);
+            let lang = 'en';
+
+            if (match && languages[match[1]]) {
+                lang = match[1];
+            } else {
+                const saved = localStorage.getItem('preferredLanguage');
+                if (saved && languages[saved]) {
+                    lang = saved;
+                }
+            }
+
+            updateLanguageUI(lang);
+        })();
     </script>
 </body>
 </html>

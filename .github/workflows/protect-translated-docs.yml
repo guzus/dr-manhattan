@@ -1,0 +1,59 @@
+# Protect Translated Documentation
+#
+# Prevents direct edits to auto-translated documentation.
+# Only English docs should be edited by humans:
+#   - wiki/*.md (excluding language folders)
+#   - website/docs.html
+# Translated docs are auto-generated and should not be manually modified:
+#   - wiki/ko/, wiki/zh/, wiki/ja/, wiki/es/, wiki/pt/
+#   - website/docs-ko.html, website/docs-zh.html, etc.
+
+name: Protect Translated Docs
+
+on:
+  pull_request:
+    paths:
+      - 'wiki/ko/**'
+      - 'wiki/zh/**'
+      - 'wiki/ja/**'
+      - 'wiki/es/**'
+      - 'wiki/pt/**'
+      - 'website/docs-ko.html'
+      - 'website/docs-zh.html'
+      - 'website/docs-ja.html'
+      - 'website/docs-es.html'
+      - 'website/docs-pt.html'
+
+jobs:
+  check-translated-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for unauthorized translation edits
+        run: |
+          echo "::warning::This PR modifies auto-translated documentation."
+          echo ""
+          echo "Translated documentation is automatically generated:"
+          echo "  - wiki/ko/, wiki/zh/, wiki/ja/, wiki/es/, wiki/pt/"
+          echo "  - website/docs-{ko,zh,ja,es,pt}.html"
+          echo ""
+          echo "To update translations:"
+          echo "1. Edit the English documentation:"
+          echo "   - wiki/*.md (for markdown docs)"
+          echo "   - website/docs.html (for website)"
+          echo "2. Push to main branch"
+          echo "3. The translation workflow will automatically update all translations"
+          echo ""
+          echo "If you need to fix a translation issue, please edit the English source"
+          echo "and let the automation regenerate the translations."
+          echo ""
+
+          # Check if this is from the translation bot
+          if [[ "${{ github.actor }}" == "github-actions[bot]" ]] || \
+             [[ "${{ github.head_ref }}" == "docs/auto-translate" ]]; then
+            echo "This is an automated translation PR - allowing."
+            exit 0
+          fi
+
+          echo "::error::Direct edits to translated documentation are not allowed."
+          echo "Please edit the English source documentation instead."
+          exit 1
