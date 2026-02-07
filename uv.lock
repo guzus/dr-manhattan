@@ -884,6 +884,8 @@ dependencies = [
 [package.optional-dependencies]
 mcp = [
     { name = "mcp" },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -912,6 +914,8 @@ requires-dist = [
     { name = "python-socketio", extras = ["asyncio-client"], specifier = ">=5.11.0" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "rich", specifier = ">=14.2.0" },
+    { name = "starlette", marker = "extra == 'mcp'", specifier = ">=0.36.0" },
+    { name = "uvicorn", marker = "extra == 'mcp'", specifier = ">=0.27.0" },
     { name = "websockets", specifier = ">=15.0.1" },
 ]
 provides-extras = ["mcp"]

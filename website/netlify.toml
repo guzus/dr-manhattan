@@ -1,0 +1,9 @@
+[build]
+  publish = "dist"
+  command = "bun install && bun run build"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = false
