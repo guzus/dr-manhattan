@@ -24,6 +24,8 @@ dependencies = [
     "rich>=14.2.0",
     "predict-sdk>=0.0.8",
     "cryptography>=42.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
 ]
 
 [project.urls]
@@ -76,6 +78,7 @@ mcp = [
 
 [project.scripts]
 dr-manhattan-mcp = "dr_manhattan.mcp.server:run"
+dr-manhattan-dashboard = "dr_manhattan.web.api:main"
 
 [dependency-groups]
 dev = [

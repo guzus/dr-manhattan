@@ -139,6 +139,12 @@ def parse_args() -> argparse.Namespace:
         default=float(os.getenv("CHECK_INTERVAL", "5")),
         help="Check interval in seconds (default: 5)",
     )
+    parser.add_argument(
+        "--enable-logging",
+        action="store_true",
+        default=os.getenv("ENABLE_CSV_LOGGING", "").lower() in ("true", "1"),
+        help="Enable CSV logging of strategy execution",
+    )
     return parser.parse_args()
 
 
@@ -173,6 +179,7 @@ def main() -> int:
         order_size=args.order_size,
         max_delta=args.max_delta,
         check_interval=args.interval,
+        enable_csv_logging=args.enable_logging,
     )
     strategy.run()
     return 0
