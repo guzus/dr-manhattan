@@ -676,6 +676,8 @@ class PredictFun(Exchange):
 
         for _ in range(max_pages):
             api_params = {"first": min(limit, 100)}
+            if query_params.get("active", True):
+                api_params["status"] = "OPEN"
             if cursor:
                 api_params["after"] = cursor
 
@@ -689,10 +691,6 @@ class PredictFun(Exchange):
             cursor = response.get("cursor") if isinstance(response, dict) else None
             if not cursor or len(markets_data) < 100:
                 break
-
-        # Filter closed markets by default
-        if query_params.get("active", True):
-            all_markets = [m for m in all_markets if not m.metadata.get("closed")]
 
         # Apply limit
         if limit and len(all_markets) > limit:
