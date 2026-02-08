@@ -196,20 +196,21 @@ class PolymarketCLOB:
                 print(f"Failed to fetch orderbooks: {e}")
             return []
 
-    def get_price(self, token_id: str) -> Dict[str, Any]:
+    def get_price(self, token_id: str, side: str = "buy") -> Dict[str, Any]:
         """
         Fetch price for a single token.
 
         Args:
             token_id: Token ID
+            side: Order side — "buy" or "sell" (required by API)
 
         Returns:
-            Price dictionary
+            Price dictionary with 'price' key
         """
         try:
             response = requests.get(
                 f"{self.CLOB_URL}/price",
-                params={"token_id": token_id},
+                params={"token_id": token_id, "side": side},
                 timeout=self.timeout,
             )
             if response.status_code == 200:
