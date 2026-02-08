@@ -349,3 +349,77 @@ class PolymarketCore:
         if not fetched:
             raise MarketNotFound(f"Market {market} not found")
         return fetched
+
+    # ------------------------------------------------------------------
+    # ID resolvers: Market | str → specific ID type
+    # ------------------------------------------------------------------
+
+    def _resolve_condition_id(self, market: Market | str) -> str:
+        """Extract condition_id from Market object or pass through str."""
+        if isinstance(market, Market):
+            # Try both key formats (Gamma uses conditionId, CLOB uses condition_id)
+            cid = (
+                market.metadata.get("conditionId")
+                or market.metadata.get("condition_id")
+                or market.id
+            )
+            return str(cid)
+        return market
+
+    def _resolve_gamma_id(self, market: Market | str) -> str:
+        """Extract Gamma numeric ID from Market object or pass through str.
+
+        If Market has no Gamma ID, fetches it via Gamma API.
+        """
+        if isinstance(market, Market):
+            # Gamma API stores numeric id under "id" key (not always present in CLOB data)
+            gid = market.metadata.get("id")
+            if gid and str(gid).isdigit():
+                return str(gid)
+            # Fallback: fetch from Gamma via condition_id → need to resolve
+            cid = self._resolve_condition_id(market)
+            fetched = self.fetch_market(cid)
+            gid = fetched.metadata.get("id")
+            if gid and str(gid).isdigit():
+                return str(gid)
+            raise ExchangeError("Could not resolve Gamma numeric ID for this market")
+        return market
+
+    def _resolve_token_id(self, market: Market | str, outcome: int | str = 0) -> str:
+        """Extract token_id for a given outcome from Market object or pass through str.
+
+        Args:
+            market: Market object or raw token_id/condition_id string.
+                    If a condition_id (0x...) is passed, token_ids are fetched via CLOB.
+            outcome: 0/"Yes" for first token, 1/"No" for second token.
+                     Ignored if a raw token_id string is passed.
+        """
+        if isinstance(market, str):
+            # If it looks like a condition_id, resolve to token_id
+            if market.startswith("0x") and len(market) == 66:
+                token_ids = self.fetch_token_ids(market)
+                idx = 0
+                if isinstance(outcome, int):
+                    idx = outcome
+                elif isinstance(outcome, str) and outcome.lower() in ("no", "1"):
+                    idx = 1
+                if idx >= len(token_ids):
+                    raise ExchangeError(f"Token index {idx} out of range")
+                return str(token_ids[idx])
+            # Otherwise assume it's already a token_id
+            return market
+        # Market object
+        token_ids = market.metadata.get("clobTokenIds", [])
+        if not token_ids:
+            token_ids = self._extract_token_ids(market)
+        if not token_ids:
+            raise ExchangeError("Market object has no token IDs")
+        idx = 0
+        if isinstance(outcome, int):
+            idx = outcome
+        elif isinstance(outcome, str):
+            if outcome.lower() in ("no", "1"):
+                idx = 1
+        if idx >= len(token_ids):
+            raise ExchangeError(f"Token index {idx} out of range (have {len(token_ids)} tokens)")
+        return str(token_ids[idx])

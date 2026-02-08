@@ -78,16 +78,78 @@ class PolymarketGamma:
 
         return _fetch()
 
-    def fetch_market(self, market_id: str) -> Market:
-        """Fetch specific market by ID with retry logic"""
+    def fetch_market(self, market: Market | str) -> Market:
+        """Fetch specific market by ID with retry logic.
+
+        Args:
+            market: Market object, Gamma numeric ID, condition_id (0x...),
+                    token_id (long numeric), or slug string.
+        """
+        if isinstance(market, Market):
+            market_id = market.metadata.get("id", market.id)
+        else:
+            market_id = market
 
         @self._retry_on_failure
         def _fetch():
+            identifier = str(market_id)
+
+            # Gamma numeric ID → direct lookup
+            if identifier.isdigit() and len(identifier) < 20:
+                try:
+                    data = self._request("GET", f"/markets/{identifier}")
+                    return self._parse_market(data)
+                except ExchangeError:
+                    raise MarketNotFound(f"Market {identifier} not found")
+
+            # Condition ID (0x...) → get token_ids from CLOB, then query Gamma by clob_token_ids
+            if identifier.startswith("0x"):
+                try:
+                    token_ids = self.fetch_token_ids(identifier)
+                    if token_ids:
+                        gamma_resp = requests.get(
+                            f"{self.BASE_URL}/markets",
+                            params={"clob_token_ids": str(token_ids[0])},
+                            timeout=self.timeout,
+                        )
+                        if gamma_resp.status_code == 200:
+                            results = gamma_resp.json()
+                            if results:
+                                return self._parse_market(results[0])
+                except Exception:
+                    pass
+                raise MarketNotFound(f"Market {identifier} not found")
+
+            # Long numeric string → token_id → query Gamma by clob_token_ids
+            if identifier.isdigit() and len(identifier) >= 20:
+                try:
+                    resp = requests.get(
+                        f"{self.BASE_URL}/markets",
+                        params={"clob_token_ids": identifier},
+                        timeout=self.timeout,
+                    )
+                    if resp.status_code == 200:
+                        results = resp.json()
+                        if results:
+                            return self._parse_market(results[0])
+                except Exception:
+                    pass
+                raise MarketNotFound(f"Market {identifier} not found")
+
+            # Slug → query by slug
             try:
-                data = self._request("GET", f"/markets/{market_id}")
-                return self._parse_market(data)
-            except ExchangeError:
-                raise MarketNotFound(f"Market {market_id} not found")
+                resp = requests.get(
+                    f"{self.BASE_URL}/markets",
+                    params={"slug": identifier},
+                    timeout=self.timeout,
+                )
+                if resp.status_code == 200:
+                    results = resp.json()
+                    if results:
+                        return self._parse_market(results[0])
+            except Exception:
+                pass
+            raise MarketNotFound(f"Market {identifier} not found")
 
         return _fetch()
 
@@ -1050,16 +1112,17 @@ class PolymarketGamma:
 
         return _fetch()
 
-    def fetch_market_tags(self, market_id: str) -> List[Dict]:
+    def fetch_market_tags(self, market: Market | str) -> List[Dict]:
         """
         Fetch tags for a market from the Gamma API.
 
         Args:
-            market_id: The market ID
+            market: Market object or Gamma numeric ID string
 
         Returns:
             List of tag dictionaries
         """
+        market_id = self._resolve_gamma_id(market)
 
         @self._retry_on_failure
         def _fetch():

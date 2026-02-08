@@ -252,19 +252,20 @@ class PolymarketData:
         return _fetch()
 
     def fetch_top_holders(
-        self, condition_id: str, limit: int = 100, offset: int = 0
+        self, market: Market | str, limit: int = 100, offset: int = 0
     ) -> List[Dict]:
         """
         Fetch top token holders for a market from the Data API.
 
         Args:
-            condition_id: The market condition ID
+            market: Market object or condition_id string
             limit: Maximum number of entries to return
             offset: Pagination offset
 
         Returns:
             List of holder dictionaries
         """
+        condition_id = self._resolve_condition_id(market)
 
         @self._retry_on_failure
         def _fetch():
@@ -280,16 +281,17 @@ class PolymarketData:
 
         return _fetch()
 
-    def fetch_open_interest(self, condition_id: str) -> Dict:
+    def fetch_open_interest(self, market: Market | str) -> Dict:
         """
         Fetch open interest for a market from the Data API.
 
         Args:
-            condition_id: The market condition ID
+            market: Market object or condition_id string
 
         Returns:
             Open interest dictionary
         """
+        condition_id = self._resolve_condition_id(market)
 
         @self._retry_on_failure
         def _fetch():

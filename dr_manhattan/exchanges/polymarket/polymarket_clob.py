@@ -27,7 +27,7 @@ from .polymarket_ws_ext import PolymarketRTDSWebSocket, PolymarketSportsWebSocke
 class PolymarketCLOB:
     """CLOB API mixin: orderbook, orders, positions, balance, price history, websockets."""
 
-    def fetch_token_ids(self, condition_id: str) -> list[str]:
+    def fetch_token_ids(self, market: Market | str) -> list[str]:
         """
         Fetch token IDs for a specific market from CLOB API
 
@@ -37,7 +37,7 @@ class PolymarketCLOB:
         Based on actual CLOB API response structure.
 
         Args:
-            condition_id: The market/condition ID
+            market: Market object or condition_id string
 
         Returns:
             List of token IDs as strings
@@ -45,6 +45,7 @@ class PolymarketCLOB:
         Raises:
             ExchangeError: If token IDs cannot be fetched
         """
+        condition_id = self._resolve_condition_id(market)
         try:
             # Try simplified-markets endpoint
             # Response structure: {"data": [{"condition_id": ..., "tokens": [{"token_id": ..., "outcome": ...}]}]}
@@ -172,17 +173,20 @@ class PolymarketCLOB:
         except requests.RequestException as e:
             raise ExchangeError(f"Network error fetching token IDs: {e}")
 
-    def get_price(self, token_id: str, side: str = "buy") -> Dict[str, Any]:
+    def get_price(self, market: Market | str, side: str = "buy", outcome: int | str = 0) -> Dict[str, Any]:
         """
         Fetch price for a single token.
 
         Args:
-            token_id: Token ID
+            market: Market object, token_id string, or condition_id string.
+                    If Market or condition_id, use `outcome` to select Yes(0)/No(1).
             side: Order side — "buy" or "sell" (required by API)
+            outcome: 0/"Yes" for first token, 1/"No" for second (ignored if raw token_id)
 
         Returns:
             Price dictionary with 'price' key
         """
+        token_id = self._resolve_token_id(market, outcome)
         try:
             response = requests.get(
                 f"{self.CLOB_URL}/price",
@@ -197,16 +201,18 @@ class PolymarketCLOB:
                 print(f"Failed to fetch price: {e}")
             return {}
 
-    def get_midpoint(self, token_id: str) -> Dict[str, Any]:
+    def get_midpoint(self, market: Market | str, outcome: int | str = 0) -> Dict[str, Any]:
         """
         Fetch midpoint price for a token.
 
         Args:
-            token_id: Token ID
+            market: Market object, token_id string, or condition_id string.
+            outcome: 0/"Yes" for first token, 1/"No" for second (ignored if raw token_id)
 
         Returns:
             Midpoint price dictionary
         """
+        token_id = self._resolve_token_id(market, outcome)
         try:
             response = requests.get(
                 f"{self.CLOB_URL}/midpoint",
@@ -221,12 +227,13 @@ class PolymarketCLOB:
                 print(f"Failed to fetch midpoint: {e}")
             return {}
 
-    def get_orderbook(self, token_id: str) -> Dict[str, Any]:
+    def get_orderbook(self, market: Market | str, outcome: int | str = 0) -> Dict[str, Any]:
         """
         Fetch orderbook for a specific token via REST API.
 
         Args:
-            token_id: Token ID to fetch orderbook for
+            market: Market object, token_id string, or condition_id string.
+            outcome: 0/"Yes" for first token, 1/"No" for second (ignored if raw token_id)
 
         Returns:
             Dictionary with 'bids' and 'asks' arrays
@@ -237,6 +244,7 @@ class PolymarketCLOB:
             >>> best_bid = float(orderbook['bids'][0]['price'])
             >>> best_ask = float(orderbook['asks'][0]['price'])
         """
+        token_id = self._resolve_token_id(market, outcome)
         try:
             response = requests.get(
                 f"{self.CLOB_URL}/book", params={"token_id": token_id}, timeout=self.timeout

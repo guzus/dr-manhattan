@@ -13,6 +13,7 @@ from eth_account.messages import encode_defunct
 from web3 import Web3
 
 from ...base.errors import AuthenticationError, ExchangeError
+from ...models.market import Market
 
 
 class PolymarketCTF:
@@ -341,7 +342,7 @@ class PolymarketCTF:
 
     def split(
         self,
-        condition_id: str,
+        market: Market | str,
         amount: float,
         wait_for_confirmation: bool = True,
     ) -> Dict[str, Any]:
@@ -349,7 +350,7 @@ class PolymarketCTF:
         Split USDC into Yes and No conditional tokens.
 
         Args:
-            condition_id: The condition/market ID (hex string)
+            market: Market object or condition_id string (hex)
             amount: Amount of USDC to split (e.g., 10.0 = $10)
             wait_for_confirmation: If True, wait for transaction to be mined
 
@@ -366,6 +367,7 @@ class PolymarketCTF:
             >>> print(f"Split {result['amount']} USDC, tx: {result['tx_hash']}")
         """
         # Validate credentials
+        condition_id = self._resolve_condition_id(market)
         if not self.funder:
             raise AuthenticationError("Funder (Safe) address required for split")
 
@@ -411,7 +413,7 @@ class PolymarketCTF:
 
     def merge(
         self,
-        condition_id: str,
+        market: Market | str,
         amount: float,
         wait_for_confirmation: bool = True,
     ) -> Dict[str, Any]:
@@ -419,7 +421,7 @@ class PolymarketCTF:
         Merge Yes and No conditional tokens back into USDC.
 
         Args:
-            condition_id: The condition/market ID (hex string)
+            market: Market object or condition_id string (hex)
             amount: Amount of token pairs to merge (e.g., 10.0 = 10 Yes + 10 No -> 10 USDC)
             wait_for_confirmation: If True, wait for transaction to be mined
 
@@ -436,6 +438,7 @@ class PolymarketCTF:
             >>> print(f"Merged {result['amount']} tokens, tx: {result['tx_hash']}")
         """
         # Validate credentials
+        condition_id = self._resolve_condition_id(market)
         if not self.funder:
             raise AuthenticationError("Funder (Safe) address required for merge")
 
@@ -481,14 +484,14 @@ class PolymarketCTF:
 
     def redeem(
         self,
-        condition_id: str,
+        market: Market | str,
         wait_for_confirmation: bool = True,
     ) -> Dict[str, Any]:
         """
         Redeem winning tokens from a resolved market.
 
         Args:
-            condition_id: The condition/market ID (hex string) of a resolved market
+            market: Market object or condition_id string (hex) of a resolved market
             wait_for_confirmation: If True, wait for transaction to be mined
 
         Returns:
@@ -503,6 +506,7 @@ class PolymarketCTF:
             >>> print(f"Redeemed, tx: {result['tx_hash']}")
         """
         # Validate credentials
+        condition_id = self._resolve_condition_id(market)
         if not self.funder:
             raise AuthenticationError("Funder (Safe) address required for redeem")
 
