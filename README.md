@@ -29,7 +29,7 @@ dr_manhattan/
 │   ├── websocket.py    # WebSocket base class
 │   └── errors.py       # Exception hierarchy
 ├── exchanges/          # Exchange implementations
-│   ├── polymarket/     # Polymarket (mixin-based package)
+│   ├── polymarket/     # Polymarket (mixin-based package) → [detailed docs](dr_manhattan/exchanges/polymarket/README.md)
 │   │   ├── __init__.py         # Unified Polymarket class
 │   │   ├── polymarket_core.py  # Constants, init, request helpers
 │   │   ├── polymarket_clob.py  # CLOB API (orders, positions)
