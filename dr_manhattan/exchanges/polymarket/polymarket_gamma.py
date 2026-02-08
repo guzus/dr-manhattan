@@ -90,6 +90,16 @@ class PolymarketGamma:
         else:
             market_id = market
 
+        logger = setup_logger(__name__)
+
+        def _warn_multiple(results, identifier):
+            if len(results) > 1:
+                logger.warning(
+                    f"Multiple markets ({len(results)}) matched '{identifier}'. "
+                    f"Returning first: id={results[0].get('id')}, "
+                    f"question='{results[0].get('question', '')[:50]}'"
+                )
+
         @self._retry_on_failure
         def _fetch():
             identifier = str(market_id)
@@ -115,6 +125,7 @@ class PolymarketGamma:
                         if gamma_resp.status_code == 200:
                             results = gamma_resp.json()
                             if results:
+                                _warn_multiple(results, identifier)
                                 return self._parse_market(results[0])
                 except Exception:
                     pass
@@ -131,6 +142,7 @@ class PolymarketGamma:
                     if resp.status_code == 200:
                         results = resp.json()
                         if results:
+                            _warn_multiple(results, identifier)
                             return self._parse_market(results[0])
                 except Exception:
                     pass
@@ -146,6 +158,7 @@ class PolymarketGamma:
                 if resp.status_code == 200:
                     results = resp.json()
                     if results:
+                        _warn_multiple(results, identifier)
                         return self._parse_market(results[0])
             except Exception:
                 pass
