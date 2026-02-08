@@ -14,7 +14,7 @@ import requests
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import AssetType, BalanceAllowanceParams, OrderArgs, OrderType
 
-from ..base.errors import (
+from ...base.errors import (
     AuthenticationError,
     ExchangeError,
     InvalidOrder,
@@ -22,12 +22,12 @@ from ..base.errors import (
     NetworkError,
     RateLimitError,
 )
-from ..base.exchange import Exchange
-from ..models import CryptoHourlyMarket
-from ..models.market import Market
-from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
-from ..models.position import Position
-from ..utils import setup_logger
+from ...base.exchange import Exchange
+from ...models import CryptoHourlyMarket
+from ...models.market import Market
+from ...models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
+from ...models.position import Position
+from ...utils import setup_logger
 
 
 @dataclass

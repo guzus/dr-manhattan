@@ -12,7 +12,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from web3 import Web3
 
-from ..base.errors import AuthenticationError, ExchangeError
+from ...base.errors import AuthenticationError, ExchangeError
 
 
 class PolymarketCTF:

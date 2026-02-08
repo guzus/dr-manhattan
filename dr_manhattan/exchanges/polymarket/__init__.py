@@ -1,7 +1,7 @@
 """Polymarket exchange - unified API"""
 from __future__ import annotations
 
-from ..base.exchange import Exchange
+from ...base.exchange import Exchange
 from .polymarket_clob import PolymarketCLOB
 from .polymarket_core import PolymarketCore, PublicTrade, PricePoint, Tag
 from .polymarket_ctf import PolymarketCTF

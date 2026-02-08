@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Literal, Optional
 import pandas as pd
 import requests
 
-from ..base.errors import ExchangeError
-from ..models.market import Market
+from ...base.errors import ExchangeError
+from ...models.market import Market
 from .polymarket_core import PublicTrade
 
 

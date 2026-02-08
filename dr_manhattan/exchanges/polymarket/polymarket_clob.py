@@ -10,15 +10,15 @@ import pandas as pd
 import requests
 from py_clob_client.clob_types import AssetType, BalanceAllowanceParams, OrderArgs, OrderType
 
-from ..base.errors import (
+from ...base.errors import (
     AuthenticationError,
     ExchangeError,
     InvalidOrder,
     MarketNotFound,
 )
-from ..models.market import Market
-from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
-from ..models.position import Position
+from ...models.market import Market
+from ...models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
+from ...models.position import Position
 from .polymarket_core import PricePoint
 from .polymarket_ws import PolymarketUserWebSocket, PolymarketWebSocket
 from .polymarket_ws_ext import PolymarketRTDSWebSocket, PolymarketSportsWebSocket

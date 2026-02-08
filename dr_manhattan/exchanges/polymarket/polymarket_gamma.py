@@ -7,14 +7,14 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 import requests
 
-from ..base.errors import (
+from ...base.errors import (
     ExchangeError,
     MarketNotFound,
     NetworkError,
 )
-from ..models import CryptoHourlyMarket
-from ..models.market import Market
-from ..utils import setup_logger
+from ...models import CryptoHourlyMarket
+from ...models.market import Market
+from ...utils import setup_logger
 from .polymarket_core import PricePoint, Tag
 
 
