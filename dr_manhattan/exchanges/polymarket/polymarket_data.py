@@ -333,41 +333,6 @@ class PolymarketData:
 
         return _fetch()
 
-    def fetch_accounting_snapshot(self, address: str) -> bytes:
-        """
-        Download an accounting snapshot (ZIP of CSVs) for a user.
-
-        Note: The exact endpoint path is not publicly confirmed.
-        This method may need updating when the endpoint is verified.
-
-        Args:
-            address: User wallet address
-
-        Returns:
-            Raw bytes of the accounting snapshot (ZIP file)
-
-        Raises:
-            ExchangeError: If the endpoint is not available
-        """
-
-        @self._retry_on_failure
-        def _fetch():
-            params = {"user": address}
-            resp = requests.get(
-                f"{self.DATA_API_URL}/v1/accounting/snapshot",
-                params=params,
-                timeout=self.timeout,
-            )
-            if resp.status_code == 404:
-                raise ExchangeError(
-                    "Accounting snapshot endpoint not found. "
-                    "The API path may have changed — check Polymarket docs."
-                )
-            resp.raise_for_status()
-            return resp.content
-
-        return _fetch()
-
     def fetch_positions_data(
         self, address: str, limit: int = 100, offset: int = 0
     ) -> List[Dict]:
