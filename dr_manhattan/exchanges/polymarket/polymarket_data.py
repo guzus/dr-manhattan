@@ -434,7 +434,7 @@ class PolymarketData:
 
         @self._retry_on_failure
         def _fetch():
-            params = {"eventId": event_id}
+            params = {"id": event_id}
             resp = requests.get(
                 f"{self.DATA_API_URL}/live-volume",
                 params=params,

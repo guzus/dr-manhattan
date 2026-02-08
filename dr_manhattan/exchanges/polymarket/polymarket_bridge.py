@@ -27,7 +27,11 @@ class PolymarketBridge:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data if isinstance(data, list) else []
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                return data.get("supportedAssets", [])
+            return []
 
         return _fetch()
 
