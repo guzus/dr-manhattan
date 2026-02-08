@@ -34,24 +34,3 @@ class PolymarketBridge:
             return []
 
         return _fetch()
-
-    def fetch_bridge_status(self, address: str) -> Dict:
-        """
-        Fetch bridge transaction status.
-
-        Args:
-            address: Wallet address to check
-
-        Returns:
-            Bridge status dictionary
-        """
-
-        @self._retry_on_failure
-        def _fetch():
-            resp = requests.get(
-                f"{self.BRIDGE_URL}/status/{address}", timeout=self.timeout
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-        return _fetch()
