@@ -173,39 +173,49 @@ class PolymarketData:
     # =========================================================================
 
     def fetch_leaderboard(
-        self, limit: int = 100, offset: int = 0, sort_by: str = "volume"
+        self,
+        limit: int = 25,
+        offset: int = 0,
+        order_by: Literal["PNL", "VOL"] = "PNL",
+        time_period: Literal["DAY", "WEEK", "MONTH", "ALL"] = "DAY",
+        category: Literal[
+            "OVERALL", "POLITICS", "SPORTS", "CRYPTO", "CULTURE",
+            "MENTIONS", "WEATHER", "ECONOMICS", "TECH", "FINANCE",
+        ] = "OVERALL",
+        user: Optional[str] = None,
     ) -> List[Dict]:
         """
         Fetch the trader leaderboard rankings from the Data API.
 
-        Note: The exact endpoint path for leaderboard is not publicly documented
-        in the REST API. This method may need updating when the endpoint is confirmed.
-
         Args:
-            limit: Maximum number of entries to return
-            offset: Pagination offset
-            sort_by: Sort criteria (e.g., "volume", "pnl")
+            limit: Max number of traders to return (1-50, default 25)
+            offset: Starting index for pagination (0-1000)
+            order_by: Sort criteria — "PNL" or "VOL"
+            time_period: Time window — "DAY", "WEEK", "MONTH", or "ALL"
+            category: Market category filter
+            user: Filter to a single user by wallet address
 
         Returns:
-            List of leaderboard entry dictionaries
-
-        Raises:
-            ExchangeError: If the endpoint is not available
+            List of leaderboard entry dicts with keys:
+            rank, proxyWallet, userName, vol, pnl, profileImage, xUsername, verifiedBadge
         """
 
         @self._retry_on_failure
         def _fetch():
-            params = {"limit": limit, "offset": offset, "sortBy": sort_by}
+            params: Dict[str, Any] = {
+                "limit": min(limit, 50),
+                "offset": offset,
+                "orderBy": order_by,
+                "timePeriod": time_period,
+                "category": category,
+            }
+            if user:
+                params["user"] = user
             resp = requests.get(
-                f"{self.DATA_API_URL}/leaderboard",
+                f"{self.DATA_API_URL}/v1/leaderboard",
                 params=params,
                 timeout=self.timeout,
             )
-            if resp.status_code == 404:
-                raise ExchangeError(
-                    "Leaderboard endpoint not found. "
-                    "The API path may have changed — check Polymarket docs."
-                )
             resp.raise_for_status()
             data = resp.json()
             return data if isinstance(data, list) else []
