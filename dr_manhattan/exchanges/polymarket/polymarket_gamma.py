@@ -1043,6 +1043,141 @@ class PolymarketGamma:
 
         return _fetch()
 
+    def get_gamma_status(self) -> Dict:
+        """
+        Check Gamma API health.
+
+        Returns:
+            Status dictionary with at least 'status_code' and 'ok' keys.
+            If the response body is valid JSON, its contents are merged in.
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            resp = requests.get(
+                f"{self.BASE_URL}/status", timeout=self.timeout
+            )
+            resp.raise_for_status()
+            result: Dict[str, Any] = {"status_code": resp.status_code, "ok": resp.ok}
+            try:
+                body = resp.json()
+                if isinstance(body, dict):
+                    result.update(body)
+            except Exception:
+                result["body"] = resp.text
+            return result
+
+        return _fetch()
+
+    def fetch_tags(self, limit: int = 100, offset: int = 0) -> List[Dict]:
+        """
+        Fetch tag list from the Gamma API.
+
+        Args:
+            limit: Maximum number of tags to return
+            offset: Pagination offset
+
+        Returns:
+            List of tag dictionaries
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            resp = requests.get(
+                f"{self.BASE_URL}/tags",
+                params={"limit": limit, "offset": offset},
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+
+        return _fetch()
+
+    def fetch_tag_by_id(self, tag_id: str) -> Dict:
+        """
+        Fetch a tag by ID from the Gamma API.
+
+        Args:
+            tag_id: The tag ID
+
+        Returns:
+            Tag dictionary
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            resp = requests.get(
+                f"{self.BASE_URL}/tags/{tag_id}", timeout=self.timeout
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        return _fetch()
+
+    def fetch_market_tags(self, market_id: str) -> List[Dict]:
+        """
+        Fetch tags for a market from the Gamma API.
+
+        Args:
+            market_id: The market ID
+
+        Returns:
+            List of tag dictionaries
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            resp = requests.get(
+                f"{self.BASE_URL}/markets/{market_id}/tags", timeout=self.timeout
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+
+        return _fetch()
+
+    def fetch_event_tags(self, event_id: str) -> List[Dict]:
+        """
+        Fetch tags for an event from the Gamma API.
+
+        Args:
+            event_id: The event ID
+
+        Returns:
+            List of tag dictionaries
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            resp = requests.get(
+                f"{self.BASE_URL}/events/{event_id}/tags", timeout=self.timeout
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+
+        return _fetch()
+
+    def fetch_sports_market_types(self) -> List[Dict]:
+        """
+        Fetch valid sports market types from the Gamma API.
+
+        Returns:
+            List of sports market type dictionaries
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            resp = requests.get(
+                f"{self.BASE_URL}/sports/market-types", timeout=self.timeout
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+
+        return _fetch()
+
     def fetch_sports_metadata(self) -> Dict:
         """
         Fetch sports metadata from the Gamma API.

@@ -354,7 +354,7 @@ class PolymarketData:
         def _fetch():
             params = {"user": address}
             resp = requests.get(
-                f"{self.DATA_API_URL}/accounting",
+                f"{self.DATA_API_URL}/v1/accounting/snapshot",
                 params=params,
                 timeout=self.timeout,
             )
@@ -365,5 +365,161 @@ class PolymarketData:
                 )
             resp.raise_for_status()
             return resp.content
+
+        return _fetch()
+
+    def fetch_positions_data(
+        self, address: str, limit: int = 100, offset: int = 0
+    ) -> List[Dict]:
+        """
+        Fetch current positions for a user from the Data API.
+
+        Args:
+            address: User wallet address
+            limit: Maximum number of entries to return
+            offset: Pagination offset
+
+        Returns:
+            List of position dictionaries
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            params = {"user": address, "limit": limit, "offset": offset}
+            resp = requests.get(
+                f"{self.DATA_API_URL}/positions",
+                params=params,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+
+        return _fetch()
+
+    def fetch_portfolio_value(self, address: str) -> Dict:
+        """
+        Fetch total value of a user's positions.
+
+        Args:
+            address: User wallet address
+
+        Returns:
+            Portfolio value dictionary
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            params = {"user": address}
+            resp = requests.get(
+                f"{self.DATA_API_URL}/value",
+                params=params,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        return _fetch()
+
+    def fetch_live_volume(self, event_id: int) -> Dict:
+        """
+        Fetch live volume for an event.
+
+        Args:
+            event_id: The event ID (numeric)
+
+        Returns:
+            Live volume dictionary
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            params = {"eventId": event_id}
+            resp = requests.get(
+                f"{self.DATA_API_URL}/live-volume",
+                params=params,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        return _fetch()
+
+    def fetch_traded_count(self, address: str) -> Dict:
+        """
+        Fetch total markets a user has traded.
+
+        Args:
+            address: User wallet address
+
+        Returns:
+            Traded count dictionary
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            params = {"user": address}
+            resp = requests.get(
+                f"{self.DATA_API_URL}/traded",
+                params=params,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        return _fetch()
+
+    def fetch_builder_leaderboard(
+        self, limit: int = 25, offset: int = 0, period: str = "DAY"
+    ) -> List[Dict]:
+        """
+        Fetch aggregated builder leaderboard.
+
+        Args:
+            limit: Maximum number of entries to return
+            offset: Pagination offset
+            period: Time period ("DAY", "WEEK", "MONTH", "ALL")
+
+        Returns:
+            List of builder leaderboard entries
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            params = {"limit": limit, "offset": offset, "period": period}
+            resp = requests.get(
+                f"{self.DATA_API_URL}/v1/builders/leaderboard",
+                params=params,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+
+        return _fetch()
+
+    def fetch_builder_volume(self, builder_id: str, period: str = "DAY") -> List[Dict]:
+        """
+        Fetch daily builder volume time series.
+
+        Args:
+            builder_id: The builder ID
+            period: Time period ("DAY", "WEEK", "MONTH", "ALL")
+
+        Returns:
+            List of volume data points
+        """
+
+        @self._retry_on_failure
+        def _fetch():
+            params = {"builderId": builder_id, "period": period}
+            resp = requests.get(
+                f"{self.DATA_API_URL}/v1/builders/volume",
+                params=params,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
 
         return _fetch()

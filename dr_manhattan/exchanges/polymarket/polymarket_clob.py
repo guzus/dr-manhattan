@@ -172,6 +172,126 @@ class PolymarketCLOB:
         except requests.RequestException as e:
             raise ExchangeError(f"Network error fetching token IDs: {e}")
 
+    def get_orderbooks(self, token_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Fetch multiple orderbooks at once.
+
+        Args:
+            token_ids: List of token IDs
+
+        Returns:
+            List of orderbook dictionaries with 'bids' and 'asks'
+        """
+        try:
+            response = requests.get(
+                f"{self.CLOB_URL}/books",
+                params={"token_ids": ",".join(token_ids)},
+                timeout=self.timeout,
+            )
+            if response.status_code == 200:
+                return response.json()
+            return []
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to fetch orderbooks: {e}")
+            return []
+
+    def get_price(self, token_id: str) -> Dict[str, Any]:
+        """
+        Fetch price for a single token.
+
+        Args:
+            token_id: Token ID
+
+        Returns:
+            Price dictionary
+        """
+        try:
+            response = requests.get(
+                f"{self.CLOB_URL}/price",
+                params={"token_id": token_id},
+                timeout=self.timeout,
+            )
+            if response.status_code == 200:
+                return response.json()
+            return {}
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to fetch price: {e}")
+            return {}
+
+    def get_prices(self, token_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Fetch prices for multiple tokens.
+
+        Args:
+            token_ids: List of token IDs
+
+        Returns:
+            List of price dictionaries
+        """
+        try:
+            response = requests.get(
+                f"{self.CLOB_URL}/prices",
+                params={"token_ids": ",".join(token_ids)},
+                timeout=self.timeout,
+            )
+            if response.status_code == 200:
+                return response.json()
+            return []
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to fetch prices: {e}")
+            return []
+
+    def get_midpoint(self, token_id: str) -> Dict[str, Any]:
+        """
+        Fetch midpoint price for a token.
+
+        Args:
+            token_id: Token ID
+
+        Returns:
+            Midpoint price dictionary
+        """
+        try:
+            response = requests.get(
+                f"{self.CLOB_URL}/midpoint",
+                params={"token_id": token_id},
+                timeout=self.timeout,
+            )
+            if response.status_code == 200:
+                return response.json()
+            return {}
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to fetch midpoint: {e}")
+            return {}
+
+    def get_spreads(self, token_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Fetch bid-ask spreads for tokens.
+
+        Args:
+            token_ids: List of token IDs
+
+        Returns:
+            List of spread dictionaries
+        """
+        try:
+            response = requests.get(
+                f"{self.CLOB_URL}/spreads",
+                params={"token_ids": ",".join(token_ids)},
+                timeout=self.timeout,
+            )
+            if response.status_code == 200:
+                return response.json()
+            return []
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to fetch spreads: {e}")
+            return []
+
     def get_orderbook(self, token_id: str) -> Dict[str, Any]:
         """
         Fetch orderbook for a specific token via REST API.
