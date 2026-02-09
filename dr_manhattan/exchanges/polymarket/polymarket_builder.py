@@ -16,9 +16,9 @@ from py_builder_signing_sdk.config import BuilderApiKeyCreds, BuilderConfig
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import AssetType, BalanceAllowanceParams, OrderArgs, OrderType
 
-from ..base.errors import AuthenticationError, InvalidOrder
-from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
-from .polymarket import Polymarket
+from ...base.errors import AuthenticationError, InvalidOrder
+from ...models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
+from . import Polymarket
 
 
 class PolymarketBuilder(Polymarket):
@@ -46,7 +46,7 @@ class PolymarketBuilder(Polymarket):
         """Initialize Polymarket with Builder profile credentials."""
         # Don't call parent __init__ directly - it tries to use private_key
         # Instead, do minimal Exchange init and our own setup
-        from ..base.exchange import Exchange
+        from ...base.exchange import Exchange
 
         Exchange.__init__(self, config)
         self._ws = None

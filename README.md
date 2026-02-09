@@ -29,12 +29,23 @@ dr_manhattan/
 │   ├── websocket.py    # WebSocket base class
 │   └── errors.py       # Exception hierarchy
 ├── exchanges/          # Exchange implementations
-│   ├── polymarket.py
-│   ├── polymarket_ws.py
+│   ├── polymarket/     # Polymarket (mixin-based package) → [detailed docs](dr_manhattan/exchanges/polymarket/README.md)
+│   │   ├── __init__.py         # Unified Polymarket class
+│   │   ├── polymarket_core.py  # Constants, init, request helpers
+│   │   ├── polymarket_clob.py  # CLOB API (orders, positions)
+│   │   ├── polymarket_gamma.py # Gamma API (markets, events, search)
+│   │   ├── polymarket_data.py  # Data API (trades, analytics)
+│   │   ├── polymarket_ctf.py   # CTF (split/merge/redeem)
+│   │   ├── polymarket_ws.py    # Market/User WebSocket
+│   │   ├── polymarket_ws_ext.py # Sports/RTDS WebSocket
+│   │   ├── polymarket_builder.py  # Builder API
+│   │   └── polymarket_operator.py # Operator API
+│   ├── kalshi.py
 │   ├── opinion.py
 │   ├── limitless.py
 │   ├── limitless_ws.py
-│   └── predictfun.py
+│   ├── predictfun.py
+│   └── predictfun_ws.py
 ├── models/             # Data models
 │   ├── market.py
 │   ├── order.py

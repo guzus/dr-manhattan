@@ -17,10 +17,10 @@ from typing import Any, Dict, Optional
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import AssetType, BalanceAllowanceParams, OrderArgs, OrderType
 
-from ..base.errors import AuthenticationError, ExchangeError, InvalidOrder
-from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
-from ..models.position import Position
-from .polymarket import Polymarket
+from ...base.errors import AuthenticationError, ExchangeError, InvalidOrder
+from ...models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
+from ...models.position import Position
+from . import Polymarket
 
 
 class PolymarketOperator(Polymarket):
@@ -58,7 +58,7 @@ class PolymarketOperator(Polymarket):
         Args:
             config: Must contain 'user_address' - the wallet to trade for
         """
-        from ..base.exchange import Exchange
+        from ...base.exchange import Exchange
 
         Exchange.__init__(self, config)
         self._ws = None

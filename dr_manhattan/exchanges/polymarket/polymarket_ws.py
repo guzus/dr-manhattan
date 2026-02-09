@@ -11,8 +11,8 @@ from typing import Any, Callable, Dict, List, Optional
 import websockets
 import websockets.exceptions
 
-from ..base.websocket import OrderBookWebSocket
-from ..models.orderbook import OrderbookManager
+from ...base.websocket import OrderBookWebSocket
+from ...models.orderbook import OrderbookManager
 
 logger = logging.getLogger(__name__)
 
