@@ -95,7 +95,7 @@ limitless = dr_manhattan.<span className="fn">Limitless</span>({'{'}<span classN
 markets = polymarket.<span className="fn">fetch_markets</span>(){'\n'}
 {'\n'}
 <span className="kw">for</span> market <span className="kw">in</span> markets:{'\n'}
-    <span className="fn">print</span>(<span className="st">f"</span>{'{'}market.question{'}'}: {'{'}market.prices{'}'}<span className="st">"</span>)</pre>
+{'    '}<span className="fn">print</span>(<span className="st">f"</span>{'{'}market.question{'}'}: {'{'}market.prices{'}'}<span className="st">"</span>)</pre>
           </div>
         </div>
       </section>
