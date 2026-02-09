@@ -1,9 +1,9 @@
 """Tests for PolymarketBuilder exchange class."""
 
 import pytest
-from dr_manhattan.exchanges.polymarket_builder import PolymarketBuilder
 
 from dr_manhattan.base.errors import AuthenticationError
+from dr_manhattan.exchanges.polymarket_builder import PolymarketBuilder
 
 
 class TestPolymarketBuilderInit:
