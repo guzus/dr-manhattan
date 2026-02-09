@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import threading
-import time
 from typing import Any, Callable, Dict, List, Optional
 
 import websockets
@@ -49,9 +48,7 @@ class PolymarketSportsWebSocket:
         """
         self._subscribed_markets.extend(market_ids)
         if self.ws and self._running:
-            asyncio.run_coroutine_threadsafe(
-                self._send_subscribe(market_ids), self._loop
-            )
+            asyncio.run_coroutine_threadsafe(self._send_subscribe(market_ids), self._loop)
 
     async def _send_subscribe(self, market_ids: List[str]) -> None:
         """Send subscription message over WebSocket."""
@@ -104,9 +101,7 @@ class PolymarketSportsWebSocket:
             return
         self._running = True
         self._loop = asyncio.new_event_loop()
-        self._thread = threading.Thread(
-            target=self._run_loop, daemon=True, name="sports-ws"
-        )
+        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="sports-ws")
         self._thread.start()
 
     def _run_loop(self) -> None:
@@ -161,9 +156,7 @@ class PolymarketRTDSWebSocket:
         """
         self._subscribed_assets.extend(asset_ids)
         if self.ws and self._running:
-            asyncio.run_coroutine_threadsafe(
-                self._send_subscribe(asset_ids), self._loop
-            )
+            asyncio.run_coroutine_threadsafe(self._send_subscribe(asset_ids), self._loop)
 
     async def _send_subscribe(self, asset_ids: List[str]) -> None:
         """Send subscription message over WebSocket."""
@@ -222,9 +215,7 @@ class PolymarketRTDSWebSocket:
             return
         self._running = True
         self._loop = asyncio.new_event_loop()
-        self._thread = threading.Thread(
-            target=self._run_loop, daemon=True, name="rtds-ws"
-        )
+        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="rtds-ws")
         self._thread.start()
 
     def _run_loop(self) -> None:

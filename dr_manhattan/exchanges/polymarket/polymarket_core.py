@@ -1,33 +1,20 @@
 from __future__ import annotations
 
-import json
-import logging
-import re
-import time
-import traceback
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
-import pandas as pd
 import requests
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import AssetType, BalanceAllowanceParams, OrderArgs, OrderType
 
 from ...base.errors import (
     AuthenticationError,
     ExchangeError,
-    InvalidOrder,
     MarketNotFound,
     NetworkError,
     RateLimitError,
 )
-from ...base.exchange import Exchange
-from ...models import CryptoHourlyMarket
 from ...models.market import Market
-from ...models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
-from ...models.position import Position
-from ...utils import setup_logger
 
 
 @dataclass

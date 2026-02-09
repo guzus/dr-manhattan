@@ -951,9 +951,7 @@ class PolymarketGamma:
                 params["slug"] = slug
             if id:
                 params["id"] = id
-            resp = requests.get(
-                f"{self.BASE_URL}/events", params=params, timeout=self.timeout
-            )
+            resp = requests.get(f"{self.BASE_URL}/events", params=params, timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
             return data if isinstance(data, list) else []
@@ -973,9 +971,7 @@ class PolymarketGamma:
 
         @self._retry_on_failure
         def _fetch():
-            resp = requests.get(
-                f"{self.BASE_URL}/events/{event_id}", timeout=self.timeout
-            )
+            resp = requests.get(f"{self.BASE_URL}/events/{event_id}", timeout=self.timeout)
             resp.raise_for_status()
             return resp.json()
 
@@ -1045,9 +1041,7 @@ class PolymarketGamma:
 
         @self._retry_on_failure
         def _fetch():
-            resp = requests.get(
-                f"{self.BASE_URL}/series/{series_id}", timeout=self.timeout
-            )
+            resp = requests.get(f"{self.BASE_URL}/series/{series_id}", timeout=self.timeout)
             resp.raise_for_status()
             return resp.json()
 
@@ -1064,9 +1058,7 @@ class PolymarketGamma:
 
         @self._retry_on_failure
         def _fetch():
-            resp = requests.get(
-                f"{self.BASE_URL}/status", timeout=self.timeout
-            )
+            resp = requests.get(f"{self.BASE_URL}/status", timeout=self.timeout)
             resp.raise_for_status()
             result: Dict[str, Any] = {"status_code": resp.status_code, "ok": resp.ok}
             try:
@@ -1117,9 +1109,7 @@ class PolymarketGamma:
 
         @self._retry_on_failure
         def _fetch():
-            resp = requests.get(
-                f"{self.BASE_URL}/tags/{tag_id}", timeout=self.timeout
-            )
+            resp = requests.get(f"{self.BASE_URL}/tags/{tag_id}", timeout=self.timeout)
             resp.raise_for_status()
             return resp.json()
 
@@ -1139,9 +1129,7 @@ class PolymarketGamma:
 
         @self._retry_on_failure
         def _fetch():
-            resp = requests.get(
-                f"{self.BASE_URL}/markets/{market_id}/tags", timeout=self.timeout
-            )
+            resp = requests.get(f"{self.BASE_URL}/markets/{market_id}/tags", timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
             return data if isinstance(data, list) else []
@@ -1161,9 +1149,7 @@ class PolymarketGamma:
 
         @self._retry_on_failure
         def _fetch():
-            resp = requests.get(
-                f"{self.BASE_URL}/events/{event_id}/tags", timeout=self.timeout
-            )
+            resp = requests.get(f"{self.BASE_URL}/events/{event_id}/tags", timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
             return data if isinstance(data, list) else []
@@ -1180,9 +1166,7 @@ class PolymarketGamma:
 
         @self._retry_on_failure
         def _fetch():
-            resp = requests.get(
-                f"{self.BASE_URL}/sports/market-types", timeout=self.timeout
-            )
+            resp = requests.get(f"{self.BASE_URL}/sports/market-types", timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
             return data if isinstance(data, list) else []
@@ -1199,9 +1183,7 @@ class PolymarketGamma:
 
         @self._retry_on_failure
         def _fetch():
-            resp = requests.get(
-                f"{self.BASE_URL}/sports", timeout=self.timeout
-            )
+            resp = requests.get(f"{self.BASE_URL}/sports", timeout=self.timeout)
             resp.raise_for_status()
             return resp.json()
 

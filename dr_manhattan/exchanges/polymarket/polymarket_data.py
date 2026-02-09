@@ -179,8 +179,16 @@ class PolymarketData:
         order_by: Literal["PNL", "VOL"] = "PNL",
         time_period: Literal["DAY", "WEEK", "MONTH", "ALL"] = "DAY",
         category: Literal[
-            "OVERALL", "POLITICS", "SPORTS", "CRYPTO", "CULTURE",
-            "MENTIONS", "WEATHER", "ECONOMICS", "TECH", "FINANCE",
+            "OVERALL",
+            "POLITICS",
+            "SPORTS",
+            "CRYPTO",
+            "CULTURE",
+            "MENTIONS",
+            "WEATHER",
+            "ECONOMICS",
+            "TECH",
+            "FINANCE",
         ] = "OVERALL",
         user: Optional[str] = None,
     ) -> List[Dict]:
@@ -222,9 +230,7 @@ class PolymarketData:
 
         return _fetch()
 
-    def fetch_user_activity(
-        self, address: str, limit: int = 100, offset: int = 0
-    ) -> List[Dict]:
+    def fetch_user_activity(self, address: str, limit: int = 100, offset: int = 0) -> List[Dict]:
         """
         Fetch user activity from the Data API.
 
@@ -306,9 +312,7 @@ class PolymarketData:
 
         return _fetch()
 
-    def fetch_closed_positions(
-        self, address: str, limit: int = 100, offset: int = 0
-    ) -> List[Dict]:
+    def fetch_closed_positions(self, address: str, limit: int = 100, offset: int = 0) -> List[Dict]:
         """
         Fetch closed positions for a user from the Data API.
 
@@ -335,9 +339,7 @@ class PolymarketData:
 
         return _fetch()
 
-    def fetch_positions_data(
-        self, address: str, limit: int = 100, offset: int = 0
-    ) -> List[Dict]:
+    def fetch_positions_data(self, address: str, limit: int = 100, offset: int = 0) -> List[Dict]:
         """
         Fetch current positions for a user from the Data API.
 

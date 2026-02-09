@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import requests
-
-from ...base.errors import ExchangeError
 
 
 class PolymarketBridge:
@@ -22,9 +20,7 @@ class PolymarketBridge:
 
         @self._retry_on_failure
         def _fetch():
-            resp = requests.get(
-                f"{self.BRIDGE_URL}/supported-assets", timeout=self.timeout
-            )
+            resp = requests.get(f"{self.BRIDGE_URL}/supported-assets", timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
             if isinstance(data, list):

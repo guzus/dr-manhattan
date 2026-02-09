@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import traceback
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional, Sequence
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
 
 import pandas as pd
 import requests
@@ -14,7 +14,6 @@ from ...base.errors import (
     AuthenticationError,
     ExchangeError,
     InvalidOrder,
-    MarketNotFound,
 )
 from ...models.market import Market
 from ...models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
@@ -173,7 +172,9 @@ class PolymarketCLOB:
         except requests.RequestException as e:
             raise ExchangeError(f"Network error fetching token IDs: {e}")
 
-    def get_price(self, market: Market | str, side: str = "buy", outcome: int | str = 0) -> Dict[str, Any]:
+    def get_price(
+        self, market: Market | str, side: str = "buy", outcome: int | str = 0
+    ) -> Dict[str, Any]:
         """
         Fetch price for a single token.
 

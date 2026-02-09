@@ -4,9 +4,9 @@ import os
 from unittest.mock import patch
 
 import pytest
+from dr_manhattan.exchanges.polymarket_operator import PolymarketOperator
 
 from dr_manhattan.base.errors import AuthenticationError
-from dr_manhattan.exchanges.polymarket_operator import PolymarketOperator
 
 
 class TestPolymarketOperatorInit:

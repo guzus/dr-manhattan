@@ -45,9 +45,7 @@ class PolymarketCTF:
         if not self.funder:
             raise AuthenticationError("Funder (Safe) address required for CTF operations")
         w3 = self._get_web3()
-        safe = w3.eth.contract(
-            address=Web3.to_checksum_address(self.funder), abi=self.SAFE_ABI
-        )
+        safe = w3.eth.contract(address=Web3.to_checksum_address(self.funder), abi=self.SAFE_ABI)
         return safe.functions.nonce().call()
 
     def _compute_safe_tx_hash(
@@ -129,9 +127,7 @@ class PolymarketCTF:
             pk = pk[2:]
 
         # Convert data to bytes
-        data_bytes = (
-            bytes.fromhex(data[2:]) if data.startswith("0x") else bytes.fromhex(data)
-        )
+        data_bytes = bytes.fromhex(data[2:]) if data.startswith("0x") else bytes.fromhex(data)
 
         # Compute hash
         tx_hash = self._compute_safe_tx_hash(to=to, data=data_bytes, nonce=nonce)
@@ -144,9 +140,7 @@ class PolymarketCTF:
         # Adjust v for Safe (add 4)
         v = signed.v + 4
         signature = (
-            signed.r.to_bytes(32, "big")
-            + signed.s.to_bytes(32, "big")
-            + v.to_bytes(1, "big")
+            signed.r.to_bytes(32, "big") + signed.s.to_bytes(32, "big") + v.to_bytes(1, "big")
         )
 
         return "0x" + signature.hex()
@@ -166,9 +160,7 @@ class PolymarketCTF:
         h = hmac.new(base64_secret, bytes(message, "utf-8"), hashlib.sha256)
         return base64.urlsafe_b64encode(h.digest()).decode("utf-8")
 
-    def _get_builder_headers(
-        self, method: str, path: str, body: dict = None
-    ) -> Dict[str, str]:
+    def _get_builder_headers(self, method: str, path: str, body: dict = None) -> Dict[str, str]:
         """Generate Builder API authentication headers"""
         if not all([self.builder_api_key, self.builder_secret, self.builder_passphrase]):
             raise AuthenticationError(
@@ -194,9 +186,7 @@ class PolymarketCTF:
             "Content-Type": "application/json",
         }
 
-    def _submit_to_relayer(
-        self, to: str, data: str, nonce: int, signature: str
-    ) -> Dict[str, Any]:
+    def _submit_to_relayer(self, to: str, data: str, nonce: int, signature: str) -> Dict[str, Any]:
         """Submit transaction to Polymarket Relayer"""
         path = "/submit"
 
@@ -231,9 +221,7 @@ class PolymarketCTF:
         )
 
         if response.status_code != 200:
-            raise ExchangeError(
-                f"Relayer error: {response.status_code} - {response.text}"
-            )
+            raise ExchangeError(f"Relayer error: {response.status_code} - {response.text}")
 
         return response.json()
 
@@ -267,9 +255,7 @@ class PolymarketCTF:
     def _encode_split_position(self, condition_id: str, amount_wei: int) -> str:
         """Encode splitPosition function call"""
         # Function selector for splitPosition
-        selector = Web3.keccak(
-            text="splitPosition(address,bytes32,bytes32,uint256[],uint256)"
-        )[:4]
+        selector = Web3.keccak(text="splitPosition(address,bytes32,bytes32,uint256[],uint256)")[:4]
 
         if condition_id.startswith("0x"):
             condition_id_bytes = bytes.fromhex(condition_id[2:])
@@ -292,9 +278,7 @@ class PolymarketCTF:
     def _encode_merge_positions(self, condition_id: str, amount_wei: int) -> str:
         """Encode mergePositions function call"""
         # Function selector for mergePositions
-        selector = Web3.keccak(
-            text="mergePositions(address,bytes32,bytes32,uint256[],uint256)"
-        )[:4]
+        selector = Web3.keccak(text="mergePositions(address,bytes32,bytes32,uint256[],uint256)")[:4]
 
         if condition_id.startswith("0x"):
             condition_id_bytes = bytes.fromhex(condition_id[2:])
@@ -381,9 +365,7 @@ class PolymarketCTF:
         data = self._encode_split_position(condition_id, amount_wei)
 
         # Sign transaction
-        signature = self._sign_safe_transaction(
-            to=self.CTF_CONTRACT, data=data, nonce=nonce
-        )
+        signature = self._sign_safe_transaction(to=self.CTF_CONTRACT, data=data, nonce=nonce)
 
         # Submit to relayer
         result = self._submit_to_relayer(
@@ -452,9 +434,7 @@ class PolymarketCTF:
         data = self._encode_merge_positions(condition_id, amount_wei)
 
         # Sign transaction
-        signature = self._sign_safe_transaction(
-            to=self.CTF_CONTRACT, data=data, nonce=nonce
-        )
+        signature = self._sign_safe_transaction(to=self.CTF_CONTRACT, data=data, nonce=nonce)
 
         # Submit to relayer
         result = self._submit_to_relayer(
@@ -517,9 +497,7 @@ class PolymarketCTF:
         data = self._encode_redeem_positions(condition_id)
 
         # Sign transaction
-        signature = self._sign_safe_transaction(
-            to=self.CTF_CONTRACT, data=data, nonce=nonce
-        )
+        signature = self._sign_safe_transaction(to=self.CTF_CONTRACT, data=data, nonce=nonce)
 
         # Submit to relayer
         result = self._submit_to_relayer(
