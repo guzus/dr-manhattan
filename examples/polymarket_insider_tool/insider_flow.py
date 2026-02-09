@@ -44,10 +44,13 @@ class BacktestConfig:
     stop_loss: float | None = 0.08
     position_size: float = 500.0
     fee_bps: float = 8.0
-    slippage_bps: float = 4.0
+    slippage_bps: float = 50.0
     initial_capital: float = 10_000.0
     # In binary markets, "short" is modeled as buying the opposite outcome token.
     allow_short: bool = True
+    # If True, ignore holding_minutes/TP/SL and hold until market expiry (settlement payout 0/1).
+    # Requires passing `settlements=` into backtest().
+    hold_to_expiry: bool = False
 
 
 @dataclass(frozen=True)
@@ -414,6 +417,7 @@ class PolymarketInsiderTool:
         backtest_config: BacktestConfig | None = None,
         start_time: pd.Timestamp | str | None = None,
         end_time: pd.Timestamp | str | None = None,
+        settlements: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> BacktestResult:
         """Backtest buy-after-insider-flow signals and compute total PnL."""
         det_cfg = detector_config or self.config
@@ -430,6 +434,7 @@ class PolymarketInsiderTool:
             bt_cfg,
             start_time=start_time,
             end_time=end_time,
+            settlements=settlements,
         )
 
     def optimize_strategy(
@@ -439,6 +444,7 @@ class PolymarketInsiderTool:
         param_grid: Mapping[str, Sequence[Any]] | None = None,
         train_ratio: float = 0.70,
         backtest_config: BacktestConfig | None = None,
+        settlements: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> OptimizationResult:
         """Grid-search strategy settings and return the strongest train/test setup."""
         if train_ratio <= 0 or train_ratio >= 1:
@@ -464,10 +470,10 @@ class PolymarketInsiderTool:
             features = self.engineer_features(base, cfg)
             signals = self._detect_signals_from_features(features, cfg)
             train_result = self._backtest_on_features(
-                features, signals, bt_cfg, end_time=split_time
+                features, signals, bt_cfg, end_time=split_time, settlements=settlements
             )
             test_result = self._backtest_on_features(
-                features, signals, bt_cfg, start_time=split_time
+                features, signals, bt_cfg, start_time=split_time, settlements=settlements
             )
 
             objective = self._objective(train_result, test_result, bt_cfg)
@@ -573,6 +579,7 @@ class PolymarketInsiderTool:
         output_path: str | Path | None = None,
         top_assets: int = 2,
         combine_assets: bool = False,
+        settlements: Mapping[str, Mapping[str, Any]] | None = None,
     ):
         """
         Visualize insider signals and backtest performance.
@@ -591,7 +598,9 @@ class PolymarketInsiderTool:
         if signals is None:
             signals = self._detect_signals_from_features(features, cfg)
         if result is None:
-            result = self._backtest_on_features(features, list(signals), bt_cfg)
+            result = self._backtest_on_features(
+                features, list(signals), bt_cfg, settlements=settlements
+            )
 
         import matplotlib.pyplot as plt
 
@@ -1043,6 +1052,7 @@ class PolymarketInsiderTool:
         *,
         start_time: pd.Timestamp | str | None = None,
         end_time: pd.Timestamp | str | None = None,
+        settlements: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> BacktestResult:
         if features.empty or not signals:
             return self._empty_backtest(config.initial_capital)
@@ -1053,9 +1063,26 @@ class PolymarketInsiderTool:
         end_ns = int(end_ts.value) if end_ts is not None else None
 
         holding_ns = int(pd.Timedelta(minutes=max(config.holding_minutes, 1)).value)
-        round_trip_cost = 2.0 * (config.fee_bps + config.slippage_bps) / 10_000.0
+        one_way_cost = (config.fee_bps + config.slippage_bps) / 10_000.0
+        # Treat position_size as the gross cash outlay per trade (inclusive of fees/slippage).
+        # Costs reduce effective fill size (and thus returns) but should not allow losses beyond -100%.
+        one_way_cost = float(max(0.0, min(one_way_cost, 0.99)))
+        entry_multiplier = 1.0 - one_way_cost
+        exit_multiplier = 1.0 - one_way_cost
 
         opposite_asset, opposite_outcome = _build_binary_opposites(features)
+        asset_to_outcome: dict[tuple[str, str], str] = {}
+        if config.hold_to_expiry and "outcome" in features.columns:
+            frame = features[["condition_id", "asset", "outcome"]].copy()
+            frame["condition_id"] = frame["condition_id"].astype(str)
+            frame["asset"] = frame["asset"].astype(str)
+            frame["outcome"] = frame["outcome"].astype(str).replace("nan", np.nan)
+            clean = frame.dropna(subset=["outcome"])
+            if not clean.empty:
+                grouped = clean.groupby(["condition_id", "asset"], sort=False)["outcome"].agg(
+                    lambda s: s.value_counts().idxmax()
+                )
+                asset_to_outcome = {(cid, asset): out for (cid, asset), out in grouped.items()}
 
         asset_data: Dict[str, tuple[np.ndarray, np.ndarray]] = {}
         for asset, group in features.groupby("asset", sort=False):
@@ -1066,6 +1093,8 @@ class PolymarketInsiderTool:
 
         completed: List[BacktestTrade] = []
         blocked_until: Dict[str, int] = {}
+        cash = float(config.initial_capital)
+        open_positions: List[tuple[int, float]] = []
 
         for signal in sorted(signals, key=lambda s: s.timestamp):
             signal_ns = int(pd.Timestamp(signal.timestamp).value)
@@ -1073,6 +1102,11 @@ class PolymarketInsiderTool:
                 continue
             if end_ns is not None and signal_ns >= end_ns:
                 continue
+
+            # Free capital from any positions that have exited before this signal.
+            while open_positions and open_positions[0][0] <= signal_ns:
+                _, proceeds = heapq.heappop(open_positions)
+                cash += float(proceeds)
 
             trade_asset = signal.asset
             trade_side = signal.side
@@ -1110,50 +1144,108 @@ class PolymarketInsiderTool:
             if entry_price <= 0:
                 continue
 
-            horizon_ns = entry_time_ns + holding_ns
-            horizon_idx = int(np.searchsorted(ts, horizon_ns, side="right") - 1)
-            if horizon_idx <= entry_idx:
+            cost = float(config.position_size)
+            if not np.isfinite(cost) or cost <= 0:
+                continue
+            if cash < cost:
+                continue
+            invest_amount = cost * entry_multiplier
+            if invest_amount <= 0:
+                continue
+            qty = invest_amount / entry_price
+            if not np.isfinite(qty) or qty <= 0:
                 continue
 
-            exit_idx = horizon_idx
-            reason = "time"
-            path = prices[entry_idx + 1 : horizon_idx + 1]
+            if config.hold_to_expiry:
+                if settlements is None:
+                    raise ValueError(
+                        "settlements must be provided when backtest_config.hold_to_expiry=True"
+                    )
 
-            if len(path) > 0 and (config.take_profit is not None or config.stop_loss is not None):
-                relative = (path - entry_price) / entry_price
-                # TP/SL should be evaluated on the traded position, not the signal "view".
-                # (Short views are expressed as a long position in the opposite outcome token.)
+                settlement = settlements.get(str(signal.condition_id), {})
+                winner = settlement.get("winner_outcome")
+                expiry = settlement.get("expiry_time")
+                if winner is None:
+                    continue
+
+                if traded_outcome is None:
+                    traded_outcome = asset_to_outcome.get((str(signal.condition_id), asset))
+                if traded_outcome is None:
+                    continue
+
+                # Hold until expiry and redeem (payout is 1 for winner, 0 otherwise).
+                exit_price = 1.0 if str(traded_outcome) == str(winner) else 0.0
+                raw_return = (exit_price - entry_price) / entry_price
                 if trade_side == "short":
-                    relative = -relative
+                    raw_return = -raw_return
+                proceeds = float(qty * exit_price)
+                pnl = float(proceeds - cost)
+                net_return = float(pnl / cost) if cost else 0.0
+                reason = "expiry"
 
-                tp_hit = None
-                sl_hit = None
-                if config.take_profit is not None:
-                    tp_positions = np.where(relative >= config.take_profit)[0]
-                    if len(tp_positions) > 0:
-                        tp_hit = int(tp_positions[0])
-                if config.stop_loss is not None:
-                    sl_positions = np.where(relative <= -config.stop_loss)[0]
-                    if len(sl_positions) > 0:
-                        sl_hit = int(sl_positions[0])
+                exit_time_ns = int(ts[-1])
+                if expiry is not None:
+                    expiry_ts = pd.Timestamp(expiry)
+                    if expiry_ts.tzinfo is None:
+                        expiry_ts = expiry_ts.tz_localize("UTC")
+                    else:
+                        expiry_ts = expiry_ts.tz_convert("UTC")
+                    expiry_ns = int(expiry_ts.value)
+                    if expiry_ns >= entry_time_ns:
+                        exit_time_ns = expiry_ns
 
-                if tp_hit is not None and sl_hit is not None:
-                    hit = min(tp_hit, sl_hit)
-                    exit_idx = entry_idx + 1 + hit
-                    reason = "take_profit" if tp_hit <= sl_hit else "stop_loss"
-                elif tp_hit is not None:
-                    exit_idx = entry_idx + 1 + tp_hit
-                    reason = "take_profit"
-                elif sl_hit is not None:
-                    exit_idx = entry_idx + 1 + sl_hit
-                    reason = "stop_loss"
+                exit_idx = entry_idx
+                exit_time = pd.Timestamp(exit_time_ns, unit="ns", tz="UTC")
+                exit_price_for_trade = float(exit_price)
+            else:
+                horizon_ns = entry_time_ns + holding_ns
+                horizon_idx = int(np.searchsorted(ts, horizon_ns, side="right") - 1)
+                if horizon_idx <= entry_idx:
+                    continue
 
-            exit_price = float(prices[exit_idx])
-            raw_return = (exit_price - entry_price) / entry_price
-            if trade_side == "short":
-                raw_return = -raw_return
-            net_return = raw_return - round_trip_cost
-            pnl = config.position_size * net_return
+                exit_idx = horizon_idx
+                reason = "time"
+                path = prices[entry_idx + 1 : horizon_idx + 1]
+
+                if len(path) > 0 and (
+                    config.take_profit is not None or config.stop_loss is not None
+                ):
+                    relative = (path - entry_price) / entry_price
+                    # TP/SL should be evaluated on the traded position, not the signal "view".
+                    # (Short views are expressed as a long position in the opposite outcome token.)
+                    if trade_side == "short":
+                        relative = -relative
+
+                    tp_hit = None
+                    sl_hit = None
+                    if config.take_profit is not None:
+                        tp_positions = np.where(relative >= config.take_profit)[0]
+                        if len(tp_positions) > 0:
+                            tp_hit = int(tp_positions[0])
+                    if config.stop_loss is not None:
+                        sl_positions = np.where(relative <= -config.stop_loss)[0]
+                        if len(sl_positions) > 0:
+                            sl_hit = int(sl_positions[0])
+
+                    if tp_hit is not None and sl_hit is not None:
+                        hit = min(tp_hit, sl_hit)
+                        exit_idx = entry_idx + 1 + hit
+                        reason = "take_profit" if tp_hit <= sl_hit else "stop_loss"
+                    elif tp_hit is not None:
+                        exit_idx = entry_idx + 1 + tp_hit
+                        reason = "take_profit"
+                    elif sl_hit is not None:
+                        exit_idx = entry_idx + 1 + sl_hit
+                        reason = "stop_loss"
+
+                exit_price_for_trade = float(prices[exit_idx])
+                raw_return = (exit_price_for_trade - entry_price) / entry_price
+                if trade_side == "short":
+                    raw_return = -raw_return
+                proceeds = float(qty * exit_price_for_trade * exit_multiplier)
+                pnl = float(proceeds - cost)
+                net_return = float(pnl / cost) if cost else 0.0
+                exit_time = pd.Timestamp(ts[exit_idx], unit="ns", tz="UTC")
 
             trade = BacktestTrade(
                 asset=asset,
@@ -1164,9 +1256,9 @@ class PolymarketInsiderTool:
                 traded_outcome=traded_outcome,
                 signal_time=pd.Timestamp(signal.timestamp),
                 entry_time=pd.Timestamp(ts[entry_idx], unit="ns", tz="UTC"),
-                exit_time=pd.Timestamp(ts[exit_idx], unit="ns", tz="UTC"),
+                exit_time=exit_time,
                 entry_price=entry_price,
-                exit_price=exit_price,
+                exit_price=exit_price_for_trade,
                 raw_return=float(raw_return),
                 net_return=float(net_return),
                 pnl=float(pnl),
@@ -1174,16 +1266,23 @@ class PolymarketInsiderTool:
                 score=signal.score,
             )
             completed.append(trade)
-            blocked_until[block_key] = int(ts[exit_idx])
+            blocked_until[block_key] = int(trade.exit_time.value)
+            cash -= cost
+            heapq.heappush(open_positions, (int(trade.exit_time.value), proceeds))
 
         if not completed:
             return self._empty_backtest(config.initial_capital)
 
+        # Settle remaining open positions (latest proceeds are already baked in).
+        while open_positions:
+            _, proceeds = heapq.heappop(open_positions)
+            cash += float(proceeds)
+
         returns = np.array([t.net_return for t in completed], dtype=float)
         pnls = np.array([t.pnl for t in completed], dtype=float)
 
-        total_pnl = float(pnls.sum())
-        ending_capital = float(config.initial_capital + total_pnl)
+        ending_capital = float(cash)
+        total_pnl = float(ending_capital - float(config.initial_capital))
         return_pct = float(total_pnl / config.initial_capital) if config.initial_capital else 0.0
         n_trades = len(completed)
         win_rate = float((pnls > 0).mean())

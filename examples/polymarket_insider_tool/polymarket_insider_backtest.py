@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import json
 from dataclasses import asdict
 from pathlib import Path
 
@@ -88,8 +89,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stop-loss", type=float, default=0.08, help="Stop loss ratio")
     parser.add_argument("--position-size", type=float, default=500.0, help="USD size per trade")
     parser.add_argument("--fee-bps", type=float, default=8.0, help="Per-side fee in bps")
-    parser.add_argument("--slippage-bps", type=float, default=4.0, help="Per-side slippage in bps")
+    parser.add_argument("--slippage-bps", type=float, default=50.0, help="Per-side slippage in bps")
     parser.add_argument("--initial-capital", type=float, default=10000.0, help="Starting capital")
+    parser.add_argument(
+        "--hold-to-expiry",
+        action="store_true",
+        help="Hold each position until market expiry and settle at payout (0/1). Requires resolved markets.",
+    )
     parser.add_argument(
         "--long-only",
         action="store_true",
@@ -170,6 +176,7 @@ def build_backtest_config(args: argparse.Namespace) -> BacktestConfig:
         slippage_bps=args.slippage_bps,
         initial_capital=args.initial_capital,
         allow_short=not args.long_only,
+        hold_to_expiry=bool(args.hold_to_expiry),
     )
 
 
@@ -201,6 +208,54 @@ def _coerce_utc(value: object) -> pd.Timestamp | None:
     return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
 
 
+def _infer_settlement(market) -> tuple[str, dict]:
+    """Infer expiry time and winner outcome from a Polymarket Gamma Market object."""
+    meta = getattr(market, "metadata", {}) or {}
+    condition_id = str(meta.get("conditionId", getattr(market, "id", ""))).strip()
+
+    expiry_time = (
+        _coerce_utc(meta.get("closedTime"))
+        or _coerce_utc(meta.get("endDate"))
+        or _coerce_utc(meta.get("endDateIso"))
+        or _coerce_utc(getattr(market, "close_time", None))
+    )
+
+    outcomes = meta.get("outcomes") or getattr(market, "outcomes", None) or []
+    prices_raw = meta.get("outcomePrices")
+    prices_list = None
+    if isinstance(prices_raw, str):
+        try:
+            prices_list = json.loads(prices_raw)
+        except Exception:
+            prices_list = None
+    elif isinstance(prices_raw, list):
+        prices_list = prices_raw
+
+    winner = None
+    if outcomes and prices_list and len(outcomes) == len(prices_list):
+        try:
+            floats = [float(p) for p in prices_list]
+            max_idx = int(max(range(len(floats)), key=lambda i: floats[i]))
+            max_val = floats[max_idx]
+            others = [floats[i] for i in range(len(floats)) if i != max_idx]
+            if max_val >= 0.999 and all(v <= 0.001 for v in others):
+                winner = str(outcomes[max_idx])
+        except Exception:
+            winner = None
+
+    if winner is None:
+        prices = getattr(market, "prices", {}) or {}
+        if prices:
+            best_outcome, best_price = max(prices.items(), key=lambda kv: float(kv[1] or 0))
+            try:
+                if float(best_price) >= 0.999:
+                    winner = str(best_outcome)
+            except Exception:
+                pass
+
+    return condition_id, {"expiry_time": expiry_time, "winner_outcome": winner}
+
+
 def main() -> None:
     args = parse_args()
 
@@ -217,12 +272,17 @@ def main() -> None:
 
     if args.market:
         print("Fetching trades from Polymarket Data API...")
-        trades = tool.fetch_trades(
-            exchange,
-            market=args.market,
-            limit=args.limit,
-            offset=args.offset,
-        )
+        try:
+            trades = tool.fetch_trades(
+                exchange,
+                market=args.market,
+                limit=args.limit,
+                offset=args.offset,
+            )
+        except Exception as e:
+            raise SystemExit(
+                f"Failed to fetch trades for market={args.market}: {type(e).__name__}: {e}"
+            )
         if trades.empty:
             print("No trades found for the provided filters.")
             return
@@ -241,7 +301,11 @@ def main() -> None:
 
         closed_param = True if args.closed_only else None
         scan_limit = max(200, int(args.top_markets) * 6)
-        max_scan_limit = 5_000
+        # With extra client-side filters (e.g., opened-within-years), we may need to scan
+        # far more markets than we intend to backtest.
+        multiplier = 30 if opened_after is not None else 12
+        max_scan_limit = max(5_000, int(args.top_markets) * multiplier)
+        scan_limit = min(scan_limit, max_scan_limit)
 
         markets = []
         candidates = []
@@ -304,25 +368,35 @@ def main() -> None:
 
         def _fetch_one(mkt):
             cid = str(mkt.metadata.get("conditionId", mkt.id))
-            df = tool.fetch_trades(
-                exchange,
-                market=cid,
-                limit=args.limit,
-                offset=args.offset,
-            )
+            err = None
+            try:
+                df = tool.fetch_trades(
+                    exchange,
+                    market=cid,
+                    limit=args.limit,
+                    offset=args.offset,
+                )
+            except Exception as e:
+                df = pd.DataFrame()
+                err = f"{type(e).__name__}: {e}"
             # Some Data-API responses omit slug/title for older markets; fill best-effort.
             if not df.empty:
                 slug = str(mkt.metadata.get("slug", "")).strip()
                 if slug:
                     df["slug"] = df["slug"].fillna(slug)
-            return (mkt, df)
+            return (mkt, df, err)
 
         frames = []
         markets_meta = []
+        fetch_errors: list[str] = []
         workers = max(1, int(args.workers))
         if workers == 1:
             for mkt in markets:
-                mkt, df = _fetch_one(mkt)
+                mkt, df, err = _fetch_one(mkt)
+                if err is not None:
+                    fetch_errors.append(
+                        f"{str(mkt.metadata.get('slug', '')) or mkt.id} ({mkt.metadata.get('conditionId', mkt.id)}): {err}"
+                    )
                 if not df.empty:
                     frames.append(df)
                 markets_meta.append(mkt)
@@ -330,7 +404,11 @@ def main() -> None:
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
                 futures = [ex.submit(_fetch_one, mkt) for mkt in markets]
                 for fut in concurrent.futures.as_completed(futures):
-                    mkt, df = fut.result()
+                    mkt, df, err = fut.result()
+                    if err is not None:
+                        fetch_errors.append(
+                            f"{str(mkt.metadata.get('slug', '')) or mkt.id} ({mkt.metadata.get('conditionId', mkt.id)}): {err}"
+                        )
                     if not df.empty:
                         frames.append(df)
                     markets_meta.append(mkt)
@@ -343,9 +421,51 @@ def main() -> None:
         if trades.empty:
             raise SystemExit("No trades found across scanned markets (try higher --limit).")
 
+        if fetch_errors:
+            n_show = min(5, len(fetch_errors))
+            print(f"Trade fetch errors: {len(fetch_errors)} (showing {n_show})")
+            for msg in fetch_errors[:n_show]:
+                print(f"  - {msg}")
+
         print(
             f"Fetched {len(trades):,} trades across {trades['asset'].nunique()} assets "
             f"({trades['condition_id'].nunique()} condition_ids)."
+        )
+
+    settlements = None
+    if args.hold_to_expiry:
+        condition_ids = sorted(set(trades["condition_id"].astype(str)))
+        inferred: dict[str, dict] = {}
+
+        if markets_meta is not None:
+            for mkt in markets_meta:
+                cid, info = _infer_settlement(mkt)
+                if cid:
+                    inferred[cid] = info
+        else:
+            workers = max(1, int(args.workers))
+
+            def _fetch_market(cid: str):
+                try:
+                    return exchange.fetch_market(cid)
+                except Exception:
+                    return None
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+                for mkt in ex.map(_fetch_market, condition_ids):
+                    if mkt is None:
+                        continue
+                    cid, info = _infer_settlement(mkt)
+                    if cid:
+                        inferred[cid] = info
+
+        settlements = {cid: inferred.get(cid, {}) for cid in condition_ids}
+        resolved = sum(
+            1 for cid in condition_ids if settlements[cid].get("winner_outcome") is not None
+        )
+        print(
+            f"Expiry settlement mode enabled: resolved={resolved}/{len(condition_ids)} condition_ids "
+            f"(unresolved will be skipped)."
         )
 
     if args.optimize:
@@ -354,6 +474,7 @@ def main() -> None:
             trades,
             train_ratio=args.train_ratio,
             backtest_config=backtest_config,
+            settlements=settlements,
         )
         best_cfg = optimization.best_config
         print("Best detector config:")
@@ -372,6 +493,7 @@ def main() -> None:
         signals=signals,
         detector_config=detector_config,
         backtest_config=backtest_config,
+        settlements=settlements,
     )
 
     wallets = tool.rank_wallets(features, top_n=args.top_wallets, config=detector_config)
@@ -411,24 +533,33 @@ def main() -> None:
         for s in signals:
             signals_by_condition.setdefault(str(s.condition_id), []).append(s)
 
+        meta_by_cid = {}
         for mkt in markets_meta:
             cid = str(mkt.metadata.get("conditionId", "")).strip()
-            if not cid:
+            if cid:
+                meta_by_cid[cid] = mkt
+
+        if "condition_id" not in features.columns:
+            raise SystemExit("Internal error: engineered features are missing condition_id.")
+        features = features.copy()
+        features["condition_id"] = features["condition_id"].astype(str)
+
+        for cid, subset in features.groupby("condition_id", sort=False):
+            mkt = meta_by_cid.get(str(cid))
+            if mkt is None:
                 continue
-            subset = features[features["condition_id"].astype(str) == cid].copy()
-            if subset.empty:
-                continue
-            m_signals = signals_by_condition.get(cid, [])
+            m_signals = signals_by_condition.get(str(cid), [])
             m_result = tool.backtest(
                 subset,
                 signals=m_signals,
                 detector_config=detector_config,
                 backtest_config=backtest_config,
+                settlements=settlements,
             )
             market_rows.append(
                 {
                     "slug": str(mkt.metadata.get("slug", "")),
-                    "condition_id": cid,
+                    "condition_id": str(cid),
                     "volume": float(getattr(mkt, "volume", 0.0) or 0.0),
                     "question": str(getattr(mkt, "question", "")),
                     "trades_fetched": int(len(subset)),
@@ -462,6 +593,7 @@ def main() -> None:
             output_path=args.plot_path,
             top_assets=args.plot_assets,
             combine_assets=args.plot_combined,
+            settlements=settlements,
         )
         print(f"Saved plot to {args.plot_path}")
 

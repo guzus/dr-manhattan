@@ -21,6 +21,7 @@ Polymarket category fields are not reliable on the Gamma `/markets` response; us
 uv run python examples/polymarket_insider_tool/polymarket_insider_backtest.py \
   --tag-slug politics --closed-only --top-markets 50 \
   --opened-within-years 2 \
+  --hold-to-expiry \
   --limit 1500 --workers 4 \
   --save-market-summary /tmp/politics_top50_closed_summary.csv \
   --plot --plot-combined --plot-assets 2 \
@@ -30,4 +31,9 @@ uv run python examples/polymarket_insider_tool/polymarket_insider_backtest.py \
 ## Notes
 
 - Shorts are modeled the Polymarket way: "short YES" is "buy NO" (binary only).
+- Backtests assume conservative execution by default: `fee_bps=8` and `slippage_bps=50` per side
+  (override via CLI flags). Costs reduce effective fills so losses do not exceed -100%.
+- Sizing is `--position-size` USD per trade (gross cash outlay). No leverage is assumed:
+  trades are skipped if there is not enough free cash, and cash is tied up until the modeled exit.
+- `--hold-to-expiry` ignores `--holding-minutes`/TP/SL and settles at payout (0/1) on resolved markets.
 - This is a statistical heuristic; it does not identify real-world people.
