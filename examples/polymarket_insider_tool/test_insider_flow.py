@@ -221,3 +221,33 @@ def test_plot_insider_backtest_saves_png(tmp_path):
     assert fig is not None
     assert out.exists()
     assert out.stat().st_size > 0
+
+
+def test_wallet_clustering_produces_assignments():
+    trades = _build_synthetic_trades()
+    detector_config = InsiderFlowConfig(
+        horizon_minutes=10,
+        lookback_trades=8,
+        signal_threshold=0.20,
+        cooldown_minutes=10,
+        min_wallet_history=1,
+        min_trade_notional=250.0,
+        long_only=True,
+    )
+    tool = PolymarketInsiderTool(detector_config)
+
+    clusters_df, clusters_summary = tool.cluster_wallets_behavior(
+        trades,
+        n_clusters=3,
+        top_wallets=50,
+        min_trades=1,
+        random_state=0,
+        config=detector_config,
+    )
+
+    assert not clusters_df.empty
+    assert "wallet" in clusters_df.columns
+    assert "cluster_id" in clusters_df.columns
+    assert clusters_df["cluster_id"].nunique() <= 3
+    assert not clusters_summary.empty
+    assert int(clusters_summary["wallets"].sum()) == int(len(clusters_df))

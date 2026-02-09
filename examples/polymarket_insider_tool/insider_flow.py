@@ -6,7 +6,7 @@ import heapq
 from dataclasses import dataclass, replace
 from itertools import product
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -567,6 +567,259 @@ class PolymarketInsiderTool:
         )
         summary = summary.sort_values("insider_rank_score", ascending=False).head(top_n)
         return summary.reset_index().rename(columns={"proxy_wallet": "wallet"})
+
+    def wallet_behavior_features(
+        self,
+        trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],
+        *,
+        config: InsiderFlowConfig | None = None,
+    ) -> pd.DataFrame:
+        """Aggregate wallet-level behavior features suitable for clustering."""
+        cfg = config or self.config
+        features = self._ensure_feature_frame(trades, cfg)
+        if features.empty:
+            return pd.DataFrame()
+
+        # Basic aggregations are computed across all trades (not just realized horizons).
+        df = _stable_sort_frame(features.copy())
+        df["proxy_wallet"] = df["proxy_wallet"].astype(str)
+
+        # Inter-trade cadence (minutes).
+        cadence = df[["proxy_wallet", "timestamp"]].copy()
+        cadence = cadence.sort_values(["proxy_wallet", "timestamp"]).reset_index(drop=True)
+        cadence["dt_minutes"] = (
+            cadence.groupby("proxy_wallet", sort=False)["timestamp"].diff().dt.total_seconds()
+            / 60.0
+        )
+        cadence_stats = cadence.groupby("proxy_wallet", sort=False)["dt_minutes"].agg(
+            dt_mean_minutes="mean",
+            dt_median_minutes="median",
+        )
+
+        grouped = df.groupby("proxy_wallet", sort=False)
+
+        def _mean_abs_finite(series: pd.Series) -> float:
+            arr = series.to_numpy(dtype=float, copy=False)
+            arr = arr[np.isfinite(arr)]
+            return float(np.abs(arr).mean()) if arr.size else 0.0
+
+        summary = grouped.agg(
+            trades=("proxy_wallet", "size"),
+            total_notional=("notional", "sum"),
+            avg_notional=("notional", "mean"),
+            median_notional=("notional", "median"),
+            buy_ratio=("direction", lambda s: float((s > 0).mean())),
+            avg_price=("price", "mean"),
+            unique_assets=("asset", "nunique"),
+            unique_conditions=("condition_id", "nunique"),
+            avg_conviction=("conviction_score", "mean"),
+            avg_burst=("burst_score", "mean"),
+            recent_skill=("wallet_skill", "last"),
+            avg_skill=("wallet_skill", "mean"),
+            avg_abs_direction=(
+                "direction_score",
+                _mean_abs_finite,
+            ),
+        )
+        summary = summary.join(cadence_stats, how="left")
+
+        # Market concentration (HHI) by condition_id count share: sum_i (share_i^2).
+        wc = (
+            df.groupby(["proxy_wallet", "condition_id"], sort=False)
+            .size()
+            .rename("n")
+            .reset_index()
+        )
+        totals = wc.groupby("proxy_wallet", sort=False)["n"].sum().rename("n_total")
+        wc = wc.join(totals, on="proxy_wallet")
+        wc["share"] = wc["n"] / wc["n_total"].clip(lower=1)
+        hhi = wc.groupby("proxy_wallet", sort=False)["share"].apply(lambda s: float((s**2).sum()))
+        summary["condition_hhi"] = hhi
+
+        # Realized edge metrics where available (based on horizon-forward returns).
+        realized = df[df["signed_forward_return"].notna()].copy()
+        if not realized.empty:
+            r_grouped = realized.groupby("proxy_wallet", sort=False)
+            realized_summary = r_grouped.agg(
+                realized_edge=("signed_forward_return", "mean"),
+                realized_win_rate=("signed_forward_return", lambda s: float((s > 0).mean())),
+                realized_trades=("signed_forward_return", "size"),
+            )
+            summary = summary.join(realized_summary, how="left")
+        else:
+            summary["realized_edge"] = np.nan
+            summary["realized_win_rate"] = np.nan
+            summary["realized_trades"] = 0
+
+        out = summary.reset_index().rename(columns={"proxy_wallet": "wallet"})
+        # Add log-scaled versions for clustering stability.
+        out["log_total_notional"] = np.log1p(out["total_notional"].clip(lower=0.0))
+        out["log_avg_notional"] = np.log1p(out["avg_notional"].clip(lower=0.0))
+        out["log_unique_conditions"] = np.log1p(out["unique_conditions"].clip(lower=0.0))
+        out["log_unique_assets"] = np.log1p(out["unique_assets"].clip(lower=0.0))
+        out["log_dt_median_minutes"] = np.log1p(out["dt_median_minutes"].clip(lower=0.0))
+        return out
+
+    def cluster_wallets_behavior(
+        self,
+        trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],
+        *,
+        n_clusters: int = 8,
+        top_wallets: int = 300,
+        min_trades: int = 10,
+        random_state: int = 0,
+        config: InsiderFlowConfig | None = None,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Cluster wallets by aggregated behavior features using k-means (no sklearn)."""
+        wf = self.wallet_behavior_features(trades, config=config)
+        if wf.empty:
+            return wf, pd.DataFrame()
+
+        wf = wf.copy()
+        wf = wf[wf["trades"] >= int(min_trades)].copy()
+        if wf.empty:
+            return wf, pd.DataFrame()
+
+        wf = (
+            wf.sort_values("total_notional", ascending=False)
+            .head(int(top_wallets))
+            .reset_index(drop=True)
+        )
+
+        feature_cols = [
+            "log_total_notional",
+            "log_avg_notional",
+            "buy_ratio",
+            "log_unique_conditions",
+            "condition_hhi",
+            "avg_conviction",
+            "avg_burst",
+            "avg_skill",
+            "recent_skill",
+            "realized_edge",
+            "realized_win_rate",
+            "log_dt_median_minutes",
+            "avg_abs_direction",
+        ]
+        feature_cols = [c for c in feature_cols if c in wf.columns]
+        if len(feature_cols) < 2:
+            raise ValueError("Not enough wallet features available to cluster.")
+
+        x = wf[feature_cols].to_numpy(dtype=float)
+        x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Standardize.
+        mu = x.mean(axis=0, keepdims=True)
+        sigma = x.std(axis=0, keepdims=True)
+        x_scaled = (x - mu) / np.where(sigma > 1e-8, sigma, 1.0)
+
+        k = int(max(1, min(int(n_clusters), len(wf))))
+        labels, _centers, inertia = _kmeans(
+            x_scaled, k=k, n_init=8, max_iter=200, random_state=random_state
+        )
+        wf["cluster_id"] = labels.astype(int)
+        wf["cluster_inertia"] = float(inertia)
+
+        # Cluster summary.
+        csum = (
+            wf.groupby("cluster_id", sort=True)
+            .agg(
+                wallets=("wallet", "size"),
+                trades=("trades", "sum"),
+                total_notional=("total_notional", "sum"),
+                avg_skill=("avg_skill", "mean"),
+                realized_edge=("realized_edge", "mean"),
+                realized_win_rate=("realized_win_rate", "mean"),
+            )
+            .reset_index()
+            .sort_values(["wallets", "total_notional"], ascending=[False, False])
+            .reset_index(drop=True)
+        )
+        return wf, csum
+
+    def plot_wallet_clusters(
+        self,
+        wallet_clusters: pd.DataFrame,
+        *,
+        output_path: str | Path | None = None,
+        label_top_wallets: int = 12,
+    ):
+        """2D PCA scatter plot of clustered wallets (behavior feature space)."""
+        if wallet_clusters.empty or "cluster_id" not in wallet_clusters.columns:
+            return None
+
+        import matplotlib.pyplot as plt
+
+        df = wallet_clusters.copy()
+        feature_cols = [
+            c
+            for c in df.columns
+            if c
+            in {
+                "log_total_notional",
+                "log_avg_notional",
+                "buy_ratio",
+                "log_unique_conditions",
+                "condition_hhi",
+                "avg_conviction",
+                "avg_burst",
+                "avg_skill",
+                "recent_skill",
+                "realized_edge",
+                "realized_win_rate",
+                "log_dt_median_minutes",
+                "avg_abs_direction",
+            }
+        ]
+        if len(feature_cols) < 2:
+            return None
+
+        x = df[feature_cols].to_numpy(dtype=float)
+        x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        mu = x.mean(axis=0, keepdims=True)
+        sigma = x.std(axis=0, keepdims=True)
+        x_scaled = (x - mu) / np.where(sigma > 1e-8, sigma, 1.0)
+        coords, explained = _pca_2d(x_scaled)
+
+        df["pca_x"] = coords[:, 0]
+        df["pca_y"] = coords[:, 1]
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        clusters = sorted(df["cluster_id"].unique().tolist())
+        cmap = plt.get_cmap("tab10")
+        for i, cid in enumerate(clusters):
+            sub = df[df["cluster_id"] == cid]
+            ax.scatter(
+                sub["pca_x"],
+                sub["pca_y"],
+                s=30,
+                alpha=0.75,
+                color=cmap(i % 10),
+                label=f"Cluster {cid} (n={len(sub)})",
+            )
+
+        # Label a few top wallets by notional.
+        label_top = max(0, int(label_top_wallets))
+        if label_top > 0 and "total_notional" in df.columns:
+            top = df.sort_values("total_notional", ascending=False).head(label_top)
+            for r in top.itertuples(index=False):
+                wallet = str(getattr(r, "wallet", ""))[:10] + "..."
+                ax.text(float(r.pca_x), float(r.pca_y), wallet, fontsize=8, alpha=0.9)
+
+        ax.set_title(
+            f"Wallet Clusters (PCA) | Explained var: {explained[0] * 100:.1f}% + {explained[1] * 100:.1f}%"
+        )
+        ax.set_xlabel("PC1")
+        ax.set_ylabel("PC2")
+        ax.grid(alpha=0.20)
+        ax.legend(loc="best", fontsize=8)
+        fig.tight_layout()
+
+        if output_path:
+            path = Path(output_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(path, dpi=150, bbox_inches="tight")
+        return fig
 
     def plot_insider_backtest(
         self,
@@ -1406,6 +1659,92 @@ def _stable_sort_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 def _looks_like_condition_id(value: str) -> bool:
     return value.startswith("0x") and len(value) >= 42
+
+
+def _kmeans(
+    x: np.ndarray,
+    *,
+    k: int,
+    n_init: int = 8,
+    max_iter: int = 200,
+    tol: float = 1e-6,
+    random_state: int = 0,
+) -> Tuple[np.ndarray, np.ndarray, float]:
+    """Lightweight k-means with k-means++ init (no sklearn). Returns (labels, centers, inertia)."""
+    if x.ndim != 2:
+        raise ValueError("x must be 2D")
+    n, d = x.shape
+    if n == 0:
+        raise ValueError("x is empty")
+    k = int(max(1, min(int(k), n)))
+
+    rng = np.random.default_rng(int(random_state))
+
+    def _init_pp() -> np.ndarray:
+        centers = np.empty((k, d), dtype=float)
+        idx0 = int(rng.integers(0, n))
+        centers[0] = x[idx0]
+        closest = ((x - centers[0]) ** 2).sum(axis=1)
+        for j in range(1, k):
+            probs = closest / closest.sum() if closest.sum() > 0 else np.full(n, 1.0 / n)
+            idx = int(rng.choice(n, p=probs))
+            centers[j] = x[idx]
+            dist = ((x - centers[j]) ** 2).sum(axis=1)
+            closest = np.minimum(closest, dist)
+        return centers
+
+    best_inertia = float("inf")
+    best_labels = None
+    best_centers = None
+
+    for _ in range(max(1, int(n_init))):
+        centers = _init_pp()
+        labels = np.zeros(n, dtype=int)
+        for _iter in range(int(max_iter)):
+            # Assign.
+            dist2 = ((x[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
+            new_labels = dist2.argmin(axis=1)
+
+            # Update.
+            new_centers = np.empty_like(centers)
+            for j in range(k):
+                mask = new_labels == j
+                if not mask.any():
+                    new_centers[j] = x[int(rng.integers(0, n))]
+                else:
+                    new_centers[j] = x[mask].mean(axis=0)
+
+            shift = float(np.linalg.norm(new_centers - centers))
+            centers = new_centers
+            labels = new_labels
+            if shift <= tol:
+                break
+
+        inertia = float(((x - centers[labels]) ** 2).sum())
+        if inertia < best_inertia:
+            best_inertia = inertia
+            best_labels = labels.copy()
+            best_centers = centers.copy()
+
+    assert best_labels is not None and best_centers is not None
+    return best_labels, best_centers, float(best_inertia)
+
+
+def _pca_2d(x: np.ndarray) -> tuple[np.ndarray, tuple[float, float]]:
+    """2D PCA via SVD. Returns coords (n,2) and explained variance ratios (2,)."""
+    if x.ndim != 2 or x.shape[0] == 0:
+        raise ValueError("x must be non-empty 2D array")
+    x_centered = x - x.mean(axis=0, keepdims=True)
+    # SVD: x = u s vt
+    u, s, _vt = np.linalg.svd(x_centered, full_matrices=False)
+    coords = u[:, :2] * s[:2]
+    var = (s**2) / max(1, (x.shape[0] - 1))
+    total = float(var.sum()) if var.size else 0.0
+    explained = (
+        float(var[0] / total) if total > 0 and var.size > 0 else 0.0,
+        float(var[1] / total) if total > 0 and var.size > 1 else 0.0,
+    )
+    return coords, explained
 
 
 def _build_binary_opposites(

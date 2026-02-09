@@ -28,6 +28,21 @@ uv run python examples/polymarket_insider_tool/polymarket_insider_backtest.py \
   --plot-path /tmp/politics_top50_closed_plot.png
 ```
 
+## Wallet Clustering (Behavior-Based)
+
+Cluster wallets by aggregated behavior stats (not identity). Produces a per-wallet CSV and optional PCA plot.
+
+```bash
+uv run python examples/polymarket_insider_tool/polymarket_insider_backtest.py \
+  --tag-slug politics --closed-only --top-markets 200 \
+  --opened-within-years 2 \
+  --limit 500 --workers 8 \
+  --wallet-cluster --wallet-clusters 8 \
+  --wallet-cluster-top 300 --wallet-cluster-min-trades 10 \
+  --wallet-cluster-save /tmp/politics_wallet_clusters.csv \
+  --wallet-cluster-plot --wallet-cluster-plot-path /tmp/politics_wallet_clusters.png
+```
+
 ## Notes
 
 - Shorts are modeled the Polymarket way: "short YES" is "buy NO" (binary only).

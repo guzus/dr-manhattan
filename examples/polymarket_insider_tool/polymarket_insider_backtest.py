@@ -136,6 +136,46 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--top-wallets", type=int, default=10, help="Top wallets to print")
     parser.add_argument(
+        "--wallet-cluster",
+        action="store_true",
+        help="Run behavior-based wallet clustering (k-means) on wallets in the fetched dataset.",
+    )
+    parser.add_argument(
+        "--wallet-clusters",
+        type=int,
+        default=8,
+        help="Number of clusters for --wallet-cluster.",
+    )
+    parser.add_argument(
+        "--wallet-cluster-top",
+        type=int,
+        default=300,
+        help="Cluster only the top-N wallets by total notional (after min-trades filter).",
+    )
+    parser.add_argument(
+        "--wallet-cluster-min-trades",
+        type=int,
+        default=10,
+        help="Minimum trades per wallet to include in clustering.",
+    )
+    parser.add_argument(
+        "--wallet-cluster-save",
+        type=Path,
+        default=None,
+        help="Optional CSV path to save wallet cluster assignments + features.",
+    )
+    parser.add_argument(
+        "--wallet-cluster-plot",
+        action="store_true",
+        help="Save a 2D PCA scatter plot of wallet clusters.",
+    )
+    parser.add_argument(
+        "--wallet-cluster-plot-path",
+        type=Path,
+        default=Path("wallet_clusters.png"),
+        help="Output path for --wallet-cluster-plot.",
+    )
+    parser.add_argument(
         "--plot",
         action="store_true",
         help="Create visualization PNG (equity curve + signal charts)",
@@ -638,6 +678,35 @@ def main() -> None:
         print(wallets[display_cols].to_string(index=False, float_format=lambda v: f"{v:,.4f}"))
     else:
         print("\nNo wallets met minimum history constraints.")
+
+    if args.wallet_cluster:
+        clusters_df, clusters_summary = tool.cluster_wallets_behavior(
+            features,
+            n_clusters=args.wallet_clusters,
+            top_wallets=args.wallet_cluster_top,
+            min_trades=args.wallet_cluster_min_trades,
+            random_state=0,
+            config=detector_config,
+        )
+        if clusters_df.empty:
+            print("\nWallet clustering: no wallets matched filters.")
+        else:
+            print(
+                f"\nWallet clustering: clustered {len(clusters_df)} wallets into {clusters_df['cluster_id'].nunique()} clusters"
+            )
+            if not clusters_summary.empty:
+                print("\nCluster summary:")
+                print(clusters_summary.to_string(index=False, float_format=lambda v: f"{v:,.4f}"))
+            if args.wallet_cluster_save:
+                args.wallet_cluster_save.parent.mkdir(parents=True, exist_ok=True)
+                clusters_df.to_csv(args.wallet_cluster_save, index=False)
+                print(f"Saved wallet clusters to {args.wallet_cluster_save}")
+            if args.wallet_cluster_plot:
+                tool.plot_wallet_clusters(
+                    clusters_df,
+                    output_path=args.wallet_cluster_plot_path,
+                )
+                print(f"Saved wallet cluster plot to {args.wallet_cluster_plot_path}")
 
     if args.save_signals:
         signals_df = pd.DataFrame([asdict(signal) for signal in signals])
