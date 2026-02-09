@@ -3,7 +3,6 @@
 from unittest.mock import Mock, patch
 
 import pytest
-from requests.exceptions import HTTPError
 
 from dr_manhattan.base.errors import AuthenticationError, MarketNotFound
 from dr_manhattan.exchanges.polymarket import Polymarket
@@ -74,36 +73,41 @@ def test_fetch_markets(mock_get):
     assert markets[0].prices == {"Yes": 0.6, "No": 0.4}
 
 
-@patch("requests.request")
-def test_fetch_market(mock_request):
+@patch.object(Polymarket, "fetch_token_ids", return_value=["token1", "token2"])
+@patch("requests.get")
+def test_fetch_market(mock_get, mock_fetch_token_ids):
     """Test fetching a specific market"""
     mock_response = Mock()
-    mock_response.json.return_value = {
-        "id": "0xmarket123",
-        "question": "Test question?",
-        "outcomes": '["Yes", "No"]',
-        "outcomePrices": '["0.5", "0.5"]',
-        "clobTokenIds": '["token1", "token2"]',
-        "active": True,
-        "closed": False,
-        "minimum_tick_size": 0.01,
-    }
-    mock_response.raise_for_status = Mock()
-    mock_request.return_value = mock_response
+    mock_response.status_code = 200
+    mock_response.json.return_value = [
+        {
+            "id": "0xmarket123",
+            "question": "Test question?",
+            "outcomes": '["Yes", "No"]',
+            "outcomePrices": '["0.5", "0.5"]',
+            "clobTokenIds": '["token1", "token2"]',
+            "active": True,
+            "closed": False,
+            "minimum_tick_size": 0.01,
+        }
+    ]
+    mock_get.return_value = mock_response
 
     exchange = Polymarket()
     market = exchange.fetch_market("0xmarket123")
 
     assert market.id == "0xmarket123"
     assert market.question == "Test question?"
+    mock_fetch_token_ids.assert_called_once_with("0xmarket123")
 
 
-@patch("requests.request")
-def test_fetch_market_not_found(mock_request):
+@patch("requests.get")
+def test_fetch_market_not_found(mock_get):
     """Test fetching non-existent market"""
     mock_response = Mock()
-    mock_response.raise_for_status.side_effect = HTTPError("404 Not Found")
-    mock_request.return_value = mock_response
+    mock_response.status_code = 404
+    mock_response.json.return_value = []
+    mock_get.return_value = mock_response
 
     exchange = Polymarket()
 

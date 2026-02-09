@@ -38,11 +38,11 @@ build-backend = "hatchling.build"
 
 [tool.black]
 line-length = 100
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
@@ -72,10 +72,13 @@ packages = ["dr_manhattan"]
 [project.optional-dependencies]
 mcp = [
     "mcp>=0.9.0",
+    "starlette>=0.36.0",
+    "uvicorn>=0.27.0",
 ]
 
 [project.scripts]
 dr-manhattan-mcp = "dr_manhattan.mcp.server:run"
+dr-manhattan-mcp-sse = "dr_manhattan.mcp.server_sse:run_sse"
 
 [dependency-groups]
 dev = [

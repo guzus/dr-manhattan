@@ -5,7 +5,18 @@
       "Bash(uv add:*)",
       "Bash(uv sync:*)",
       "Bash(find:*)",
-      "WebFetch(domain:docs.kalshi.com)"
+      "WebFetch(domain:docs.kalshi.com)",
+      "Bash(git rebase:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "WebFetch(domain:docs.polymarket.com)",
+      "WebSearch",
+      "Bash(python:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(bun add:*)",
+      "Bash(ln:*)",
+      "Bash(grep:*)",
+      "Bash(bun run build:*)"
     ],
     "deny": [],
     "ask": []

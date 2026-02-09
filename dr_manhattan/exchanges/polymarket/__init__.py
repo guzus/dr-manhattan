@@ -1,0 +1,28 @@
+"""Polymarket exchange - unified API"""
+
+from __future__ import annotations
+
+from ...base.exchange import Exchange
+from .polymarket_bridge import PolymarketBridge
+from .polymarket_clob import PolymarketCLOB
+from .polymarket_core import PolymarketCore
+from .polymarket_core import PricePoint as PricePoint
+from .polymarket_core import PublicTrade as PublicTrade
+from .polymarket_core import Tag as Tag
+from .polymarket_ctf import PolymarketCTF
+from .polymarket_data import PolymarketData
+from .polymarket_gamma import PolymarketGamma
+
+
+class Polymarket(
+    PolymarketCore,
+    PolymarketCLOB,
+    PolymarketGamma,
+    PolymarketData,
+    PolymarketCTF,
+    PolymarketBridge,
+    Exchange,
+):
+    """Polymarket exchange implementation - all APIs unified via mixins"""
+
+    pass

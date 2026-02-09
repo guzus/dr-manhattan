@@ -29,12 +29,23 @@ dr_manhattan/
 │   ├── websocket.py    # WebSocket base class
 │   └── errors.py       # Exception hierarchy
 ├── exchanges/          # Exchange implementations
-│   ├── polymarket.py
-│   ├── polymarket_ws.py
+│   ├── polymarket/     # Polymarket (mixin-based package) → [detailed docs](dr_manhattan/exchanges/polymarket/README.md)
+│   │   ├── __init__.py         # Unified Polymarket class
+│   │   ├── polymarket_core.py  # Constants, init, request helpers
+│   │   ├── polymarket_clob.py  # CLOB API (orders, positions)
+│   │   ├── polymarket_gamma.py # Gamma API (markets, events, search)
+│   │   ├── polymarket_data.py  # Data API (trades, analytics)
+│   │   ├── polymarket_ctf.py   # CTF (split/merge/redeem)
+│   │   ├── polymarket_ws.py    # Market/User WebSocket
+│   │   ├── polymarket_ws_ext.py # Sports/RTDS WebSocket
+│   │   ├── polymarket_builder.py  # Builder API
+│   │   └── polymarket_operator.py # Operator API
+│   ├── kalshi.py
 │   ├── opinion.py
 │   ├── limitless.py
 │   ├── limitless_ws.py
-│   └── predictfun.py
+│   ├── predictfun.py
+│   └── predictfun_ws.py
 ├── models/             # Data models
 │   ├── market.py
 │   ├── order.py
@@ -209,6 +220,28 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
   }
 }
 ```
+
+#### Remote Server (No Installation Required)
+
+Connect to the hosted MCP server via SSE. No private keys needed - uses Polymarket Builder profile:
+
+```json
+{
+  "mcpServers": {
+    "dr-manhattan": {
+      "type": "sse",
+      "url": "https://dr-manhattan-mcp-production.up.railway.app/sse",
+      "headers": {
+        "X-Polymarket-Api-Key": "your_api_key",
+        "X-Polymarket-Api-Secret": "your_api_secret",
+        "X-Polymarket-Passphrase": "your_passphrase"
+      }
+    }
+  }
+}
+```
+
+**Note:** Remote server supports Polymarket trading only. Other exchanges are read-only for security. See [wiki/mcp/remote-server.md](wiki/mcp/remote-server.md) for details.
 
 After restarting, you can:
 - "Show my Polymarket balance"

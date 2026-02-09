@@ -1,0 +1,360 @@
+/* Docs Layout */
+.docs-layout {
+    display: flex;
+    padding-top: 80px;
+    min-height: 100vh;
+    position: relative;
+}
+
+/* Sidebar */
+.sidebar {
+    position: fixed;
+    top: 80px;
+    left: 0;
+    width: 280px;
+    height: calc(100vh - 80px);
+    padding: 2rem;
+    background: rgba(8, 8, 12, 0.6);
+    /* var(--bg-depth) with opacity */
+    backdrop-filter: blur(10px);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    z-index: 50;
+}
+
+.sidebar-section {
+    margin-bottom: 2rem;
+}
+
+.sidebar-section h3 {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.75rem;
+}
+
+.sidebar-section a {
+    display: block;
+    padding: 0.4rem 0;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+    border-left: 2px solid transparent;
+    padding-left: 1rem;
+    margin-left: -1rem;
+}
+
+.sidebar-section a:hover,
+.sidebar-section a.active {
+    color: var(--primary);
+    border-left-color: var(--primary);
+    background: linear-gradient(90deg, rgba(0, 242, 255, 0.05) 0%, transparent 100%);
+}
+
+/* Main Content */
+.docs-content {
+    flex: 1;
+    margin-left: 280px;
+    padding: 3rem 4rem;
+    max-width: 1000px;
+}
+
+.docs-content h1 {
+    font-size: 3rem;
+    margin-bottom: 1.5rem;
+    background: linear-gradient(135deg, #fff 0%, var(--primary) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.docs-content h2 {
+    font-size: 2rem;
+    margin-top: 3.5rem;
+    margin-bottom: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+}
+
+.docs-content h3 {
+    font-size: 1.5rem;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    color: var(--text-main);
+}
+
+.docs-content p,
+.docs-content li {
+    color: var(--text-muted);
+    line-height: 1.7;
+    margin-bottom: 1rem;
+    font-size: 1.05rem;
+}
+
+.docs-content ul,
+.docs-content ol {
+    margin-bottom: 1.5rem;
+    padding-left: 1.5rem;
+}
+
+.docs-content a {
+    color: var(--primary);
+    text-decoration: none;
+    transition: all 0.2s;
+    border-bottom: 1px solid transparent;
+}
+
+.docs-content a:not(.card):not(.exchange-card):hover {
+    border-bottom-color: var(--primary);
+    text-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+}
+
+/* Code Blocks in Docs */
+.docs-content .code-block {
+    background: #0d0d12;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin: 1.5rem 0;
+    overflow: hidden;
+}
+
+.docs-content .code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--border);
+}
+
+.docs-content .dots {
+    display: flex;
+    gap: 6px;
+}
+
+.docs-content .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.docs-content .dot:nth-child(1) {
+    background: #ff5f57;
+}
+
+.docs-content .dot:nth-child(2) {
+    background: #ffbd2e;
+}
+
+.docs-content .dot:nth-child(3) {
+    background: #28c840;
+}
+
+.docs-content .filename {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.docs-content pre {
+    padding: 1.5rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    line-height: 1.7;
+    color: var(--text-main);
+}
+
+/* Inline Code */
+code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: rgba(0, 242, 255, 0.1);
+    padding: 0.2em 0.5em;
+    border-radius: 4px;
+    color: var(--primary);
+}
+
+pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    border-radius: 0;
+}
+
+/* Cards & Grids */
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin: 2rem 0;
+}
+
+.card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.01) 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    transition: all 0.3s;
+}
+
+.card:hover {
+    border-color: rgba(0, 242, 255, 0.3);
+    transform: translateY(-2px);
+    background: linear-gradient(135deg, rgba(0, 242, 255, 0.05) 0%, transparent 100%);
+}
+
+.card h4 {
+    font-size: 1.2rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-main);
+}
+
+.card p {
+    font-size: 0.95rem;
+    margin: 0;
+}
+
+.card-icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 242, 255, 0.1);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    color: var(--primary);
+}
+
+.card-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* Tables */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2rem 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+th,
+td {
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+th {
+    font-weight: 600;
+    color: var(--primary);
+    background: rgba(0, 242, 255, 0.05);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+td {
+    color: var(--text-secondary);
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Callouts */
+.callout {
+    padding: 1.25rem 1.5rem;
+    border-radius: 8px;
+    margin: 2rem 0;
+    border-left: 4px solid;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.callout-info {
+    border-color: var(--primary);
+    background: rgba(0, 242, 255, 0.05);
+}
+
+.callout-warning {
+    border-color: #ffbd2e;
+    background: rgba(255, 189, 46, 0.05);
+}
+
+.callout p {
+    margin: 0;
+    color: var(--text-main);
+}
+
+/* Exchange Grid */
+.exchange-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1.5rem;
+    margin: 2rem 0;
+}
+
+.exchange-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    text-decoration: none;
+    transition: all 0.3s;
+}
+
+.exchange-card:hover {
+    border-color: var(--primary);
+    transform: translateY(-3px);
+    box-shadow: 0 10px 30px -10px rgba(0, 242, 255, 0.15);
+}
+
+.exchange-card img {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    margin-bottom: 1rem;
+    filter: grayscale(0.5);
+    transition: filter 0.3s;
+}
+
+.exchange-card:hover img {
+    filter: grayscale(0);
+}
+
+.exchange-card span {
+    color: var(--text-main);
+    font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .sidebar {
+        display: none;
+        /* In a real app we'd add a mobile menu toggle */
+    }
+
+    .docs-content {
+        margin-left: 0;
+        padding: 2rem;
+    }
+
+    footer {
+        padding-left: 2rem;
+    }
+}
