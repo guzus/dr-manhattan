@@ -88,13 +88,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--take-profit", type=float, default=0.10, help="Take profit ratio")
     parser.add_argument("--stop-loss", type=float, default=0.08, help="Stop loss ratio")
     parser.add_argument("--position-size", type=float, default=500.0, help="USD size per trade")
-    parser.add_argument("--fee-bps", type=float, default=8.0, help="Per-side fee in bps")
+    parser.add_argument("--fee-bps", type=float, default=0.0, help="Per-side fee in bps")
     parser.add_argument("--slippage-bps", type=float, default=50.0, help="Per-side slippage in bps")
     parser.add_argument("--initial-capital", type=float, default=10000.0, help="Starting capital")
     parser.add_argument(
         "--hold-to-expiry",
         action="store_true",
         help="Hold each position until market expiry and settle at payout (0/1). Requires resolved markets.",
+    )
+    parser.add_argument(
+        "--sweep-exits",
+        type=str,
+        default=None,
+        help=(
+            "Optional exit-mode sweep. Comma-separated list of holding minutes plus optional token "
+            "'expiry' (e.g. '60,240,expiry'). Runs multiple backtests on the same fetched trades "
+            "and prints/saves a comparison table."
+        ),
+    )
+    parser.add_argument(
+        "--sweep-no-tp-sl",
+        action="store_true",
+        help="When using --sweep-exits, disable take-profit/stop-loss so exits are purely time-based.",
+    )
+    parser.add_argument(
+        "--sweep-save",
+        type=Path,
+        default=None,
+        help="Optional CSV path to save --sweep-exits results.",
     )
     parser.add_argument(
         "--long-only",
@@ -432,8 +453,14 @@ def main() -> None:
             f"({trades['condition_id'].nunique()} condition_ids)."
         )
 
+    sweep_tokens = []
+    if args.sweep_exits:
+        sweep_tokens = [t.strip().lower() for t in str(args.sweep_exits).split(",") if t.strip()]
+
+    need_expiry = bool(args.hold_to_expiry) or ("expiry" in sweep_tokens)
+
     settlements = None
-    if args.hold_to_expiry:
+    if need_expiry:
         condition_ids = sorted(set(trades["condition_id"].astype(str)))
         inferred: dict[str, dict] = {}
 
@@ -488,18 +515,114 @@ def main() -> None:
     # Engineer features once so signals/backtests/plots are consistent and deterministic.
     features = tool.engineer_features(trades, detector_config)
     signals = tool.detect_signals(features, detector_config)
-    result = tool.backtest(
-        features,
-        signals=signals,
-        detector_config=detector_config,
-        backtest_config=backtest_config,
-        settlements=settlements,
-    )
+    result = None
+    if not args.sweep_exits:
+        result = tool.backtest(
+            features,
+            signals=signals,
+            detector_config=detector_config,
+            backtest_config=backtest_config,
+            settlements=settlements,
+        )
 
     wallets = tool.rank_wallets(features, top_n=args.top_wallets, config=detector_config)
 
     print(f"\nDetected insider signals: {len(signals)}")
-    print_backtest_summary("Full Backtest", result)
+
+    if args.sweep_exits:
+        rows = []
+        for tok in sweep_tokens:
+            if tok in ("expiry", "settle", "settlement"):
+                cfg = backtest_config
+                cfg = BacktestConfig(
+                    holding_minutes=cfg.holding_minutes,
+                    take_profit=None if args.sweep_no_tp_sl else cfg.take_profit,
+                    stop_loss=None if args.sweep_no_tp_sl else cfg.stop_loss,
+                    position_size=cfg.position_size,
+                    fee_bps=cfg.fee_bps,
+                    slippage_bps=cfg.slippage_bps,
+                    initial_capital=cfg.initial_capital,
+                    allow_short=cfg.allow_short,
+                    hold_to_expiry=True,
+                )
+                label = "expiry"
+                bt = tool.backtest(
+                    features,
+                    signals=signals,
+                    detector_config=detector_config,
+                    backtest_config=cfg,
+                    settlements=settlements,
+                )
+            else:
+                try:
+                    minutes = int(tok)
+                except Exception:
+                    raise SystemExit(
+                        f"Invalid --sweep-exits token: {tok!r} (expected int minutes or 'expiry')"
+                    )
+                cfg = backtest_config
+                cfg = BacktestConfig(
+                    holding_minutes=minutes,
+                    take_profit=None if args.sweep_no_tp_sl else cfg.take_profit,
+                    stop_loss=None if args.sweep_no_tp_sl else cfg.stop_loss,
+                    position_size=cfg.position_size,
+                    fee_bps=cfg.fee_bps,
+                    slippage_bps=cfg.slippage_bps,
+                    initial_capital=cfg.initial_capital,
+                    allow_short=cfg.allow_short,
+                    hold_to_expiry=False,
+                )
+                label = f"{minutes}m"
+                bt = tool.backtest(
+                    features,
+                    signals=signals,
+                    detector_config=detector_config,
+                    backtest_config=cfg,
+                )
+
+            rows.append(
+                {
+                    "exit_mode": label,
+                    "holding_minutes": None if label == "expiry" else int(label.rstrip("m")),
+                    "fee_bps": float(backtest_config.fee_bps),
+                    "slippage_bps": float(backtest_config.slippage_bps),
+                    "position_size": float(backtest_config.position_size),
+                    "initial_capital": float(backtest_config.initial_capital),
+                    "signals": int(len(signals)),
+                    "bt_trades": int(bt.n_trades),
+                    "total_pnl": float(bt.total_pnl),
+                    "ending_capital": float(bt.ending_capital),
+                    "return_pct": float(bt.return_pct),
+                    "win_rate": float(bt.win_rate),
+                    "sharpe": float(bt.sharpe),
+                    "max_drawdown": float(bt.max_drawdown),
+                    "profit_factor": float(bt.profit_factor),
+                }
+            )
+            print_backtest_summary(f"Sweep Backtest ({label})", bt)
+
+        sweep_df = (
+            pd.DataFrame(rows).sort_values("return_pct", ascending=False).reset_index(drop=True)
+        )
+        print("\nSweep Comparison (sorted by return_pct):")
+        display_cols = [
+            "exit_mode",
+            "bt_trades",
+            "total_pnl",
+            "return_pct",
+            "win_rate",
+            "max_drawdown",
+            "profit_factor",
+        ]
+        print(sweep_df[display_cols].to_string(index=False, float_format=lambda v: f"{v:,.4f}"))
+
+        if args.sweep_save:
+            args.sweep_save.parent.mkdir(parents=True, exist_ok=True)
+            sweep_df.to_csv(args.sweep_save, index=False)
+            print(f"\nSaved sweep results to {args.sweep_save}")
+    else:
+        assert result is not None
+        print_backtest_summary("Full Backtest", result)
 
     if not wallets.empty:
         print("\nTop wallets by insider rank:")
@@ -522,6 +645,10 @@ def main() -> None:
         print(f"\nSaved signals to {args.save_signals}")
 
     if args.save_backtest_trades:
+        if result is None:
+            raise SystemExit(
+                "--save-backtest-trades requires a single backtest run (disable --sweep-exits)."
+            )
         bt_df = pd.DataFrame([asdict(trade) for trade in result.trades])
         bt_df.to_csv(args.save_backtest_trades, index=False)
         print(f"Saved backtest trades to {args.save_backtest_trades}")
@@ -584,6 +711,8 @@ def main() -> None:
             print(f"Saved per-market summary to {args.save_market_summary}")
 
     if args.plot:
+        if result is None:
+            raise SystemExit("--plot requires a single backtest run (disable --sweep-exits).")
         tool.plot_insider_backtest(
             features,
             signals=signals,

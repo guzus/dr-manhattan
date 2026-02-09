@@ -43,7 +43,7 @@ class BacktestConfig:
     take_profit: float | None = 0.10
     stop_loss: float | None = 0.08
     position_size: float = 500.0
-    fee_bps: float = 8.0
+    fee_bps: float = 0.0
     slippage_bps: float = 50.0
     initial_capital: float = 10_000.0
     # In binary markets, "short" is modeled as buying the opposite outcome token.
