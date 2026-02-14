@@ -85,6 +85,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--min-trade-notional", type=float, default=150.0, help="Signal min notional"
     )
+    parser.add_argument(
+        "--fresh-wallet-window-hours",
+        type=float,
+        default=24.0,
+        help=(
+            "Heuristic fresh-wallet window in hours (based on first trade seen in the "
+            "fetched dataset). Set negative to disable."
+        ),
+    )
+    parser.add_argument(
+        "--fresh-wallet-max-trades",
+        type=int,
+        default=3,
+        help="Max trades in-sample for a wallet to be flagged as fresh.",
+    )
 
     parser.add_argument("--holding-minutes", type=int, default=60, help="Backtest holding time")
     parser.add_argument("--take-profit", type=float, default=0.10, help="Take profit ratio")
@@ -527,7 +542,16 @@ def main() -> None:
             settlements=settlements,
         )
 
-    wallets = tool.rank_wallets(features, top_n=args.top_wallets, config=detector_config)
+    fresh_window_hours = (
+        None if float(args.fresh_wallet_window_hours) < 0 else float(args.fresh_wallet_window_hours)
+    )
+    wallets = tool.rank_wallets(
+        features,
+        top_n=args.top_wallets,
+        config=detector_config,
+        fresh_window_hours=fresh_window_hours,
+        fresh_max_trades=args.fresh_wallet_max_trades,
+    )
 
     print(f"\nDetected informed trader signals: {len(signals)}")
 
@@ -636,6 +660,8 @@ def main() -> None:
             "realized_win_rate",
             "total_notional",
             "informed_trader_rank_score",
+            "age_hours_in_sample",
+            "fresh_in_sample",
         ]
         print(wallets[display_cols].to_string(index=False, float_format=lambda v: f"{v:,.4f}"))
     else:
@@ -666,6 +692,8 @@ def main() -> None:
             features,
             signals=signals,
             config=detector_config,
+            fresh_window_hours=fresh_window_hours,
+            fresh_max_trades=args.fresh_wallet_max_trades,
         )
         informed_metrics_by_cid = (
             informed_metrics.set_index("condition_id", drop=False)
@@ -698,6 +726,10 @@ def main() -> None:
                 signals_per_informed_trader_wallet = float(
                     m_metrics["signals_per_informed_trader_wallet"]
                 )
+                fresh_informed_trader_wallets = int(m_metrics["fresh_informed_trader_wallets"])
+                fresh_informed_trader_wallet_share = float(
+                    m_metrics["fresh_informed_trader_wallet_share"]
+                )
             else:
                 market_wallets = int(subset["proxy_wallet"].nunique())
                 informed_trader_wallets = int(len({str(s.trigger_wallet) for s in m_signals}))
@@ -710,6 +742,8 @@ def main() -> None:
                     if informed_trader_wallets > 0
                     else 0.0
                 )
+                fresh_informed_trader_wallets = 0
+                fresh_informed_trader_wallet_share = 0.0
 
             m_result = tool.backtest(
                 subset,
@@ -732,6 +766,8 @@ def main() -> None:
                     "informed_trader_wallet_share": informed_trader_wallet_share,
                     "informed_trader_signals": informed_trader_signals,
                     "signals_per_informed_trader_wallet": signals_per_informed_trader_wallet,
+                    "fresh_informed_trader_wallets": fresh_informed_trader_wallets,
+                    "fresh_informed_trader_wallet_share": fresh_informed_trader_wallet_share,
                     "bt_trades": int(m_result.n_trades),
                     "pnl": float(m_result.total_pnl),
                     "return_pct": float(m_result.return_pct),

@@ -514,6 +514,8 @@ class PolymarketInformedTraderTool:
         *,
         top_n: int = 20,
         config: InformedTraderFlowConfig | None = None,
+        fresh_window_hours: float | None = 24.0,
+        fresh_max_trades: int = 3,
     ) -> pd.DataFrame:
         """Rank wallets by realized edge and current informed trader score."""
         cfg = config or self.config
@@ -529,6 +531,10 @@ class PolymarketInformedTraderTool:
                     "realized_win_rate",
                     "total_notional",
                     "informed_trader_rank_score",
+                    "first_seen",
+                    "last_seen",
+                    "age_hours_in_sample",
+                    "fresh_in_sample",
                 ]
             )
 
@@ -544,6 +550,10 @@ class PolymarketInformedTraderTool:
                     "realized_win_rate",
                     "total_notional",
                     "informed_trader_rank_score",
+                    "first_seen",
+                    "last_seen",
+                    "age_hours_in_sample",
+                    "fresh_in_sample",
                 ]
             )
 
@@ -565,7 +575,83 @@ class PolymarketInformedTraderTool:
             + 0.35 * summary["realized_edge"].clip(lower=0.0)
             + 0.20 * np.log1p(summary["total_notional"])
         )
-        summary = summary.sort_values("informed_trader_rank_score", ascending=False).head(top_n)
+        ranked = (
+            summary.sort_values("informed_trader_rank_score", ascending=False)
+            .head(top_n)
+            .reset_index()
+            .rename(columns={"proxy_wallet": "wallet"})
+        )
+
+        freshness = self.wallet_freshness(
+            features,
+            config=cfg,
+            fresh_window_hours=fresh_window_hours,
+            fresh_max_trades=fresh_max_trades,
+        )
+        if freshness.empty:
+            ranked["first_seen"] = pd.NaT
+            ranked["last_seen"] = pd.NaT
+            ranked["age_hours_in_sample"] = np.nan
+            ranked["fresh_in_sample"] = False
+            return ranked
+
+        freshness_cols = [
+            "wallet",
+            "first_seen",
+            "last_seen",
+            "age_hours_in_sample",
+            "fresh_in_sample",
+        ]
+        return ranked.merge(freshness[freshness_cols], on="wallet", how="left")
+
+    def wallet_freshness(
+        self,
+        trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],
+        *,
+        config: InformedTraderFlowConfig | None = None,
+        fresh_window_hours: float | None = 24.0,
+        fresh_max_trades: int = 3,
+    ) -> pd.DataFrame:
+        """Heuristic wallet freshness based on first appearance in this dataset."""
+        cfg = config or self.config
+        features = self._ensure_feature_frame(trades, cfg)
+        columns = [
+            "wallet",
+            "first_seen",
+            "last_seen",
+            "trades",
+            "age_hours_in_sample",
+            "fresh_in_sample",
+        ]
+        if features.empty:
+            return pd.DataFrame(columns=columns)
+        if "proxy_wallet" not in features.columns:
+            raise ValueError("Feature frame must include proxy_wallet for wallet freshness.")
+        if "timestamp" not in features.columns:
+            raise ValueError("Feature frame must include timestamp for wallet freshness.")
+
+        base = features.copy()
+        base["proxy_wallet"] = base["proxy_wallet"].astype(str)
+        grouped = base.groupby("proxy_wallet", sort=False)
+        summary = grouped.agg(
+            first_seen=("timestamp", "min"),
+            last_seen=("timestamp", "max"),
+            trades=("proxy_wallet", "size"),
+        )
+
+        sample_end = base["timestamp"].max()
+        summary["age_hours_in_sample"] = (
+            sample_end - summary["first_seen"]
+        ).dt.total_seconds() / 3600.0
+        if fresh_window_hours is None:
+            summary["fresh_in_sample"] = False
+        else:
+            max_age_hours = max(float(fresh_window_hours), 0.0)
+            max_trades = max(1, int(fresh_max_trades))
+            summary["fresh_in_sample"] = (summary["age_hours_in_sample"] <= max_age_hours) & (
+                summary["trades"] <= max_trades
+            )
+
         return summary.reset_index().rename(columns={"proxy_wallet": "wallet"})
 
     def market_informed_trader_metrics(
@@ -574,6 +660,8 @@ class PolymarketInformedTraderTool:
         *,
         signals: Sequence[InformedTraderSignal] | None = None,
         config: InformedTraderFlowConfig | None = None,
+        fresh_window_hours: float | None = 24.0,
+        fresh_max_trades: int = 3,
     ) -> pd.DataFrame:
         """Summarize per-market informed-trader participation metrics."""
         cfg = config or self.config
@@ -588,6 +676,8 @@ class PolymarketInformedTraderTool:
             "informed_trader_wallet_share",
             "informed_trader_signals",
             "signals_per_informed_trader_wallet",
+            "fresh_informed_trader_wallets",
+            "fresh_informed_trader_wallet_share",
         ]
         if features.empty:
             return pd.DataFrame(columns=columns)
@@ -606,6 +696,16 @@ class PolymarketInformedTraderTool:
         if signals is None:
             signals = self._detect_signals_from_features(base, cfg)
 
+        freshness = self.wallet_freshness(
+            base,
+            config=cfg,
+            fresh_window_hours=fresh_window_hours,
+            fresh_max_trades=fresh_max_trades,
+        )
+        fresh_wallets: set[str] = set(
+            freshness[freshness["fresh_in_sample"]]["wallet"].astype(str).tolist()
+        )
+
         informed_trader_wallets_by_cid: dict[str, set[str]] = {}
         informed_trader_signal_count_by_cid: dict[str, int] = {}
         for signal in signals:
@@ -621,13 +721,22 @@ class PolymarketInformedTraderTool:
             slug = str(slug_series.value_counts().idxmax()) if not slug_series.empty else ""
 
             market_wallets = int(subset["proxy_wallet"].nunique())
-            informed_trader_wallets = int(len(informed_trader_wallets_by_cid.get(str(cid), set())))
+            informed_trader_wallet_set = informed_trader_wallets_by_cid.get(str(cid), set())
+            informed_trader_wallets = int(len(informed_trader_wallet_set))
             informed_trader_signals = int(informed_trader_signal_count_by_cid.get(str(cid), 0))
             informed_trader_wallet_share = (
                 float(informed_trader_wallets / market_wallets) if market_wallets > 0 else 0.0
             )
             signals_per_informed_trader_wallet = (
                 float(informed_trader_signals / informed_trader_wallets)
+                if informed_trader_wallets > 0
+                else 0.0
+            )
+            fresh_informed_trader_wallets = int(
+                sum(1 for wallet in informed_trader_wallet_set if wallet in fresh_wallets)
+            )
+            fresh_informed_trader_wallet_share = (
+                float(fresh_informed_trader_wallets / informed_trader_wallets)
                 if informed_trader_wallets > 0
                 else 0.0
             )
@@ -643,6 +752,8 @@ class PolymarketInformedTraderTool:
                     "informed_trader_wallet_share": informed_trader_wallet_share,
                     "informed_trader_signals": informed_trader_signals,
                     "signals_per_informed_trader_wallet": signals_per_informed_trader_wallet,
+                    "fresh_informed_trader_wallets": fresh_informed_trader_wallets,
+                    "fresh_informed_trader_wallet_share": fresh_informed_trader_wallet_share,
                 }
             )
 

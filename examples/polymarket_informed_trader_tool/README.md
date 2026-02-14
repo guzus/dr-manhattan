@@ -56,6 +56,20 @@ Notes:
 - `Weighted informed-trader %` is computed as `sum(informed_trader_wallets) / sum(market_wallets)` within each category.
 - Per-category market summaries for this run were saved to `/tmp/informed_trader_category_summaries_top1000/*_top1000_summary.csv`.
 
+## Fresh Wallet Heuristic
+
+You can flag "fresh" wallets directly in this tool (without external chain APIs) using first-seen
+timestamps inside the fetched trade sample.
+
+- `fresh_in_sample = (age_hours_in_sample <= fresh_wallet_window_hours) AND (trades <= fresh_wallet_max_trades)`
+- `age_hours_in_sample` is measured from wallet first-seen trade to the sample end time.
+- This is an in-sample heuristic, not true on-chain wallet creation time.
+
+CLI knobs:
+- `--fresh-wallet-window-hours` (default `24`)
+- `--fresh-wallet-max-trades` (default `3`)
+- set `--fresh-wallet-window-hours -1` to disable freshness tagging
+
 ## Notes
 
 - Shorts are modeled the Polymarket way: "short YES" is "buy NO" (binary only).

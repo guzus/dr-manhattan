@@ -124,6 +124,8 @@ def test_market_informed_trader_metrics_counts_unique_informed_trader_wallets():
         "market_wallets",
         "informed_trader_wallets",
         "informed_trader_wallet_share",
+        "fresh_informed_trader_wallets",
+        "fresh_informed_trader_wallet_share",
     }.issubset(metrics.columns)
 
     market_a = metrics[metrics["condition_id"] == "market_a"]
@@ -133,6 +135,76 @@ def test_market_informed_trader_metrics_counts_unique_informed_trader_wallets():
     assert int(row_a["market_wallets"]) >= int(row_a["informed_trader_wallets"])
     expected_share = float(row_a["informed_trader_wallets"]) / float(row_a["market_wallets"])
     assert abs(float(row_a["informed_trader_wallet_share"]) - expected_share) < 1e-12
+
+
+def test_wallet_freshness_flags_recent_wallets_in_sample():
+    trades = _build_synthetic_trades()
+    tail = pd.Timestamp(trades["timestamp"].max())
+    extra = pd.DataFrame(
+        [
+            {
+                "timestamp": tail + pd.Timedelta(minutes=5),
+                "asset": "token_yes_a",
+                "condition_id": "market_a",
+                "outcome": "Yes",
+                "side": "BUY",
+                "size": 9000,
+                "price": 0.73,
+                "proxy_wallet": "0xnewwallet",
+                "slug": "synthetic-informed-a",
+            },
+            {
+                "timestamp": tail + pd.Timedelta(minutes=10),
+                "asset": "token_yes_a",
+                "condition_id": "market_a",
+                "outcome": "Yes",
+                "side": "BUY",
+                "size": 8500,
+                "price": 0.74,
+                "proxy_wallet": "0xnewwallet",
+                "slug": "synthetic-informed-a",
+            },
+        ]
+    )
+    trades = (
+        pd.concat([trades, extra], ignore_index=True)
+        .sort_values("timestamp")
+        .reset_index(drop=True)
+    )
+
+    config = InformedTraderFlowConfig(
+        horizon_minutes=0,
+        lookback_trades=8,
+        signal_threshold=0.20,
+        cooldown_minutes=10,
+        min_wallet_history=0,
+        min_trade_notional=100.0,
+        long_only=True,
+    )
+    tool = PolymarketInformedTraderTool(config)
+
+    freshness = tool.wallet_freshness(
+        trades,
+        config=config,
+        fresh_window_hours=1.0,
+        fresh_max_trades=3,
+    )
+    assert not freshness.empty
+
+    old_row = freshness[freshness["wallet"] == "0xinformed"].iloc[0]
+    new_row = freshness[freshness["wallet"] == "0xnewwallet"].iloc[0]
+    assert bool(old_row["fresh_in_sample"]) is False
+    assert bool(new_row["fresh_in_sample"]) is True
+
+    ranked = tool.rank_wallets(
+        trades,
+        top_n=200,
+        config=config,
+        fresh_window_hours=1.0,
+        fresh_max_trades=3,
+    )
+    fresh_ranked = ranked[ranked["wallet"] == "0xnewwallet"].iloc[0]
+    assert bool(fresh_ranked["fresh_in_sample"]) is True
 
 
 def test_backtest_positive_pnl_on_informed_flow():
