@@ -31,12 +31,13 @@ class BinanceManager:
             return None
         return int(pd.to_datetime(t, utc=True).timestamp() * 1000)
 
-    def fetch(self, market: str, symbol: str, interval: str, limit: int = 1000,
-              start=None, end=None) -> pd.DataFrame:
+    def fetch(
+        self, market: str, symbol: str, interval: str, limit: int = 1000, start=None, end=None
+    ) -> pd.DataFrame:
         base = {
-            'spot': "https://api.binance.com/api/v3/klines",
-            'usdm': "https://fapi.binance.com/fapi/v1/klines",
-            'coinm': "https://dapi.binance.com/dapi/v1/klines"
+            "spot": "https://api.binance.com/api/v3/klines",
+            "usdm": "https://fapi.binance.com/fapi/v1/klines",
+            "coinm": "https://dapi.binance.com/dapi/v1/klines",
         }.get(market)
 
         if not base:
@@ -53,9 +54,18 @@ class BinanceManager:
         data = r.json()
 
         cols = [
-            "open_time", "open", "high", "low", "close", "volume",
-            "close_time", "quote_asset_volume", "num_trades",
-            "taker_buy_base_asset_volume", "taker_buy_quote_asset_volume", "ignore"
+            "open_time",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "close_time",
+            "quote_asset_volume",
+            "num_trades",
+            "taker_buy_base_asset_volume",
+            "taker_buy_quote_asset_volume",
+            "ignore",
         ]
         df = pd.DataFrame(data, columns=cols)
         df["open_time"] = pd.to_datetime(df["open_time"], unit="ms", utc=True)
@@ -72,9 +82,14 @@ class BinanceManager:
     def _get_path(self, market: str, symbol: str, interval: str) -> str:
         return os.path.join(self.base_dir, f"{market}_{symbol}_{interval}.csv")
 
-    def fetch_klines(self, market: str = 'usdm', symbol: str = 'BTCUSDT',
-                     interval: str = '1h', start: str = '2019-01-01',
-                     limit: int = 1000) -> pd.DataFrame:
+    def fetch_klines(
+        self,
+        market: str = "usdm",
+        symbol: str = "BTCUSDT",
+        interval: str = "1h",
+        start: str = "2019-01-01",
+        limit: int = 1000,
+    ) -> pd.DataFrame:
         path = self._get_path(market, symbol, interval)
 
         if os.path.exists(path):
@@ -99,17 +114,18 @@ class BinanceManager:
         if all_data:
             new = pd.concat(all_data)
             data = pd.concat([old, new])
-            data = data[~data.index.duplicated(keep='last')].sort_index()
+            data = data[~data.index.duplicated(keep="last")].sort_index()
             data.to_csv(path)
             return data
 
         return old
 
-    def _fetch_funding(self, market: str, symbol: str,
-                        limit: int = 1000, start=None, end=None) -> pd.DataFrame:
+    def _fetch_funding(
+        self, market: str, symbol: str, limit: int = 1000, start=None, end=None
+    ) -> pd.DataFrame:
         base = {
-            'usdm': "https://fapi.binance.com/fapi/v1/fundingRate",
-            'coinm': "https://dapi.binance.com/dapi/v1/fundingRate"
+            "usdm": "https://fapi.binance.com/fapi/v1/fundingRate",
+            "coinm": "https://dapi.binance.com/dapi/v1/fundingRate",
         }.get(market)
 
         if not base:
@@ -139,8 +155,13 @@ class BinanceManager:
 
         return df
 
-    def fetch_funding_rate(self, market: str = 'usdm', symbol: str = 'BTCUSDT',
-                           start: str = '2019-01-01', limit: int = 1000) -> pd.DataFrame:
+    def fetch_funding_rate(
+        self,
+        market: str = "usdm",
+        symbol: str = "BTCUSDT",
+        start: str = "2019-01-01",
+        limit: int = 1000,
+    ) -> pd.DataFrame:
         path = os.path.join(self.base_dir, f"{market}_{symbol}_funding.csv")
 
         if os.path.exists(path):
@@ -165,17 +186,18 @@ class BinanceManager:
         if all_data:
             new = pd.concat(all_data)
             data = pd.concat([old, new])
-            data = data[~data.index.duplicated(keep='last')].sort_index()
+            data = data[~data.index.duplicated(keep="last")].sort_index()
             data.to_csv(path)
             return data
 
         return old
 
-    def _fetch_oi(self, market: str, symbol: str, period: str,
-                  limit: int = 500, start=None, end=None) -> pd.DataFrame:
+    def _fetch_oi(
+        self, market: str, symbol: str, period: str, limit: int = 500, start=None, end=None
+    ) -> pd.DataFrame:
         base = {
-            'usdm': "https://fapi.binance.com/futures/data/openInterestHist",
-            'coinm': "https://dapi.binance.com/futures/data/openInterestHist"
+            "usdm": "https://fapi.binance.com/futures/data/openInterestHist",
+            "coinm": "https://dapi.binance.com/futures/data/openInterestHist",
         }.get(market)
 
         if not base:
@@ -204,9 +226,14 @@ class BinanceManager:
 
         return df
 
-    def fetch_open_interest(self, market: str = 'usdm', symbol: str = 'BTCUSDT',
-                            period: str = '1h', start: str = '2022-01-01',
-                            limit: int = 500) -> pd.DataFrame:
+    def fetch_open_interest(
+        self,
+        market: str = "usdm",
+        symbol: str = "BTCUSDT",
+        period: str = "1h",
+        start: str = "2022-01-01",
+        limit: int = 500,
+    ) -> pd.DataFrame:
         path = os.path.join(self.base_dir, f"{market}_{symbol}_{period}_oi.csv")
         start_ts = pd.to_datetime(start)
 
@@ -227,7 +254,7 @@ class BinanceManager:
             if all_data:
                 new = pd.concat(all_data)
                 data = pd.concat([old.iloc[:-1], new])
-                data = data[~data.index.duplicated(keep='last')].sort_index()
+                data = data[~data.index.duplicated(keep="last")].sort_index()
                 data.to_csv(path)
                 return data
             return old
@@ -249,7 +276,7 @@ class BinanceManager:
 
         if all_data:
             data = pd.concat(all_data)
-            data = data[~data.index.duplicated(keep='last')].sort_index()
+            data = data[~data.index.duplicated(keep="last")].sort_index()
             data = data[data.index >= start_ts]
             data.to_csv(path)
             return data
@@ -332,9 +359,7 @@ class PolymarketManager:
                 f"year={day.year}/month={day.month:02d}/day={day.day:02d}/"
             )
             paginator = self.s3_client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(
-                Bucket=self.polymarket_bucket, Prefix=prefix
-            )
+            pages = paginator.paginate(Bucket=self.polymarket_bucket, Prefix=prefix)
             keys: List[tuple] = []
             for page in pages:
                 for obj in page.get("Contents", []):
@@ -390,9 +415,7 @@ class PolymarketManager:
 
     def _download_bytes(self, key: str) -> bytes:
         """Download raw bytes from S3 (I/O only, no parsing)."""
-        obj = self.s3_client.get_object(
-            Bucket=self.polymarket_bucket, Key=key
-        )
+        obj = self.s3_client.get_object(Bucket=self.polymarket_bucket, Key=key)
         return obj["Body"].read()
 
     @staticmethod
@@ -410,9 +433,7 @@ class PolymarketManager:
         if "bids" not in df.columns or "asks" not in df.columns:
             return pd.DataFrame(columns=["bids", "asks"])
 
-        df["datetime"] = pd.to_datetime(
-            df["timestamp_ms"], unit="ms", utc=True, errors="coerce"
-        )
+        df["datetime"] = pd.to_datetime(df["timestamp_ms"], unit="ms", utc=True, errors="coerce")
         df = df.dropna(subset=["datetime"])
         if df.empty:
             return pd.DataFrame(columns=["bids", "asks"])
@@ -456,9 +477,7 @@ class PolymarketManager:
                 except (TypeError, ValueError):
                     continue
 
-                if (is_bid and price_f > best_price) or (
-                    not is_bid and price_f < best_price
-                ):
+                if (is_bid and price_f > best_price) or (not is_bid and price_f < best_price):
                     best_price = price_f
                     best_size = size_f
                     found = True
@@ -511,29 +530,18 @@ class PolymarketManager:
             PolymarketManager.LEGACY_WINDOW_COL in out.columns
             and PolymarketManager.WINDOW_END_COL not in out.columns
         ):
-            out[PolymarketManager.WINDOW_END_COL] = out[
-                PolymarketManager.LEGACY_WINDOW_COL
-            ]
+            out[PolymarketManager.WINDOW_END_COL] = out[PolymarketManager.LEGACY_WINDOW_COL]
 
         if PolymarketManager.WINDOW_END_COL in out.columns:
-            et = pd.to_datetime(
-                out[PolymarketManager.WINDOW_END_COL], utc=True, errors="coerce"
-            )
+            et = pd.to_datetime(out[PolymarketManager.WINDOW_END_COL], utc=True, errors="coerce")
             out[PolymarketManager.WINDOW_END_COL] = et.dt.tz_localize(None)
 
         if PolymarketManager.WINDOW_START_COL in out.columns:
-            st = pd.to_datetime(
-                out[PolymarketManager.WINDOW_START_COL], utc=True, errors="coerce"
-            )
+            st = pd.to_datetime(out[PolymarketManager.WINDOW_START_COL], utc=True, errors="coerce")
             out[PolymarketManager.WINDOW_START_COL] = st.dt.tz_localize(None)
-        elif (
-            market_freq is not None
-            and PolymarketManager.WINDOW_END_COL in out.columns
-        ):
+        elif market_freq is not None and PolymarketManager.WINDOW_END_COL in out.columns:
             td = PolymarketManager._freq_to_timedelta(market_freq)
-            out[PolymarketManager.WINDOW_START_COL] = (
-                out[PolymarketManager.WINDOW_END_COL] - td
-            )
+            out[PolymarketManager.WINDOW_START_COL] = out[PolymarketManager.WINDOW_END_COL] - td
 
         if PolymarketManager.LEGACY_WINDOW_COL in out.columns:
             out = out.drop(columns=[PolymarketManager.LEGACY_WINDOW_COL])
@@ -643,7 +651,9 @@ class PolymarketManager:
             if col in out.columns:
                 out = out.drop(columns=[col])
 
-        close_mid = out.groupby(PolymarketManager.WINDOW_END_COL)["window_close_up_mid"].transform("last")
+        close_mid = out.groupby(PolymarketManager.WINDOW_END_COL)["window_close_up_mid"].transform(
+            "last"
+        )
         fallback_mid = out.groupby(PolymarketManager.WINDOW_END_COL)["up_mid"].transform("last")
         decision_mid = close_mid.fillna(fallback_mid)
         has_mid = decision_mid.notna()
@@ -785,9 +795,7 @@ class PolymarketManager:
 
         normalized = self._normalize_book_df(df)
         if include_resolution:
-            normalized = self._add_resolution_columns(
-                normalized, threshold=resolution_threshold
-            )
+            normalized = self._add_resolution_columns(normalized, threshold=resolution_threshold)
         if normalized.empty:
             empty_cols = [self.WINDOW_START_COL, self.WINDOW_END_COL, "up_best_bid", "up_best_ask"]
             if include_sizes:
@@ -796,9 +804,7 @@ class PolymarketManager:
                 empty_cols.extend(["down_best_bid", "down_best_ask", "down_mid"])
             empty_cols.extend(["up_mid", "window_close_up_mid"])
             if include_resolution:
-                empty_cols.extend(
-                    ["resolved"]
-                )
+                empty_cols.extend(["resolved"])
             export_df = pd.DataFrame(columns=empty_cols)
             export_df.index.name = "datetime"
         else:
@@ -811,9 +817,7 @@ class PolymarketManager:
             if include_down:
                 export_cols.append("down_mid")
             if include_resolution:
-                export_cols.extend(
-                    ["resolved"]
-                )
+                export_cols.extend(["resolved"])
             export_cols = [c for c in export_cols if c in normalized.columns]
             export_df = normalized[export_cols]
 
@@ -866,11 +870,7 @@ class PolymarketManager:
             raw_cached_rows = len(raw_cached_df)
             cache_has_window_close = "window_close_up_mid" in raw_cached_df.columns
             cached_df = self._normalize_book_df(raw_cached_df, market_freq=freq)
-            if (
-                ensure_full_window
-                and cached_df is not None
-                and not cached_df.empty
-            ):
+            if ensure_full_window and cached_df is not None and not cached_df.empty:
                 cached_df = self._enforce_window_grid(cached_df, market_freq=freq, snap=snap)
             if cached_df is not None and len(cached_df) != raw_cached_rows:
                 cache_rewrite_needed = True
@@ -896,22 +896,23 @@ class PolymarketManager:
             cached_rows = len(cached_df) if cached_df is not None else 0
             cached_wt = len(cached_wt_values)
             gap_days = sum(
-                len(pd.date_range(g[0].normalize(), g[1].normalize(), freq="D"))
-                for g in gaps
+                len(pd.date_range(g[0].normalize(), g[1].normalize(), freq="D")) for g in gaps
             )
-            print(f"[1/5] Cache: {cached_rows:,} rows, {cached_wt} windows | "
-                  f"Gaps: {gap_days} days  ({time.time() - t0:.1f}s)")
+            print(
+                f"[1/5] Cache: {cached_rows:,} rows, {cached_wt} windows | "
+                f"Gaps: {gap_days} days  ({time.time() - t0:.1f}s)"
+            )
             if not cache_has_window_close:
-                print("[1/5] Cache lacks window_close_up_mid; "
-                      "resolution falls back to last up_mid per end_time.")
+                print(
+                    "[1/5] Cache lacks window_close_up_mid; "
+                    "resolution falls back to last up_mid per end_time."
+                )
 
         # 2. List S3 keys only for days outside cached range
         t1 = time.time()
         all_keys: List[tuple] = []
         for gap_start, gap_end in gaps:
-            all_keys.extend(
-                self._list_keys(asset, freq, gap_start, gap_end, direction, file)
-            )
+            all_keys.extend(self._list_keys(asset, freq, gap_start, gap_end, direction, file))
 
         # 3. Filter out any windows already in cache (boundary safety)
         missing: List[tuple] = []
@@ -928,17 +929,18 @@ class PolymarketManager:
             in_cache = wt_ns in cached_wt_values
             if in_cache:
                 cache_hits += 1
-            need_fetch = (not in_cache)
+            need_fetch = not in_cache
             if need_fetch and key not in seen_keys and wt_ns not in seen_missing_wt:
                 missing.append((key, wt.strftime("%Y-%m-%dT%H:%M:%SZ")))
                 seen_keys.add(key)
                 seen_missing_wt.add(wt_ns)
 
         if log:
-            print(f"[2/5] Listed {len(all_keys)} keys, {len(missing)} to fetch  "
-                  f"({time.time() - t1:.1f}s)")
-            print(f"[2/5] Cache hit windows: {cache_hits}, "
-                  f"time-parse-fail: {parse_fail}")
+            print(
+                f"[2/5] Listed {len(all_keys)} keys, {len(missing)} to fetch  "
+                f"({time.time() - t1:.1f}s)"
+            )
+            print(f"[2/5] Cache hit windows: {cache_hits}, time-parse-fail: {parse_fail}")
 
         # 4. Parallel download (I/O) + streaming parse (CPU)
         t2 = time.time()
@@ -959,10 +961,7 @@ class PolymarketManager:
             downloaded_ok = 0
             parsed_ok = 0
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {
-                    executor.submit(_dl, item): item
-                    for item in missing
-                }
+                futures = {executor.submit(_dl, item): item for item in missing}
                 for future in as_completed(futures):
                     wt_str, raw_bytes = future.result()
                     done += 1
@@ -979,14 +978,11 @@ class PolymarketManager:
                         except Exception as e:
                             print(f"Error parsing window {wt_str}: {e}")
                     if log and done % 50 == 0:
-                        print(f"  ... {done}/{total} processed  "
-                              f"({time.time() - t2:.1f}s)")
+                        print(f"  ... {done}/{total} processed  ({time.time() - t2:.1f}s)")
 
             if log:
-                print(f"[3/5] Downloaded {downloaded_ok}/{total} files  "
-                      f"({time.time() - t2:.1f}s)")
-                print(f"[3.5/5] Parsed {parsed_ok} parquet files  "
-                      f"({time.time() - t2:.1f}s)")
+                print(f"[3/5] Downloaded {downloaded_ok}/{total} files  ({time.time() - t2:.1f}s)")
+                print(f"[3.5/5] Parsed {parsed_ok} parquet files  ({time.time() - t2:.1f}s)")
         else:
             if log:
                 print("[3/5] Nothing to download")
@@ -1001,8 +997,7 @@ class PolymarketManager:
 
         if new_df.empty:
             if log:
-                print(f"[5/5] No new data, serving from cache  "
-                      f"(total {time.time() - t0:.1f}s)")
+                print(f"[5/5] No new data, serving from cache  (total {time.time() - t0:.1f}s)")
             result = pd.DataFrame()
             if cached_df is not None and not cached_df.empty:
                 result = cached_df.loc[start:end]
@@ -1014,9 +1009,7 @@ class PolymarketManager:
                     if log:
                         print(f"[5/5] Rewrote normalized cache: {cache_file}")
             if add_resolution:
-                result = self._add_resolution_columns(
-                    result, threshold=resolution_threshold
-                )
+                result = self._add_resolution_columns(result, threshold=resolution_threshold)
             if save_csv:
                 out_csv = csv_path or os.path.join(
                     self.base_dir, f"{asset}_{freq}_{direction}_{file}_{snap}_best_quotes.csv"
@@ -1040,14 +1033,14 @@ class PolymarketManager:
         os.replace(tmp_cache_path, cache_file)
 
         if log:
-            print(f"[5/5] Saved {len(full_df):,} rows to cache  "
-                  f"({time.time() - t4:.1f}s) | Total: {time.time() - t0:.1f}s")
+            print(
+                f"[5/5] Saved {len(full_df):,} rows to cache  "
+                f"({time.time() - t4:.1f}s) | Total: {time.time() - t0:.1f}s"
+            )
 
         result = full_df.loc[start:end]
         if add_resolution:
-            result = self._add_resolution_columns(
-                result, threshold=resolution_threshold
-            )
+            result = self._add_resolution_columns(result, threshold=resolution_threshold)
         if save_csv:
             out_csv = csv_path or os.path.join(
                 self.base_dir, f"{asset}_{freq}_{direction}_{file}_{snap}_best_quotes.csv"

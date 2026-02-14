@@ -650,7 +650,9 @@ async def poll_markets_loop(state: SharedState):
                     for m in all_markets:
                         question = (getattr(m, "question", "") or "").lower()
                         metadata = getattr(m, "metadata", {}) or {}
-                        search_text = question + " " + (metadata.get("description", "") or "").lower()
+                        search_text = (
+                            question + " " + (metadata.get("description", "") or "").lower()
+                        )
                         if all(kw in search_text for kw in keyword_lowers):
                             matched_markets.append(m)
 
@@ -870,10 +872,10 @@ async def main():
     tasks = [
         asyncio.create_task(poll_markets_loop(state)),
         asyncio.create_task(manage_ws_connections(state)),
-        asyncio.create_task(writer_loop()),              # Fix #3
+        asyncio.create_task(writer_loop()),  # Fix #3
         asyncio.create_task(dedup_cleanup_loop(state)),  # Fix #1
-        asyncio.create_task(flush_loop()),               # Fix #6
-        asyncio.create_task(lock_cleanup_loop()),        # Fix #2
+        asyncio.create_task(flush_loop()),  # Fix #6
+        asyncio.create_task(lock_cleanup_loop()),  # Fix #2
     ]
     await asyncio.gather(*tasks)
 
