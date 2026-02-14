@@ -28,6 +28,34 @@ uv run python examples/polymarket_insider_tool/polymarket_insider_backtest.py \
   --plot-path /tmp/politics_top50_closed_plot.png
 ```
 
+## Latest Results Snapshot (February 14, 2026)
+
+Run setup used for this snapshot:
+- top markets per category: `1000`
+- filters: `--closed-only --opened-within-years 2`
+- fetch settings: `--limit 500 --workers 8`
+- categories: `politics`, `sports`, `finance`, `geopolitics`, `tech`
+
+Metric definitions:
+- `market_wallets`: unique wallets that traded in a market
+- `insider_wallets`: unique wallets that triggered at least one insider signal in a market
+- `insider_wallet_share`: `insider_wallets / market_wallets`
+- `avg insider %`: mean of `insider_wallet_share` across markets in a category
+
+Category-level insider participation (top-1000 run):
+
+| Category | Avg insider % | Weighted insider % |
+| --- | ---: | ---: |
+| sports | 11.49% | 5.68% |
+| finance | 9.91% | 5.31% |
+| politics | 5.85% | 4.66% |
+| tech | 5.61% | 3.62% |
+| geopolitics | 5.28% | 4.46% |
+
+Notes:
+- `Weighted insider %` is computed as `sum(insider_wallets) / sum(market_wallets)` within each category.
+- Per-category market summaries for this run were saved to `/tmp/insider_category_summaries_top1000/*_top1000_summary.csv`.
+
 ## Notes
 
 - Shorts are modeled the Polymarket way: "short YES" is "buy NO" (binary only).
