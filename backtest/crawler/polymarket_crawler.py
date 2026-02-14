@@ -4,9 +4,9 @@ import logging
 import os
 import threading
 import time
-from dataclasses import dataclass, field
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta, timezone
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Set, Tuple
 
 import boto3
 import pyarrow as pa
@@ -15,6 +15,17 @@ import websockets
 from dateutil import parser as date_parser
 
 from dr_manhattan.exchanges.polymarket import Polymarket
+
+from models import (
+    EVENT_BOOK,
+    EVENT_LAST_TRADE_PRICE,
+    EVENT_PRICE_CHANGE,
+    EVENT_TICK_SIZE_CHANGE,
+    EVENT_TYPES,
+    AssetMeta,
+    MarketConfig,
+    SharedState,
+)
 
 # ========== LOGGING CONFIG ==========
 
@@ -33,72 +44,6 @@ POLL_INTERVAL_SEC = 60 * 3
 WS_PING_INTERVAL_SEC = 20
 WS_RECONNECT_DELAY_SEC = 3
 WS_NO_ASSETS_SLEEP_SEC = 15
-
-
-# ========== EVENT TYPE CONSTANTS ==========
-
-EVENT_BOOK = "book"
-EVENT_PRICE_CHANGE = "price_change"
-EVENT_TICK_SIZE_CHANGE = "tick_size_change"
-EVENT_LAST_TRADE_PRICE = "last_trade_price"
-
-EVENT_TYPES = [
-    EVENT_BOOK,
-    EVENT_PRICE_CHANGE,
-    EVENT_TICK_SIZE_CHANGE,
-    EVENT_LAST_TRADE_PRICE,
-]
-
-
-# ========== DATA CLASSES ==========
-
-
-@dataclass
-class MarketConfig:
-    name: str
-    slug: str
-    keywords: List[str]
-    rule: str
-    window_minutes: int
-    prefix: str
-    freq: str | None = None
-
-
-@dataclass
-class AssetMeta:
-    asset_id: str
-    market_id: str
-    question: str
-    close_time_str: str
-    outcome: str
-    freq: str
-    prefix: str
-
-
-@dataclass
-class SharedState:
-    desired_asset_ids: Set[str] = field(default_factory=set)
-    subscribed_asset_ids: Set[str] = field(default_factory=set)
-    asset_meta: Dict[str, AssetMeta] = field(default_factory=dict)
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    need_resubscribe: bool = False
-    seen_event_hashes: Dict[str, Set[str]] = field(default_factory=dict)
-
-    # === Dedup including asset_id ===
-    def mark_event_seen(self, event_type: str, asset_id: str, event_hash: str) -> bool:
-        key = f"{asset_id}:{event_hash}"
-        bucket = self.seen_event_hashes.setdefault(event_type, set())
-        if key in bucket:
-            return False
-        bucket.add(key)
-
-        if len(bucket) > 100000:
-            for _ in range(10000):
-                try:
-                    bucket.pop()
-                except KeyError:
-                    break
-        return True
 
 
 # ========== MARKET CONFIG ==========
@@ -312,108 +257,6 @@ def get_open_market(exchange, slug: str, keywords: List[str]):
     return markets
 
 
-# ========== MARKET POLL LOOP ==========
-
-
-async def poll_markets_loop(state: SharedState):
-    exchange = Polymarket()
-    while True:
-        try:
-            now = datetime.now(UTC)
-            markets_by_config: List[Any] = []
-
-            for cfg in MARKET_CONFIG:
-                markets = await asyncio.to_thread(
-                    get_open_market,
-                    exchange,
-                    cfg.slug,
-                    cfg.keywords,
-                )
-                markets_by_config.append((cfg, list(markets)))
-
-            new_asset_meta: Dict[str, AssetMeta] = {}
-            new_asset_ids: Set[str] = set()
-
-            for cfg, markets in markets_by_config:
-                rule = cfg.rule
-                window_minutes = cfg.window_minutes
-                prefix = cfg.prefix
-                freq = cfg.freq or cfg.slug
-
-                for m in markets:
-                    question = getattr(m, "question", "")
-                    market_id = getattr(m, "condition_id", None) or getattr(m, "id", "")
-                    metadata = getattr(m, "metadata", {}) or {}
-                    close_time_raw = metadata.get("endDate")
-                    close_time_str = normalize_close_time(close_time_raw)
-
-                    if rule == "current_and_previous" and window_minutes:
-                        if not is_market_in_window(close_time_str, window_minutes, now):
-                            continue
-
-                    clob_ids = get_clob_ids_from_metadata(metadata)
-                    outcomes = get_outcomes_from_metadata(m, metadata)
-
-                    for idx, asset_id in enumerate(clob_ids):
-                        if idx < len(outcomes):
-                            outcome_name = outcomes[idx]
-                        else:
-                            outcome_name = "Up" if idx == 0 else "Down"
-
-                        meta = AssetMeta(
-                            asset_id=str(asset_id),
-                            market_id=str(market_id),
-                            question=str(question),
-                            close_time_str=close_time_str,
-                            outcome=str(outcome_name),
-                            freq=str(freq),
-                            prefix=str(prefix),
-                        )
-                        new_asset_meta[meta.asset_id] = meta
-                        new_asset_ids.add(meta.asset_id)
-
-            removed_metas: List[AssetMeta] = []
-
-            async with state.lock:
-                old_asset_ids = state.desired_asset_ids
-                old_asset_meta = state.asset_meta
-                if new_asset_ids != old_asset_ids:
-                    added_ids = new_asset_ids - old_asset_ids
-                    removed_ids = old_asset_ids - new_asset_ids
-
-                    for aid in added_ids:
-                        meta = new_asset_meta.get(aid)
-                        if meta:
-                            logger.info(
-                                "[poll] NEW subscribed: %s | %s",
-                                meta.question,
-                                meta.outcome,
-                            )
-
-                    for aid in removed_ids:
-                        meta = old_asset_meta.get(aid)
-                        if meta:
-                            logger.info(
-                                "[poll] unsubscribed: %s | %s",
-                                meta.question,
-                                meta.outcome,
-                            )
-                            removed_metas.append(meta)
-
-                    state.desired_asset_ids = new_asset_ids
-                    state.asset_meta = new_asset_meta
-                    state.need_resubscribe = True
-                    logger.info("[poll] updated markets; %d assets", len(new_asset_ids))
-
-            for meta in removed_metas:
-                await asyncio.to_thread(parquet_sink.finalize_asset, meta)
-
-        except Exception:
-            logger.exception("[poll] error while fetching markets")
-
-        await asyncio.sleep(POLL_INTERVAL_SEC)
-
-
 # ========== PARQUET + S3 SINK ==========
 
 
@@ -487,6 +330,18 @@ class ParquetSink:
             if len(buf) >= self.flush_every_rows:
                 self._flush_unlocked(path)
 
+    def batch_write(self, items: List[Tuple[AssetMeta, str, Dict[str, Any]]]):
+        """Write a batch of (meta, event_type, row) tuples."""
+        for meta, event_type, row in items:
+            self.write_event(meta, event_type, row)
+
+    def flush_all(self):
+        """Fix #6: Flush all open writer buffers."""
+        for path in list(self._writers.keys()):
+            lock = self._get_lock(path)
+            with lock:
+                self._flush_unlocked(path)
+
     def finalize_asset(self, meta: AssetMeta):
         for event_type in EVENT_TYPES:
             path = self._tmp_path(meta, event_type)
@@ -505,6 +360,9 @@ class ParquetSink:
                         table = pa.Table.from_pylist(buf, schema=schema)
                         writer.write_table(table)
                     writer.close()
+
+            # Fix #2: Remove lock entry after finalize
+            self._locks.pop(path, None)
 
             if not os.path.exists(path):
                 continue
@@ -534,8 +392,64 @@ class ParquetSink:
                 except FileNotFoundError:
                     pass
 
+    def cleanup_stale_locks(self):
+        """Fix #2: Remove lock entries for paths that no longer have writers."""
+        stale = [p for p in self._locks if p not in self._writers]
+        for p in stale:
+            del self._locks[p]
+        if stale:
+            logger.debug("[parquet] cleaned %d stale locks", len(stale))
+
 
 parquet_sink = ParquetSink()
+
+
+# ========== WRITE QUEUE (Fix #3) ==========
+
+
+write_queue: asyncio.Queue[Tuple[AssetMeta, str, Dict[str, Any]]] = asyncio.Queue()
+
+
+async def writer_loop():
+    """Single writer loop: drains queue in batches, writes via single thread."""
+    while True:
+        batch: List[Tuple[AssetMeta, str, Dict[str, Any]]] = []
+        # Block until at least one item
+        item = await write_queue.get()
+        batch.append(item)
+        # Drain up to 100 more without blocking
+        for _ in range(100):
+            try:
+                batch.append(write_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        await asyncio.to_thread(parquet_sink.batch_write, batch)
+
+
+# ========== PERIODIC MAINTENANCE LOOPS ==========
+
+
+async def dedup_cleanup_loop(state: SharedState):
+    """Fix #1: Periodically clean expired TTL dedup entries."""
+    while True:
+        await asyncio.sleep(60)
+        async with state.lock:
+            for dedup in state.seen_event_hashes.values():
+                dedup.cleanup()
+
+
+async def flush_loop():
+    """Fix #6: Periodically flush all open parquet writer buffers."""
+    while True:
+        await asyncio.sleep(60)
+        await asyncio.to_thread(parquet_sink.flush_all)
+
+
+async def lock_cleanup_loop():
+    """Fix #2: Periodically clean stale lock entries."""
+    while True:
+        await asyncio.sleep(300)
+        await asyncio.to_thread(parquet_sink.cleanup_stale_locks)
 
 
 # ========== WS MESSAGE HANDLERS ==========
@@ -562,7 +476,7 @@ async def handle_book(msg: dict, state: SharedState):
         "bids": json.dumps(msg.get("bids", msg.get("buys", []))),
         "asks": json.dumps(msg.get("asks", msg.get("sells", []))),
     }
-    await asyncio.to_thread(parquet_sink.write_event, meta, EVENT_BOOK, row)
+    await write_queue.put((meta, EVENT_BOOK, row))
 
 
 async def handle_price_change(msg: dict, state: SharedState):
@@ -611,18 +525,12 @@ async def handle_price_change(msg: dict, state: SharedState):
             else:
                 rows_by_asset[asset_id] = filtered
 
-    # Group by asset and call to_thread at once
     for asset_id, rows in rows_by_asset.items():
-        async with state.lock:
-            meta = state.asset_meta.get(asset_id)
+        meta = meta_map.get(asset_id)
         if not meta:
             continue
-
-        def _sync_write(rows=rows, meta=meta):
-            for row in rows:
-                parquet_sink.write_event(meta, EVENT_PRICE_CHANGE, row)
-
-        await asyncio.to_thread(_sync_write)
+        for row in rows:
+            await write_queue.put((meta, EVENT_PRICE_CHANGE, row))
 
 
 async def handle_tick_size_change(msg: dict, state: SharedState):
@@ -647,7 +555,7 @@ async def handle_tick_size_change(msg: dict, state: SharedState):
         "new_tick_size": msg.get("new_tick_size"),
         "hash": event_hash,
     }
-    await asyncio.to_thread(parquet_sink.write_event, meta, EVENT_TICK_SIZE_CHANGE, row)
+    await write_queue.put((meta, EVENT_TICK_SIZE_CHANGE, row))
 
 
 async def handle_last_trade_price(msg: dict, state: SharedState):
@@ -674,7 +582,7 @@ async def handle_last_trade_price(msg: dict, state: SharedState):
         "fee_rate_bps": msg.get("fee_rate_bps"),
         "hash": event_hash,
     }
-    await asyncio.to_thread(parquet_sink.write_event, meta, EVENT_LAST_TRADE_PRICE, row)
+    await write_queue.put((meta, EVENT_LAST_TRADE_PRICE, row))
 
 
 async def dispatch_message(msg: dict, state: SharedState):
@@ -703,6 +611,128 @@ async def dispatch_raw(raw: str, state: SharedState):
 
     if isinstance(msg, dict):
         await dispatch_message(msg, state)
+
+
+# ========== MARKET POLL LOOP ==========
+
+
+async def poll_markets_loop(state: SharedState):
+    exchange = Polymarket()
+    while True:
+        try:
+            now = datetime.now(UTC)
+
+            # Fix #5: Group configs by slug to avoid duplicate API calls
+            slug_groups: Dict[str, List[MarketConfig]] = defaultdict(list)
+            for cfg in MARKET_CONFIG:
+                slug_groups[cfg.slug].append(cfg)
+
+            # One API call per slug, collecting common keywords
+            slug_markets: Dict[str, List[Any]] = {}
+            for slug, cfgs in slug_groups.items():
+                common_keywords = set.intersection(*(set(cfg.keywords) for cfg in cfgs))
+                markets = await asyncio.to_thread(
+                    get_open_market,
+                    exchange,
+                    slug,
+                    list(common_keywords),
+                )
+                slug_markets[slug] = list(markets)
+
+            new_asset_meta: Dict[str, AssetMeta] = {}
+            new_asset_ids: Set[str] = set()
+
+            for slug, cfgs in slug_groups.items():
+                all_markets = slug_markets.get(slug, [])
+                for cfg in cfgs:
+                    # Filter markets for this specific config's keywords
+                    keyword_lowers = [k.lower() for k in cfg.keywords]
+                    matched_markets = []
+                    for m in all_markets:
+                        question = (getattr(m, "question", "") or "").lower()
+                        metadata = getattr(m, "metadata", {}) or {}
+                        search_text = question + " " + (metadata.get("description", "") or "").lower()
+                        if all(kw in search_text for kw in keyword_lowers):
+                            matched_markets.append(m)
+
+                    rule = cfg.rule
+                    window_minutes = cfg.window_minutes
+                    prefix = cfg.prefix
+                    freq = cfg.freq or cfg.slug
+
+                    for m in matched_markets:
+                        question = getattr(m, "question", "")
+                        market_id = getattr(m, "condition_id", None) or getattr(m, "id", "")
+                        metadata = getattr(m, "metadata", {}) or {}
+                        close_time_raw = metadata.get("endDate")
+                        close_time_str = normalize_close_time(close_time_raw)
+
+                        if rule == "current_and_previous" and window_minutes:
+                            if not is_market_in_window(close_time_str, window_minutes, now):
+                                continue
+
+                        clob_ids = get_clob_ids_from_metadata(metadata)
+                        outcomes = get_outcomes_from_metadata(m, metadata)
+
+                        for idx, asset_id in enumerate(clob_ids):
+                            if idx < len(outcomes):
+                                outcome_name = outcomes[idx]
+                            else:
+                                outcome_name = "Up" if idx == 0 else "Down"
+
+                            meta = AssetMeta(
+                                asset_id=str(asset_id),
+                                market_id=str(market_id),
+                                question=str(question),
+                                close_time_str=close_time_str,
+                                outcome=str(outcome_name),
+                                freq=str(freq),
+                                prefix=str(prefix),
+                            )
+                            new_asset_meta[meta.asset_id] = meta
+                            new_asset_ids.add(meta.asset_id)
+
+            removed_metas: List[AssetMeta] = []
+
+            async with state.lock:
+                old_asset_ids = state.desired_asset_ids
+                old_asset_meta = state.asset_meta
+                if new_asset_ids != old_asset_ids:
+                    added_ids = new_asset_ids - old_asset_ids
+                    removed_ids = old_asset_ids - new_asset_ids
+
+                    for aid in added_ids:
+                        meta = new_asset_meta.get(aid)
+                        if meta:
+                            logger.info(
+                                "[poll] NEW subscribed: %s | %s",
+                                meta.question,
+                                meta.outcome,
+                            )
+
+                    for aid in removed_ids:
+                        meta = old_asset_meta.get(aid)
+                        if meta:
+                            logger.info(
+                                "[poll] unsubscribed: %s | %s",
+                                meta.question,
+                                meta.outcome,
+                            )
+                            removed_metas.append(meta)
+
+                    state.desired_asset_ids = new_asset_ids
+                    state.asset_meta = new_asset_meta
+                    # Fix #4: Signal via event instead of bool flag
+                    state.resubscribe_event.set()
+                    logger.info("[poll] updated markets; %d assets", len(new_asset_ids))
+
+            for meta in removed_metas:
+                await asyncio.to_thread(parquet_sink.finalize_asset, meta)
+
+        except Exception:
+            logger.exception("[poll] error while fetching markets")
+
+        await asyncio.sleep(POLL_INTERVAL_SEC)
 
 
 # ========== WEBSOCKET WORKER ==========
@@ -785,7 +815,7 @@ async def manage_ws_connections(state: SharedState):
         async with state.lock:
             asset_ids = list(state.desired_asset_ids)
             state.subscribed_asset_ids = set(asset_ids)
-            state.need_resubscribe = False
+            state.resubscribe_event.clear()
 
         if not asset_ids:
             logger.info("[ws] no assets to subscribe, waiting...")
@@ -818,18 +848,18 @@ async def manage_ws_connections(state: SharedState):
         worker = new_worker
         worker_task = new_task
 
+        # Fix #4: Wait on event instead of polling every 1 second
         while True:
-            await asyncio.sleep(1)
-
-            if not worker.running or worker_task.done():
-                logger.warning("[ws] worker gen=%s stopped; restarting", worker.generation)
-                await asyncio.sleep(WS_RECONNECT_DELAY_SEC)
+            try:
+                await asyncio.wait_for(state.resubscribe_event.wait(), timeout=5.0)
+                # Event was set -> need to resubscribe
+                logger.info("[ws] subscription change detected → rolling worker")
                 break
-
-            async with state.lock:
-                if state.need_resubscribe or state.desired_asset_ids != state.subscribed_asset_ids:
-                    state.need_resubscribe = True
-                    logger.info("[ws] subscription change detected → rolling worker")
+            except asyncio.TimeoutError:
+                # No signal, just check worker health
+                if not worker.running or worker_task.done():
+                    logger.warning("[ws] worker gen=%s stopped; restarting", worker.generation)
+                    await asyncio.sleep(WS_RECONNECT_DELAY_SEC)
                     break
 
 
@@ -841,6 +871,10 @@ async def main():
     tasks = [
         asyncio.create_task(poll_markets_loop(state)),
         asyncio.create_task(manage_ws_connections(state)),
+        asyncio.create_task(writer_loop()),              # Fix #3
+        asyncio.create_task(dedup_cleanup_loop(state)),  # Fix #1
+        asyncio.create_task(flush_loop()),               # Fix #6
+        asyncio.create_task(lock_cleanup_loop()),        # Fix #2
     ]
     await asyncio.gather(*tasks)
 
