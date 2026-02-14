@@ -16,7 +16,9 @@
       "Bash(bun add:*)",
       "Bash(ln:*)",
       "Bash(grep:*)",
-      "Bash(bun run build:*)"
+      "Bash(bun run build:*)",
+      "Bash(python3:*)",
+      "Bash(git -C /Users/seominkyun/Quant/dr-manhattan status backtest/backtest_ipynb/)"
     ],
     "deny": [],
     "ask": []
