@@ -7,9 +7,9 @@ Buy UP or DOWN tokens when a condition is met, hold until the window settles, an
 ## How It Works
 
 ```
-15-min window lifecycle:
+Window lifecycle (configurable: 5M, 15M, 1H, 4H, 1D):
 
- t=0            t=14           t=15 (settlement)
+ t=0            t=N-1          t=N (settlement)
   |--- window ---|               |
   K (strike)     S (spot)        resolved = UP if S > K, else DOWN
                  ^
@@ -17,7 +17,7 @@ Buy UP or DOWN tokens when a condition is met, hold until the window settles, an
                  hold until settlement
 ```
 
-Each 15-minute window is a binary market. If BTC price at settlement is above the opening price, the UP token pays $1. Otherwise, the DOWN token pays $1. The losing side pays $0.
+Each window is a binary market. If BTC price at settlement is above the opening price, the UP token pays $1. Otherwise, the DOWN token pays $1. The losing side pays $0.
 
 **PnL per trade:** `qty * settlement - cost`
 - Buy UP at $0.70, settles UP: `1.0 - 0.70 = +$0.30`
@@ -29,7 +29,7 @@ Each 15-minute window is a binary market. If BTC price at settlement is above th
 backtester/
 ├── data_manager.py       # BinanceManager (klines) + PolymarketManager (S3 orderbook)
 ├── backtest.py           # backtest(), backtest_fixed(), backtest_summary()
-├── 15min_backtest.ipynb  # Runnable example notebook
+├── backtest.ipynb        # Multi-timeframe runnable notebook
 ├── data/                 # Auto-generated on first run (gitignored)
 └── README.md
 ```
@@ -58,19 +58,19 @@ from data_manager import PolymarketManager
 
 pm = PolymarketManager(base_dir='./data')
 book_df = pm.load_book_df(
-    asset='BTC', freq='15M',
+    asset='BTC', freq='15M',  # Options: '5M', '15M', '1H', '4H', '1D'
     start_date='2026-01-01', end_date='2026-03-31',
     log=True
 )
 ```
 
-Downloads UP-token orderbook snapshots from a private S3 bucket (set via `PM_S3_BUCKET` env var). Each row is a 1-minute snapshot within a 15-minute window.
+Downloads UP-token orderbook snapshots from a private S3 bucket (set via `PM_S3_BUCKET` env var). Each row is a 1-minute snapshot within the configured window.
 
 **`book_df` columns:**
 
 | Column | Description |
 |---|---|
-| `start_time` / `end_time` | 15-min window boundaries |
+| `start_time` / `end_time` | Window boundaries |
 | `up_best_bid` / `up_best_ask` | Best level-1 quotes for UP token |
 | `down_best_bid` / `down_best_ask` | Best level-1 quotes for DOWN token |
 | `up_mid` / `down_mid` | Mid prices `(bid + ask) / 2` |
@@ -81,9 +81,10 @@ Downloads UP-token orderbook snapshots from a private S3 bucket (set via `PM_S3_
 A signal is a boolean Series aligned to `book_df.index`. When `True`, the backtester buys the corresponding token at the best ask.
 
 ```python
-# Example: buy when market is already confident (mid > 0.7) near expiry (T < 4 min)
-up_cond   = (book_df['up_mid']   > 0.7) & (features['T'] < 4)
-down_cond = (book_df['down_mid'] > 0.7) & (features['T'] < 4)
+# Example: buy when market is confident (mid > 0.7) in last 25% of window
+signal_window = max(1, freq_minutes // 4)
+up_cond   = (book_df['up_mid']   > 0.7) & (features['T'] <= signal_window)
+down_cond = (book_df['down_mid'] > 0.7) & (features['T'] <= signal_window)
 
 up_cond   = up_cond.reindex(book_df.index)
 down_cond = down_cond.reindex(book_df.index)
@@ -134,7 +135,7 @@ Returns per-window aggregates: `resolved`, `total_pnl`, `cum_pnl`, `drawdown`, `
 
 ## Step 4: Evaluate
 
-The notebook (`15min_backtest.ipynb`) includes a 4-panel dashboard:
+The notebook (`backtest.ipynb`) includes a 4-panel dashboard:
 
 | Panel | What it shows |
 |---|---|
@@ -149,6 +150,7 @@ Flat regions in the equity curve indicate gaps in S3 snapshot data.
 
 ```bash
 cd backtest/backtester
-jupyter notebook 15min_backtest.ipynb
+jupyter notebook backtest.ipynb
+# Set FREQ at the top of the notebook ("5M", "15M", "1H", "4H", "1D")
 # Run all cells -- data/ directory is created automatically on first run
 ```

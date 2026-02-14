@@ -19,7 +19,7 @@ def _align_bool_condition(condition, index: pd.Index, name: str) -> pd.Series:
 
 
 def _calc_fee_shares(qty, entry_price, fee_rate=0.25, fee_exponent=2):
-    """Polymarket 15-min Crypto variable fee (charged in shares)."""
+    """Polymarket Crypto variable fee (charged in shares)."""
     p = entry_price
     return qty * fee_rate * (p * (1 - p)) ** fee_exponent
 
