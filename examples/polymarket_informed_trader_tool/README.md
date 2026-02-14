@@ -1,4 +1,4 @@
-# Polymarket Insider Flow (Examples Only)
+# Polymarket Informed Trader Flow (Examples Only)
 
 Local-only tooling for detecting statistically unusual flow in Polymarket public trades and
 backtesting "buy-after-signal" strategies.
@@ -6,7 +6,7 @@ backtesting "buy-after-signal" strategies.
 ## Run (Single Market / Event)
 
 ```bash
-uv run python examples/polymarket_insider_tool/polymarket_insider_backtest.py \
+uv run python examples/polymarket_informed_trader_tool/polymarket_informed_trader_backtest.py \
   --market claude-5-released-by \
   --limit 2000 \
   --plot --plot-combined --plot-assets 2 \
@@ -18,7 +18,7 @@ uv run python examples/polymarket_insider_tool/polymarket_insider_backtest.py \
 Polymarket category fields are not reliable on the Gamma `/markets` response; use the Gamma tag.
 
 ```bash
-uv run python examples/polymarket_insider_tool/polymarket_insider_backtest.py \
+uv run python examples/polymarket_informed_trader_tool/polymarket_informed_trader_backtest.py \
   --tag-slug politics --closed-only --top-markets 50 \
   --opened-within-years 2 \
   --hold-to-expiry \
@@ -38,13 +38,13 @@ Run setup used for this snapshot:
 
 Metric definitions:
 - `market_wallets`: unique wallets that traded in a market
-- `insider_wallets`: unique wallets that triggered at least one insider signal in a market
-- `insider_wallet_share`: `insider_wallets / market_wallets`
-- `avg insider %`: mean of `insider_wallet_share` across markets in a category
+- `informed_trader_wallets`: unique wallets that triggered at least one informed-trader signal in a market
+- `informed_trader_wallet_share`: `informed_trader_wallets / market_wallets`
+- `avg informed-trader %`: mean of `informed_trader_wallet_share` across markets in a category
 
-Category-level insider participation (top-1000 run):
+Category-level informed-trader participation (top-1000 run):
 
-| Category | Avg insider % | Weighted insider % |
+| Category | Avg informed-trader % | Weighted informed-trader % |
 | --- | ---: | ---: |
 | sports | 11.49% | 5.68% |
 | finance | 9.91% | 5.31% |
@@ -53,8 +53,8 @@ Category-level insider participation (top-1000 run):
 | geopolitics | 5.28% | 4.46% |
 
 Notes:
-- `Weighted insider %` is computed as `sum(insider_wallets) / sum(market_wallets)` within each category.
-- Per-category market summaries for this run were saved to `/tmp/insider_category_summaries_top1000/*_top1000_summary.csv`.
+- `Weighted informed-trader %` is computed as `sum(informed_trader_wallets) / sum(market_wallets)` within each category.
+- Per-category market summaries for this run were saved to `/tmp/informed_trader_category_summaries_top1000/*_top1000_summary.csv`.
 
 ## Notes
 

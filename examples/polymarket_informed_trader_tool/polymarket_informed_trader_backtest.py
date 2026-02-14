@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Polymarket insider-flow tracker + backtester CLI."""
+"""Polymarket informed-trader-flow tracker + backtester CLI."""
 
 from __future__ import annotations
 
@@ -12,17 +12,19 @@ from pathlib import Path
 import pandas as pd
 
 # Keep this script runnable directly (no `-m`) by importing sibling module.
-from insider_flow import (
+from informed_trader_flow import (
     BacktestConfig,
-    InsiderFlowConfig,
-    PolymarketInsiderTool,
+    InformedTraderFlowConfig,
+    PolymarketInformedTraderTool,
 )
 
 from dr_manhattan import Polymarket
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Polymarket insider-flow detector and backtester")
+    parser = argparse.ArgumentParser(
+        description="Polymarket informed-trader-flow detector and backtester"
+    )
     parser.add_argument(
         "--market",
         type=str,
@@ -143,7 +145,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--plot-path",
         type=Path,
-        default=Path("insider_backtest.png"),
+        default=Path("informed_trader_backtest.png"),
         help="Output file for plot when --plot is used",
     )
     parser.add_argument(
@@ -175,8 +177,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_detector_config(args: argparse.Namespace) -> InsiderFlowConfig:
-    return InsiderFlowConfig(
+def build_detector_config(args: argparse.Namespace) -> InformedTraderFlowConfig:
+    return InformedTraderFlowConfig(
         horizon_minutes=args.horizon_minutes,
         lookback_trades=args.lookback_trades,
         signal_threshold=args.signal_threshold,
@@ -283,7 +285,7 @@ def main() -> None:
     exchange = Polymarket({"timeout": 30})
     detector_config = build_detector_config(args)
     backtest_config = build_backtest_config(args)
-    tool = PolymarketInsiderTool(detector_config)
+    tool = PolymarketInformedTraderTool(detector_config)
 
     if args.market and (args.tag_slug or args.tag_id):
         raise SystemExit("Use either --market or --tag-slug/--tag-id (not both).")
@@ -510,7 +512,7 @@ def main() -> None:
         print_backtest_summary("Test Backtest", optimization.best_test)
 
         detector_config = best_cfg
-        tool = PolymarketInsiderTool(best_cfg)
+        tool = PolymarketInformedTraderTool(best_cfg)
 
     # Engineer features once so signals/backtests/plots are consistent and deterministic.
     features = tool.engineer_features(trades, detector_config)
@@ -527,7 +529,7 @@ def main() -> None:
 
     wallets = tool.rank_wallets(features, top_n=args.top_wallets, config=detector_config)
 
-    print(f"\nDetected insider signals: {len(signals)}")
+    print(f"\nDetected informed trader signals: {len(signals)}")
 
     if args.sweep_exits:
         rows = []
@@ -625,7 +627,7 @@ def main() -> None:
         print_backtest_summary("Full Backtest", result)
 
     if not wallets.empty:
-        print("\nTop wallets by insider rank:")
+        print("\nTop wallets by informed trader rank:")
         display_cols = [
             "wallet",
             "trades",
@@ -633,7 +635,7 @@ def main() -> None:
             "realized_edge",
             "realized_win_rate",
             "total_notional",
-            "insider_rank_score",
+            "informed_trader_rank_score",
         ]
         print(wallets[display_cols].to_string(index=False, float_format=lambda v: f"{v:,.4f}"))
     else:
@@ -660,14 +662,14 @@ def main() -> None:
         for s in signals:
             signals_by_condition.setdefault(str(s.condition_id), []).append(s)
 
-        insider_metrics = tool.market_insider_metrics(
+        informed_metrics = tool.market_informed_trader_metrics(
             features,
             signals=signals,
             config=detector_config,
         )
-        insider_metrics_by_cid = (
-            insider_metrics.set_index("condition_id", drop=False)
-            if not insider_metrics.empty
+        informed_metrics_by_cid = (
+            informed_metrics.set_index("condition_id", drop=False)
+            if not informed_metrics.empty
             else pd.DataFrame()
         )
 
@@ -687,22 +689,26 @@ def main() -> None:
             if mkt is None:
                 continue
             m_signals = signals_by_condition.get(str(cid), [])
-            if not insider_metrics_by_cid.empty and str(cid) in insider_metrics_by_cid.index:
-                m_metrics = insider_metrics_by_cid.loc[str(cid)]
+            if not informed_metrics_by_cid.empty and str(cid) in informed_metrics_by_cid.index:
+                m_metrics = informed_metrics_by_cid.loc[str(cid)]
                 market_wallets = int(m_metrics["market_wallets"])
-                insider_wallets = int(m_metrics["insider_wallets"])
-                insider_wallet_share = float(m_metrics["insider_wallet_share"])
-                insider_signals = int(m_metrics["insider_signals"])
-                signals_per_insider_wallet = float(m_metrics["signals_per_insider_wallet"])
+                informed_trader_wallets = int(m_metrics["informed_trader_wallets"])
+                informed_trader_wallet_share = float(m_metrics["informed_trader_wallet_share"])
+                informed_trader_signals = int(m_metrics["informed_trader_signals"])
+                signals_per_informed_trader_wallet = float(
+                    m_metrics["signals_per_informed_trader_wallet"]
+                )
             else:
                 market_wallets = int(subset["proxy_wallet"].nunique())
-                insider_wallets = int(len({str(s.trigger_wallet) for s in m_signals}))
-                insider_wallet_share = (
-                    float(insider_wallets / market_wallets) if market_wallets > 0 else 0.0
+                informed_trader_wallets = int(len({str(s.trigger_wallet) for s in m_signals}))
+                informed_trader_wallet_share = (
+                    float(informed_trader_wallets / market_wallets) if market_wallets > 0 else 0.0
                 )
-                insider_signals = int(len(m_signals))
-                signals_per_insider_wallet = (
-                    float(insider_signals / insider_wallets) if insider_wallets > 0 else 0.0
+                informed_trader_signals = int(len(m_signals))
+                signals_per_informed_trader_wallet = (
+                    float(informed_trader_signals / informed_trader_wallets)
+                    if informed_trader_wallets > 0
+                    else 0.0
                 )
 
             m_result = tool.backtest(
@@ -722,10 +728,10 @@ def main() -> None:
                     "assets": int(subset["asset"].nunique()),
                     "signals": int(len(m_signals)),
                     "market_wallets": market_wallets,
-                    "insider_wallets": insider_wallets,
-                    "insider_wallet_share": insider_wallet_share,
-                    "insider_signals": insider_signals,
-                    "signals_per_insider_wallet": signals_per_insider_wallet,
+                    "informed_trader_wallets": informed_trader_wallets,
+                    "informed_trader_wallet_share": informed_trader_wallet_share,
+                    "informed_trader_signals": informed_trader_signals,
+                    "signals_per_informed_trader_wallet": signals_per_informed_trader_wallet,
                     "bt_trades": int(m_result.n_trades),
                     "pnl": float(m_result.total_pnl),
                     "return_pct": float(m_result.return_pct),
@@ -747,7 +753,7 @@ def main() -> None:
     if args.plot:
         if result is None:
             raise SystemExit("--plot requires a single backtest run (disable --sweep-exits).")
-        tool.plot_insider_backtest(
+        tool.plot_informed_trader_backtest(
             features,
             signals=signals,
             result=result,

@@ -1,14 +1,14 @@
-"""Tests for insider-flow detection and backtesting."""
+"""Tests for informed-trader-flow detection and backtesting."""
 
 from __future__ import annotations
 
 import matplotlib
 import pandas as pd
 
-from examples.polymarket_insider_tool.insider_flow import (
+from examples.polymarket_informed_trader_tool.informed_trader_flow import (
     BacktestConfig,
-    InsiderFlowConfig,
-    PolymarketInsiderTool,
+    InformedTraderFlowConfig,
+    PolymarketInformedTraderTool,
 )
 
 matplotlib.use("Agg")
@@ -19,14 +19,14 @@ def _build_synthetic_trades() -> pd.DataFrame:
     base = pd.Timestamp("2025-01-01T00:00:00Z")
     price = 0.50
 
-    insider_points = {10: 0.36, 30: 0.39, 50: 0.42, 70: 0.44}
+    informed_points = {10: 0.36, 30: 0.39, 50: 0.42, 70: 0.44}
     jump_points = {12: 0.62, 32: 0.66, 52: 0.69, 72: 0.71}
 
     for i in range(90):
         ts = base + pd.Timedelta(minutes=5 * i)
-        if i in insider_points:
-            price = insider_points[i]
-            wallet = "0xinsider"
+        if i in informed_points:
+            price = informed_points[i]
+            wallet = "0xinformed"
             side = "BUY"
             size = 4000
         elif i in jump_points:
@@ -51,7 +51,7 @@ def _build_synthetic_trades() -> pd.DataFrame:
                 "size": size,
                 "price": price,
                 "proxy_wallet": wallet,
-                "slug": "synthetic-insider-a",
+                "slug": "synthetic-informed-a",
             }
         )
 
@@ -80,7 +80,7 @@ def _build_synthetic_trades() -> pd.DataFrame:
 
 def test_detect_signals_and_wallet_ranking():
     trades = _build_synthetic_trades()
-    config = InsiderFlowConfig(
+    config = InformedTraderFlowConfig(
         horizon_minutes=10,
         lookback_trades=8,
         signal_threshold=0.20,
@@ -89,21 +89,21 @@ def test_detect_signals_and_wallet_ranking():
         min_trade_notional=250.0,
         long_only=True,
     )
-    tool = PolymarketInsiderTool(config)
+    tool = PolymarketInformedTraderTool(config)
 
     signals = tool.detect_signals(trades)
     assert len(signals) >= 2
     assert all(signal.side == "long" for signal in signals)
-    assert any(signal.trigger_wallet == "0xinsider" for signal in signals)
+    assert any(signal.trigger_wallet == "0xinformed" for signal in signals)
 
     ranked = tool.rank_wallets(trades, top_n=5)
     assert not ranked.empty
-    assert ranked.iloc[0]["wallet"] == "0xinsider"
+    assert ranked.iloc[0]["wallet"] == "0xinformed"
 
 
-def test_market_insider_metrics_counts_unique_insider_wallets():
+def test_market_informed_trader_metrics_counts_unique_informed_trader_wallets():
     trades = _build_synthetic_trades()
-    config = InsiderFlowConfig(
+    config = InformedTraderFlowConfig(
         horizon_minutes=10,
         lookback_trades=8,
         signal_threshold=0.20,
@@ -112,29 +112,32 @@ def test_market_insider_metrics_counts_unique_insider_wallets():
         min_trade_notional=250.0,
         long_only=True,
     )
-    tool = PolymarketInsiderTool(config)
+    tool = PolymarketInformedTraderTool(config)
 
     features = tool.engineer_features(trades, config)
     signals = tool.detect_signals(features, config)
-    metrics = tool.market_insider_metrics(features, signals=signals, config=config)
+    metrics = tool.market_informed_trader_metrics(features, signals=signals, config=config)
 
     assert not metrics.empty
-    assert {"condition_id", "market_wallets", "insider_wallets", "insider_wallet_share"}.issubset(
-        metrics.columns
-    )
+    assert {
+        "condition_id",
+        "market_wallets",
+        "informed_trader_wallets",
+        "informed_trader_wallet_share",
+    }.issubset(metrics.columns)
 
     market_a = metrics[metrics["condition_id"] == "market_a"]
     assert not market_a.empty
     row_a = market_a.iloc[0]
-    assert int(row_a["insider_wallets"]) >= 1
-    assert int(row_a["market_wallets"]) >= int(row_a["insider_wallets"])
-    expected_share = float(row_a["insider_wallets"]) / float(row_a["market_wallets"])
-    assert abs(float(row_a["insider_wallet_share"]) - expected_share) < 1e-12
+    assert int(row_a["informed_trader_wallets"]) >= 1
+    assert int(row_a["market_wallets"]) >= int(row_a["informed_trader_wallets"])
+    expected_share = float(row_a["informed_trader_wallets"]) / float(row_a["market_wallets"])
+    assert abs(float(row_a["informed_trader_wallet_share"]) - expected_share) < 1e-12
 
 
 def test_backtest_positive_pnl_on_informed_flow():
     trades = _build_synthetic_trades()
-    detector_config = InsiderFlowConfig(
+    detector_config = InformedTraderFlowConfig(
         horizon_minutes=10,
         lookback_trades=8,
         signal_threshold=0.20,
@@ -152,7 +155,7 @@ def test_backtest_positive_pnl_on_informed_flow():
         slippage_bps=2.0,
         initial_capital=20000.0,
     )
-    tool = PolymarketInsiderTool(detector_config)
+    tool = PolymarketInformedTraderTool(detector_config)
 
     signals = tool.detect_signals(trades)
     result = tool.backtest(
@@ -170,7 +173,7 @@ def test_backtest_positive_pnl_on_informed_flow():
 
 def test_optimizer_returns_valid_best_configuration():
     trades = _build_synthetic_trades()
-    base_config = InsiderFlowConfig(
+    base_config = InformedTraderFlowConfig(
         horizon_minutes=10,
         lookback_trades=8,
         signal_threshold=0.20,
@@ -188,7 +191,7 @@ def test_optimizer_returns_valid_best_configuration():
         slippage_bps=2.0,
         initial_capital=20000.0,
     )
-    tool = PolymarketInsiderTool(base_config)
+    tool = PolymarketInformedTraderTool(base_config)
     grid = {
         "signal_threshold": (0.18, 0.24, 0.30),
         "lookback_trades": (6, 10),
@@ -209,9 +212,9 @@ def test_optimizer_returns_valid_best_configuration():
     assert optimization.best_test.total_pnl == optimization.leaderboard.iloc[0]["test_total_pnl"]
 
 
-def test_plot_insider_backtest_saves_png(tmp_path):
+def test_plot_informed_trader_backtest_saves_png(tmp_path):
     trades = _build_synthetic_trades()
-    detector_config = InsiderFlowConfig(
+    detector_config = InformedTraderFlowConfig(
         horizon_minutes=10,
         lookback_trades=8,
         signal_threshold=0.20,
@@ -229,7 +232,7 @@ def test_plot_insider_backtest_saves_png(tmp_path):
         slippage_bps=2.0,
         initial_capital=20000.0,
     )
-    tool = PolymarketInsiderTool(detector_config)
+    tool = PolymarketInformedTraderTool(detector_config)
     signals = tool.detect_signals(trades)
     result = tool.backtest(
         trades,
@@ -238,8 +241,8 @@ def test_plot_insider_backtest_saves_png(tmp_path):
         backtest_config=backtest_config,
     )
 
-    out = tmp_path / "insider_plot.png"
-    fig = tool.plot_insider_backtest(
+    out = tmp_path / "informed_trader_plot.png"
+    fig = tool.plot_informed_trader_backtest(
         trades,
         signals=signals,
         result=result,

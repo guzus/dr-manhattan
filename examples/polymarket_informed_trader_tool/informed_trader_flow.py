@@ -1,4 +1,4 @@
-"""Insider-flow detection and backtesting utilities for Polymarket trade data."""
+"""Informed-trader-flow detection and backtesting utilities for Polymarket trade data."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from dr_manhattan.exchanges.polymarket.polymarket_core import PublicTrade
 
 
 @dataclass(frozen=True)
-class InsiderFlowConfig:
-    """Configuration for insider-flow feature engineering and signal generation."""
+class InformedTraderFlowConfig:
+    """Configuration for informed-trader-flow feature engineering and signal generation."""
 
     horizon_minutes: int = 30
     lookback_trades: int = 40
@@ -54,8 +54,8 @@ class BacktestConfig:
 
 
 @dataclass(frozen=True)
-class InsiderSignal:
-    """A single insider-flow signal emitted from trade-flow features."""
+class InformedTraderSignal:
+    """A single informed-trader-flow signal emitted from trade-flow features."""
 
     timestamp: pd.Timestamp
     asset: str
@@ -115,18 +115,18 @@ class BacktestResult:
 class OptimizationResult:
     """Train/test optimization output and leaderboard."""
 
-    best_config: InsiderFlowConfig
+    best_config: InformedTraderFlowConfig
     best_train: BacktestResult
     best_test: BacktestResult
     split_time: pd.Timestamp
     leaderboard: pd.DataFrame
 
 
-class PolymarketInsiderTool:
-    """Detect likely insider flow from Polymarket public trades and backtest signals."""
+class PolymarketInformedTraderTool:
+    """Detect likely informed trader flow from Polymarket public trades and backtest signals."""
 
     _FEATURE_COLUMNS = {
-        "insider_score",
+        "informed_trader_score",
         "direction_score",
         "flow_ratio",
         "wallet_skill",
@@ -141,8 +141,8 @@ class PolymarketInsiderTool:
         "min_wallet_history": (0, 1, 2),
     }
 
-    def __init__(self, config: InsiderFlowConfig | None = None):
-        self.config = config or InsiderFlowConfig()
+    def __init__(self, config: InformedTraderFlowConfig | None = None):
+        self.config = config or InformedTraderFlowConfig()
 
     @staticmethod
     def fetch_trades(
@@ -183,7 +183,7 @@ class PolymarketInsiderTool:
                                 side=side_filter,
                                 as_dataframe=True,
                             )
-                            df = PolymarketInsiderTool.prepare_trades(raw)
+                            df = PolymarketInformedTraderTool.prepare_trades(raw)
                             df["event_slug"] = market_id
                             df["market_slug"] = str(event_market.metadata.get("slug", ""))
                             frames.append(df)
@@ -207,7 +207,7 @@ class PolymarketInsiderTool:
             side=side_filter,
             as_dataframe=True,
         )
-        return PolymarketInsiderTool.prepare_trades(raw)
+        return PolymarketInformedTraderTool.prepare_trades(raw)
 
     @staticmethod
     def prepare_trades(
@@ -312,9 +312,9 @@ class PolymarketInsiderTool:
     def engineer_features(
         self,
         trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],
-        config: InsiderFlowConfig | None = None,
+        config: InformedTraderFlowConfig | None = None,
     ) -> pd.DataFrame:
-        """Build insider-flow features from normalized trade data."""
+        """Build informed-trader-flow features from normalized trade data."""
         cfg = config or self.config
         df = self.prepare_trades(trades)
 
@@ -386,12 +386,12 @@ class PolymarketInsiderTool:
             + cfg.conviction_weight * df["conviction_flow_ratio"]
             + cfg.burst_weight * df["burst_flow_ratio"]
         ) / total_weight
-        df["insider_score"] = df["direction_score"].abs()
+        df["informed_trader_score"] = df["direction_score"].abs()
         df["signal_side"] = np.where(df["direction_score"] >= 0, "long", "short")
         df["eligible_signal"] = (
             (df["notional"] >= cfg.min_trade_notional)
             & (df["wallet_obs"] >= cfg.min_wallet_history)
-            & df["insider_score"].notna()
+            & df["informed_trader_score"].notna()
         )
 
         return _stable_sort_frame(df)
@@ -399,9 +399,9 @@ class PolymarketInsiderTool:
     def detect_signals(
         self,
         trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],
-        config: InsiderFlowConfig | None = None,
-    ) -> List[InsiderSignal]:
-        """Detect insider signals from trades or precomputed feature frames."""
+        config: InformedTraderFlowConfig | None = None,
+    ) -> List[InformedTraderSignal]:
+        """Detect informed trader signals from trades or precomputed feature frames."""
         cfg = config or self.config
         features = self._ensure_feature_frame(trades, cfg)
         if features.empty:
@@ -412,14 +412,14 @@ class PolymarketInsiderTool:
         self,
         trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],
         *,
-        signals: Sequence[InsiderSignal] | None = None,
-        detector_config: InsiderFlowConfig | None = None,
+        signals: Sequence[InformedTraderSignal] | None = None,
+        detector_config: InformedTraderFlowConfig | None = None,
         backtest_config: BacktestConfig | None = None,
         start_time: pd.Timestamp | str | None = None,
         end_time: pd.Timestamp | str | None = None,
         settlements: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> BacktestResult:
-        """Backtest buy-after-insider-flow signals and compute total PnL."""
+        """Backtest buy-after-informed-trader-flow signals and compute total PnL."""
         det_cfg = detector_config or self.config
         bt_cfg = backtest_config or BacktestConfig()
         features = self._ensure_feature_frame(trades, det_cfg)
@@ -513,9 +513,9 @@ class PolymarketInsiderTool:
         trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],
         *,
         top_n: int = 20,
-        config: InsiderFlowConfig | None = None,
+        config: InformedTraderFlowConfig | None = None,
     ) -> pd.DataFrame:
-        """Rank wallets by realized edge and current insider score."""
+        """Rank wallets by realized edge and current informed trader score."""
         cfg = config or self.config
         features = self._ensure_feature_frame(trades, cfg)
         if features.empty:
@@ -528,7 +528,7 @@ class PolymarketInsiderTool:
                     "realized_edge",
                     "realized_win_rate",
                     "total_notional",
-                    "insider_rank_score",
+                    "informed_trader_rank_score",
                 ]
             )
 
@@ -543,7 +543,7 @@ class PolymarketInsiderTool:
                     "realized_edge",
                     "realized_win_rate",
                     "total_notional",
-                    "insider_rank_score",
+                    "informed_trader_rank_score",
                 ]
             )
 
@@ -560,22 +560,22 @@ class PolymarketInsiderTool:
         if summary.empty:
             return summary.reset_index().rename(columns={"proxy_wallet": "wallet"})
 
-        summary["insider_rank_score"] = (
+        summary["informed_trader_rank_score"] = (
             0.45 * summary["recent_skill"].clip(lower=0.0)
             + 0.35 * summary["realized_edge"].clip(lower=0.0)
             + 0.20 * np.log1p(summary["total_notional"])
         )
-        summary = summary.sort_values("insider_rank_score", ascending=False).head(top_n)
+        summary = summary.sort_values("informed_trader_rank_score", ascending=False).head(top_n)
         return summary.reset_index().rename(columns={"proxy_wallet": "wallet"})
 
-    def market_insider_metrics(
+    def market_informed_trader_metrics(
         self,
         trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],
         *,
-        signals: Sequence[InsiderSignal] | None = None,
-        config: InsiderFlowConfig | None = None,
+        signals: Sequence[InformedTraderSignal] | None = None,
+        config: InformedTraderFlowConfig | None = None,
     ) -> pd.DataFrame:
-        """Summarize per-market insider participation metrics."""
+        """Summarize per-market informed-trader participation metrics."""
         cfg = config or self.config
         features = self._ensure_feature_frame(trades, cfg)
         columns = [
@@ -584,17 +584,17 @@ class PolymarketInsiderTool:
             "trades",
             "assets",
             "market_wallets",
-            "insider_wallets",
-            "insider_wallet_share",
-            "insider_signals",
-            "signals_per_insider_wallet",
+            "informed_trader_wallets",
+            "informed_trader_wallet_share",
+            "informed_trader_signals",
+            "signals_per_informed_trader_wallet",
         ]
         if features.empty:
             return pd.DataFrame(columns=columns)
         if "condition_id" not in features.columns:
             raise ValueError("Feature frame must include condition_id for market metrics.")
         if "proxy_wallet" not in features.columns:
-            raise ValueError("Feature frame must include proxy_wallet for insider metrics.")
+            raise ValueError("Feature frame must include proxy_wallet for informed-trader metrics.")
 
         base = features.copy()
         base["condition_id"] = base["condition_id"].astype(str)
@@ -606,12 +606,14 @@ class PolymarketInsiderTool:
         if signals is None:
             signals = self._detect_signals_from_features(base, cfg)
 
-        insider_wallets_by_cid: dict[str, set[str]] = {}
-        insider_signal_count_by_cid: dict[str, int] = {}
+        informed_trader_wallets_by_cid: dict[str, set[str]] = {}
+        informed_trader_signal_count_by_cid: dict[str, int] = {}
         for signal in signals:
             cid = str(signal.condition_id)
-            insider_wallets_by_cid.setdefault(cid, set()).add(str(signal.trigger_wallet))
-            insider_signal_count_by_cid[cid] = insider_signal_count_by_cid.get(cid, 0) + 1
+            informed_trader_wallets_by_cid.setdefault(cid, set()).add(str(signal.trigger_wallet))
+            informed_trader_signal_count_by_cid[cid] = (
+                informed_trader_signal_count_by_cid.get(cid, 0) + 1
+            )
 
         rows: list[dict[str, Any]] = []
         for cid, subset in base.groupby("condition_id", sort=False):
@@ -619,13 +621,15 @@ class PolymarketInsiderTool:
             slug = str(slug_series.value_counts().idxmax()) if not slug_series.empty else ""
 
             market_wallets = int(subset["proxy_wallet"].nunique())
-            insider_wallets = int(len(insider_wallets_by_cid.get(str(cid), set())))
-            insider_signals = int(insider_signal_count_by_cid.get(str(cid), 0))
-            insider_wallet_share = (
-                float(insider_wallets / market_wallets) if market_wallets > 0 else 0.0
+            informed_trader_wallets = int(len(informed_trader_wallets_by_cid.get(str(cid), set())))
+            informed_trader_signals = int(informed_trader_signal_count_by_cid.get(str(cid), 0))
+            informed_trader_wallet_share = (
+                float(informed_trader_wallets / market_wallets) if market_wallets > 0 else 0.0
             )
-            signals_per_insider_wallet = (
-                float(insider_signals / insider_wallets) if insider_wallets > 0 else 0.0
+            signals_per_informed_trader_wallet = (
+                float(informed_trader_signals / informed_trader_wallets)
+                if informed_trader_wallets > 0
+                else 0.0
             )
 
             rows.append(
@@ -635,10 +639,10 @@ class PolymarketInsiderTool:
                     "trades": int(len(subset)),
                     "assets": int(subset["asset"].nunique()) if "asset" in subset.columns else 0,
                     "market_wallets": market_wallets,
-                    "insider_wallets": insider_wallets,
-                    "insider_wallet_share": insider_wallet_share,
-                    "insider_signals": insider_signals,
-                    "signals_per_insider_wallet": signals_per_insider_wallet,
+                    "informed_trader_wallets": informed_trader_wallets,
+                    "informed_trader_wallet_share": informed_trader_wallet_share,
+                    "informed_trader_signals": informed_trader_signals,
+                    "signals_per_informed_trader_wallet": signals_per_informed_trader_wallet,
                 }
             )
 
@@ -648,18 +652,19 @@ class PolymarketInsiderTool:
         return (
             pd.DataFrame(rows)
             .sort_values(
-                ["insider_wallets", "insider_signals", "trades"], ascending=[False, False, False]
+                ["informed_trader_wallets", "informed_trader_signals", "trades"],
+                ascending=[False, False, False],
             )
             .reset_index(drop=True)
         )
 
-    def plot_insider_backtest(
+    def plot_informed_trader_backtest(
         self,
         trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],
         *,
-        signals: Sequence[InsiderSignal] | None = None,
+        signals: Sequence[InformedTraderSignal] | None = None,
         result: BacktestResult | None = None,
-        detector_config: InsiderFlowConfig | None = None,
+        detector_config: InformedTraderFlowConfig | None = None,
         backtest_config: BacktestConfig | None = None,
         output_path: str | Path | None = None,
         top_assets: int = 2,
@@ -667,11 +672,11 @@ class PolymarketInsiderTool:
         settlements: Mapping[str, Mapping[str, Any]] | None = None,
     ):
         """
-        Visualize insider signals and backtest performance.
+        Visualize informed trader signals and backtest performance.
 
         Produces:
         1) Equity curve by completed backtest trades
-        2) Price + signal markers (+ insider score) for top traded assets
+        2) Price + signal markers (+ informed trader score) for top traded assets
 
         Notes:
         - For binary markets, a "short" signal is plotted on the opposite outcome token
@@ -907,18 +912,18 @@ class PolymarketInsiderTool:
 
                 ax2.plot(
                     asset_df["timestamp"],
-                    asset_df["insider_score"],
+                    asset_df["informed_trader_score"],
                     color="#F9A825",
                     linewidth=1.0,
                     alpha=0.35,
-                    label="Insider score" if not added_score_label else "_nolegend_",
+                    label="Informed trader score" if not added_score_label else "_nolegend_",
                 )
                 added_score_label = True
 
             ax2.axhline(cfg.signal_threshold, color="#EF6C00", linestyle="--", linewidth=1.0)
-            ax.set_title("Combined: Indexed Price (t0=1.0) + Insider Signals")
+            ax.set_title("Combined: Indexed Price (t0=1.0) + Informed Trader Signals")
             ax.set_ylabel("Indexed Price")
-            ax2.set_ylabel("Insider Score")
+            ax2.set_ylabel("Informed Trader Score")
             ax2.set_ylim(bottom=0)
             ax.grid(alpha=0.20)
 
@@ -969,17 +974,17 @@ class PolymarketInsiderTool:
                 ax2 = ax.twinx()
                 ax2.plot(
                     asset_df["timestamp"],
-                    asset_df["insider_score"],
+                    asset_df["informed_trader_score"],
                     color="#F9A825",
                     linewidth=1.0,
                     alpha=0.8,
-                    label="Insider score",
+                    label="Informed trader score",
                 )
                 ax2.axhline(cfg.signal_threshold, color="#EF6C00", linestyle="--", linewidth=1.0)
-                ax2.set_ylabel("Insider Score")
+                ax2.set_ylabel("Informed Trader Score")
                 ax2.set_ylim(bottom=0)
 
-                ax.set_title(f"Asset {asset}: Price + Insider Signals")
+                ax.set_title(f"Asset {asset}: Price + Informed Trader Signals")
                 ax.set_ylabel("Price")
                 ax.grid(alpha=0.20)
 
@@ -1030,7 +1035,9 @@ class PolymarketInsiderTool:
         out["signed_forward_return"] = out["direction"] * out["forward_return"]
         return out
 
-    def _add_wallet_skill_online(self, df: pd.DataFrame, config: InsiderFlowConfig) -> pd.DataFrame:
+    def _add_wallet_skill_online(
+        self, df: pd.DataFrame, config: InformedTraderFlowConfig
+    ) -> pd.DataFrame:
         out = df.sort_values("timestamp").reset_index(drop=True).copy()
 
         wallet_skill = np.zeros(len(out), dtype=float)
@@ -1083,9 +1090,9 @@ class PolymarketInsiderTool:
     def _detect_signals_from_features(
         self,
         features: pd.DataFrame,
-        config: InsiderFlowConfig,
-    ) -> List[InsiderSignal]:
-        signals: List[InsiderSignal] = []
+        config: InformedTraderFlowConfig,
+    ) -> List[InformedTraderSignal]:
+        signals: List[InformedTraderSignal] = []
         if features.empty:
             return signals
 
@@ -1095,7 +1102,7 @@ class PolymarketInsiderTool:
         for row in features.itertuples(index=False):
             if not bool(row.eligible_signal):
                 continue
-            if float(row.insider_score) < config.signal_threshold:
+            if float(row.informed_trader_score) < config.signal_threshold:
                 continue
             if config.long_only and float(row.direction_score) <= 0:
                 continue
@@ -1108,13 +1115,13 @@ class PolymarketInsiderTool:
                     continue
 
             side = "long" if float(row.direction_score) >= 0 else "short"
-            signal = InsiderSignal(
+            signal = InformedTraderSignal(
                 timestamp=now,
                 asset=asset,
                 condition_id=str(row.condition_id),
                 outcome=None if str(row.outcome) == "nan" else str(row.outcome),
                 side=side,
-                score=float(row.insider_score),
+                score=float(row.informed_trader_score),
                 direction_score=float(row.direction_score),
                 flow_ratio=float(row.flow_ratio),
                 wallet_skill=float(row.wallet_skill),
@@ -1132,7 +1139,7 @@ class PolymarketInsiderTool:
     def _backtest_on_features(
         self,
         features: pd.DataFrame,
-        signals: Sequence[InsiderSignal],
+        signals: Sequence[InformedTraderSignal],
         config: BacktestConfig,
         *,
         start_time: pd.Timestamp | str | None = None,
@@ -1406,7 +1413,7 @@ class PolymarketInsiderTool:
             trades=completed,
         )
 
-    def _ensure_feature_frame(self, frame: Any, config: InsiderFlowConfig) -> pd.DataFrame:
+    def _ensure_feature_frame(self, frame: Any, config: InformedTraderFlowConfig) -> pd.DataFrame:
         if isinstance(frame, pd.DataFrame) and self._FEATURE_COLUMNS.issubset(frame.columns):
             return _stable_sort_frame(frame.copy())
         return self.engineer_features(frame, config)
@@ -1414,7 +1421,7 @@ class PolymarketInsiderTool:
     def _expand_param_grid(
         self, param_grid: Mapping[str, Sequence[Any]] | None
     ) -> List[Dict[str, Any]]:
-        fields = set(InsiderFlowConfig.__dataclass_fields__.keys())
+        fields = set(InformedTraderFlowConfig.__dataclass_fields__.keys())
         grid = dict(param_grid or self._DEFAULT_GRID)
         unknown = sorted(set(grid.keys()) - fields)
         if unknown:

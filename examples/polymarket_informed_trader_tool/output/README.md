@@ -1,4 +1,4 @@
-# Polymarket Insider Tool Outputs
+# Polymarket Informed Trader Tool Outputs
 
 This folder contains generated artifacts from running the example backtester.
 
