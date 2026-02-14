@@ -53,6 +53,7 @@ Thumbs.db
 # Project specific
 *.log
 .cache/
+backtest/**/data/
 
 # Development/Testing files (not for commit)
 .dev/

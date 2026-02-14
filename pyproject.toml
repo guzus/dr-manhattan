@@ -24,6 +24,7 @@ dependencies = [
     "rich>=14.2.0",
     "predict-sdk>=0.0.8",
     "cryptography>=42.0.0",
+    "scikit-learn>=1.8.0",
 ]
 
 [project.urls]
