@@ -568,6 +568,91 @@ class PolymarketInsiderTool:
         summary = summary.sort_values("insider_rank_score", ascending=False).head(top_n)
         return summary.reset_index().rename(columns={"proxy_wallet": "wallet"})
 
+    def market_insider_metrics(
+        self,
+        trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],
+        *,
+        signals: Sequence[InsiderSignal] | None = None,
+        config: InsiderFlowConfig | None = None,
+    ) -> pd.DataFrame:
+        """Summarize per-market insider participation metrics."""
+        cfg = config or self.config
+        features = self._ensure_feature_frame(trades, cfg)
+        columns = [
+            "condition_id",
+            "slug",
+            "trades",
+            "assets",
+            "market_wallets",
+            "insider_wallets",
+            "insider_wallet_share",
+            "insider_signals",
+            "signals_per_insider_wallet",
+        ]
+        if features.empty:
+            return pd.DataFrame(columns=columns)
+        if "condition_id" not in features.columns:
+            raise ValueError("Feature frame must include condition_id for market metrics.")
+        if "proxy_wallet" not in features.columns:
+            raise ValueError("Feature frame must include proxy_wallet for insider metrics.")
+
+        base = features.copy()
+        base["condition_id"] = base["condition_id"].astype(str)
+        base["proxy_wallet"] = base["proxy_wallet"].astype(str)
+        if "slug" not in base.columns:
+            base["slug"] = ""
+        base["slug"] = base["slug"].astype(str).replace("nan", "")
+
+        if signals is None:
+            signals = self._detect_signals_from_features(base, cfg)
+
+        insider_wallets_by_cid: dict[str, set[str]] = {}
+        insider_signal_count_by_cid: dict[str, int] = {}
+        for signal in signals:
+            cid = str(signal.condition_id)
+            insider_wallets_by_cid.setdefault(cid, set()).add(str(signal.trigger_wallet))
+            insider_signal_count_by_cid[cid] = insider_signal_count_by_cid.get(cid, 0) + 1
+
+        rows: list[dict[str, Any]] = []
+        for cid, subset in base.groupby("condition_id", sort=False):
+            slug_series = subset["slug"].replace("", np.nan).dropna().astype(str)
+            slug = str(slug_series.value_counts().idxmax()) if not slug_series.empty else ""
+
+            market_wallets = int(subset["proxy_wallet"].nunique())
+            insider_wallets = int(len(insider_wallets_by_cid.get(str(cid), set())))
+            insider_signals = int(insider_signal_count_by_cid.get(str(cid), 0))
+            insider_wallet_share = (
+                float(insider_wallets / market_wallets) if market_wallets > 0 else 0.0
+            )
+            signals_per_insider_wallet = (
+                float(insider_signals / insider_wallets) if insider_wallets > 0 else 0.0
+            )
+
+            rows.append(
+                {
+                    "condition_id": str(cid),
+                    "slug": slug,
+                    "trades": int(len(subset)),
+                    "assets": int(subset["asset"].nunique()) if "asset" in subset.columns else 0,
+                    "market_wallets": market_wallets,
+                    "insider_wallets": insider_wallets,
+                    "insider_wallet_share": insider_wallet_share,
+                    "insider_signals": insider_signals,
+                    "signals_per_insider_wallet": signals_per_insider_wallet,
+                }
+            )
+
+        if not rows:
+            return pd.DataFrame(columns=columns)
+
+        return (
+            pd.DataFrame(rows)
+            .sort_values(
+                ["insider_wallets", "insider_signals", "trades"], ascending=[False, False, False]
+            )
+            .reset_index(drop=True)
+        )
+
     def plot_insider_backtest(
         self,
         trades: pd.DataFrame | Iterable[Mapping[str, Any]] | Iterable[PublicTrade],

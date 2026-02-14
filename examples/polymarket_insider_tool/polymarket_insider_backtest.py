@@ -660,6 +660,17 @@ def main() -> None:
         for s in signals:
             signals_by_condition.setdefault(str(s.condition_id), []).append(s)
 
+        insider_metrics = tool.market_insider_metrics(
+            features,
+            signals=signals,
+            config=detector_config,
+        )
+        insider_metrics_by_cid = (
+            insider_metrics.set_index("condition_id", drop=False)
+            if not insider_metrics.empty
+            else pd.DataFrame()
+        )
+
         meta_by_cid = {}
         for mkt in markets_meta:
             cid = str(mkt.metadata.get("conditionId", "")).strip()
@@ -676,6 +687,24 @@ def main() -> None:
             if mkt is None:
                 continue
             m_signals = signals_by_condition.get(str(cid), [])
+            if not insider_metrics_by_cid.empty and str(cid) in insider_metrics_by_cid.index:
+                m_metrics = insider_metrics_by_cid.loc[str(cid)]
+                market_wallets = int(m_metrics["market_wallets"])
+                insider_wallets = int(m_metrics["insider_wallets"])
+                insider_wallet_share = float(m_metrics["insider_wallet_share"])
+                insider_signals = int(m_metrics["insider_signals"])
+                signals_per_insider_wallet = float(m_metrics["signals_per_insider_wallet"])
+            else:
+                market_wallets = int(subset["proxy_wallet"].nunique())
+                insider_wallets = int(len({str(s.trigger_wallet) for s in m_signals}))
+                insider_wallet_share = (
+                    float(insider_wallets / market_wallets) if market_wallets > 0 else 0.0
+                )
+                insider_signals = int(len(m_signals))
+                signals_per_insider_wallet = (
+                    float(insider_signals / insider_wallets) if insider_wallets > 0 else 0.0
+                )
+
             m_result = tool.backtest(
                 subset,
                 signals=m_signals,
@@ -692,6 +721,11 @@ def main() -> None:
                     "trades_fetched": int(len(subset)),
                     "assets": int(subset["asset"].nunique()),
                     "signals": int(len(m_signals)),
+                    "market_wallets": market_wallets,
+                    "insider_wallets": insider_wallets,
+                    "insider_wallet_share": insider_wallet_share,
+                    "insider_signals": insider_signals,
+                    "signals_per_insider_wallet": signals_per_insider_wallet,
                     "bt_trades": int(m_result.n_trades),
                     "pnl": float(m_result.total_pnl),
                     "return_pct": float(m_result.return_pct),

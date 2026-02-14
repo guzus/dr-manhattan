@@ -101,6 +101,37 @@ def test_detect_signals_and_wallet_ranking():
     assert ranked.iloc[0]["wallet"] == "0xinsider"
 
 
+def test_market_insider_metrics_counts_unique_insider_wallets():
+    trades = _build_synthetic_trades()
+    config = InsiderFlowConfig(
+        horizon_minutes=10,
+        lookback_trades=8,
+        signal_threshold=0.20,
+        cooldown_minutes=10,
+        min_wallet_history=1,
+        min_trade_notional=250.0,
+        long_only=True,
+    )
+    tool = PolymarketInsiderTool(config)
+
+    features = tool.engineer_features(trades, config)
+    signals = tool.detect_signals(features, config)
+    metrics = tool.market_insider_metrics(features, signals=signals, config=config)
+
+    assert not metrics.empty
+    assert {"condition_id", "market_wallets", "insider_wallets", "insider_wallet_share"}.issubset(
+        metrics.columns
+    )
+
+    market_a = metrics[metrics["condition_id"] == "market_a"]
+    assert not market_a.empty
+    row_a = market_a.iloc[0]
+    assert int(row_a["insider_wallets"]) >= 1
+    assert int(row_a["market_wallets"]) >= int(row_a["insider_wallets"])
+    expected_share = float(row_a["insider_wallets"]) / float(row_a["market_wallets"])
+    assert abs(float(row_a["insider_wallet_share"]) - expected_share) < 1e-12
+
+
 def test_backtest_positive_pnl_on_informed_flow():
     trades = _build_synthetic_trades()
     detector_config = InsiderFlowConfig(
