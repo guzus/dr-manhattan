@@ -148,11 +148,11 @@ def run_clustering(
         return features_df
 
     cols = [c for c in FEATURE_COLS if c in features_df.columns]
-    X = features_df[cols].values
+    x = features_df[cols].values
 
     scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    X_scaled = np.nan_to_num(X_scaled, nan=0.0, posinf=0.0, neginf=0.0)
+    x_scaled = scaler.fit_transform(x)
+    x_scaled = np.nan_to_num(x_scaled, nan=0.0, posinf=0.0, neginf=0.0)
 
     upper_k = min(max_k, len(features_df) - 1)
     best_k, best_score = 2, -1
@@ -160,10 +160,10 @@ def run_clustering(
 
     for k in range(2, upper_k + 1):
         km = KMeans(n_clusters=k, n_init=10, random_state=42)
-        labels = km.fit_predict(X_scaled)
+        labels = km.fit_predict(x_scaled)
         if len(set(labels)) < 2:
             continue
-        sc = silhouette_score(X_scaled, labels)
+        sc = silhouette_score(x_scaled, labels)
         scores[k] = sc
         if sc > best_score:
             best_score = sc
@@ -173,10 +173,10 @@ def run_clustering(
     print(f"  [{group_name}] best K={best_k} (score={best_score:.3f})")
 
     km_final = KMeans(n_clusters=best_k, n_init=10, random_state=42)
-    features_df['cluster'] = km_final.fit_predict(X_scaled)
+    features_df['cluster'] = km_final.fit_predict(x_scaled)
 
     pca = PCA(n_components=2, random_state=42)
-    coords = pca.fit_transform(X_scaled)
+    coords = pca.fit_transform(x_scaled)
     features_df['pca_x'] = coords[:, 0]
     features_df['pca_y'] = coords[:, 1]
     print(f"  [{group_name}] PCA var explained: {pca.explained_variance_ratio_}")
@@ -327,11 +327,11 @@ def compute_bot_score(features_df: pd.DataFrame) -> pd.DataFrame:
 def run_isolation_forest(features_df: pd.DataFrame, contamination: float = 0.1) -> pd.DataFrame:
     """Run Isolation Forest anomaly detection. Adds if_score and if_anomaly columns."""
     cols = [c for c in FEATURE_COLS if c in features_df.columns]
-    X = StandardScaler().fit_transform(features_df[cols].values)
-    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+    x = StandardScaler().fit_transform(features_df[cols].values)
+    x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
 
     iso = IsolationForest(contamination=contamination, random_state=42, n_estimators=200)
-    features_df['if_anomaly'] = iso.fit_predict(X)  # 1=normal, -1=anomaly
-    features_df['if_score'] = -iso.decision_function(X)  # higher = more anomalous
+    features_df['if_anomaly'] = iso.fit_predict(x)  # 1=normal, -1=anomaly
+    features_df['if_score'] = -iso.decision_function(x)  # higher = more anomalous
     features_df['if_score'] = features_df['if_score'].round(4)
     return features_df
