@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import heapq
+import time
 from dataclasses import dataclass, replace
 from itertools import product
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Protocol, Sequence
 
 import numpy as np
 import pandas as pd
+import requests
 
 from dr_manhattan import Polymarket
 from dr_manhattan.exchanges.polymarket.polymarket_core import PublicTrade
@@ -120,6 +122,86 @@ class OptimizationResult:
     best_test: BacktestResult
     split_time: pd.Timestamp
     leaderboard: pd.DataFrame
+
+
+class WalletFirstSeenProvider(Protocol):
+    """Interface for wallet first-activity lookups."""
+
+    def get_first_seen(self, wallets: Sequence[str]) -> dict[str, pd.Timestamp | None]:
+        """Resolve first-seen timestamps for wallets."""
+
+
+class EtherscanWalletFirstSeenProvider:
+    """Etherscan V2-backed wallet first-activity lookup."""
+
+    _BASE_URL = "https://api.etherscan.io/v2/api"
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        chain_id: int = 137,
+        timeout_seconds: float = 8.0,
+        min_interval_seconds: float = 0.34,
+        session: requests.Session | None = None,
+    ) -> None:
+        if not str(api_key).strip():
+            raise ValueError("Etherscan API key is required.")
+        self.api_key = str(api_key).strip()
+        self.chain_id = int(chain_id)
+        self.timeout_seconds = max(float(timeout_seconds), 0.1)
+        self.min_interval_seconds = max(float(min_interval_seconds), 0.0)
+        self.session = session or requests.Session()
+        self._last_request_at = 0.0
+        self._cache: dict[str, pd.Timestamp | None] = {}
+
+    def get_first_seen(self, wallets: Sequence[str]) -> dict[str, pd.Timestamp | None]:
+        resolved: dict[str, pd.Timestamp | None] = {}
+        for raw_wallet in wallets:
+            wallet = str(raw_wallet).strip()
+            if not wallet:
+                continue
+            wallet_key = wallet.lower()
+            if wallet_key in self._cache:
+                resolved[wallet] = self._cache[wallet_key]
+                continue
+            first_seen = self._fetch_first_seen(wallet_key)
+            self._cache[wallet_key] = first_seen
+            resolved[wallet] = first_seen
+        return resolved
+
+    def _fetch_first_seen(self, wallet: str) -> pd.Timestamp | None:
+        if not _looks_like_evm_address(wallet):
+            return None
+        elapsed = time.monotonic() - self._last_request_at
+        if elapsed < self.min_interval_seconds:
+            time.sleep(self.min_interval_seconds - elapsed)
+        self._last_request_at = time.monotonic()
+
+        params = {
+            "chainid": str(self.chain_id),
+            "module": "account",
+            "action": "txlist",
+            "address": wallet,
+            "page": "1",
+            "offset": "1",
+            "sort": "asc",
+            "apikey": self.api_key,
+        }
+        try:
+            response = self.session.get(self._BASE_URL, params=params, timeout=self.timeout_seconds)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception:
+            return None
+
+        result = payload.get("result")
+        if not isinstance(result, list) or not result:
+            return None
+        first = result[0]
+        if not isinstance(first, Mapping):
+            return None
+        return _coerce_unix_timestamp(first.get("timeStamp"))
 
 
 class PolymarketInformedTraderTool:
@@ -516,46 +598,43 @@ class PolymarketInformedTraderTool:
         config: InformedTraderFlowConfig | None = None,
         fresh_window_hours: float | None = 24.0,
         fresh_max_trades: int = 3,
+        freshness_source: str = "sample",
+        wallet_first_seen_provider: WalletFirstSeenProvider | None = None,
+        etherscan_api_key: str | None = None,
+        etherscan_chain_id: int = 137,
+        etherscan_timeout_seconds: float = 8.0,
+        etherscan_min_interval_seconds: float = 0.34,
+        etherscan_max_wallets: int | None = None,
+        etherscan_fallback_to_sample: bool = True,
     ) -> pd.DataFrame:
         """Rank wallets by realized edge and current informed trader score."""
+        empty_columns = [
+            "wallet",
+            "trades",
+            "recent_skill",
+            "avg_skill",
+            "realized_edge",
+            "realized_win_rate",
+            "total_notional",
+            "informed_trader_rank_score",
+            "first_seen",
+            "last_seen",
+            "age_hours_in_sample",
+            "fresh_in_sample",
+            "first_seen_onchain",
+            "age_hours_onchain",
+            "fresh_onchain",
+            "fresh_wallet",
+            "freshness_source",
+        ]
         cfg = config or self.config
         features = self._ensure_feature_frame(trades, cfg)
         if features.empty:
-            return pd.DataFrame(
-                columns=[
-                    "wallet",
-                    "trades",
-                    "recent_skill",
-                    "avg_skill",
-                    "realized_edge",
-                    "realized_win_rate",
-                    "total_notional",
-                    "informed_trader_rank_score",
-                    "first_seen",
-                    "last_seen",
-                    "age_hours_in_sample",
-                    "fresh_in_sample",
-                ]
-            )
+            return pd.DataFrame(columns=empty_columns)
 
         realized = features[features["signed_forward_return"].notna()].copy()
         if realized.empty:
-            return pd.DataFrame(
-                columns=[
-                    "wallet",
-                    "trades",
-                    "recent_skill",
-                    "avg_skill",
-                    "realized_edge",
-                    "realized_win_rate",
-                    "total_notional",
-                    "informed_trader_rank_score",
-                    "first_seen",
-                    "last_seen",
-                    "age_hours_in_sample",
-                    "fresh_in_sample",
-                ]
-            )
+            return pd.DataFrame(columns=empty_columns)
 
         grouped = realized.groupby("proxy_wallet", sort=False)
         summary = grouped.agg(
@@ -568,7 +647,7 @@ class PolymarketInformedTraderTool:
         )
         summary = summary[summary["trades"] >= cfg.min_wallet_history].copy()
         if summary.empty:
-            return summary.reset_index().rename(columns={"proxy_wallet": "wallet"})
+            return pd.DataFrame(columns=empty_columns)
 
         summary["informed_trader_rank_score"] = (
             0.45 * summary["recent_skill"].clip(lower=0.0)
@@ -587,12 +666,26 @@ class PolymarketInformedTraderTool:
             config=cfg,
             fresh_window_hours=fresh_window_hours,
             fresh_max_trades=fresh_max_trades,
+            freshness_source=freshness_source,
+            wallet_first_seen_provider=wallet_first_seen_provider,
+            etherscan_api_key=etherscan_api_key,
+            etherscan_chain_id=etherscan_chain_id,
+            etherscan_timeout_seconds=etherscan_timeout_seconds,
+            etherscan_min_interval_seconds=etherscan_min_interval_seconds,
+            etherscan_max_wallets=etherscan_max_wallets,
+            etherscan_fallback_to_sample=etherscan_fallback_to_sample,
+            wallet_subset=ranked["wallet"].astype(str).tolist(),
         )
         if freshness.empty:
             ranked["first_seen"] = pd.NaT
             ranked["last_seen"] = pd.NaT
             ranked["age_hours_in_sample"] = np.nan
             ranked["fresh_in_sample"] = False
+            ranked["first_seen_onchain"] = pd.NaT
+            ranked["age_hours_onchain"] = np.nan
+            ranked["fresh_onchain"] = False
+            ranked["fresh_wallet"] = False
+            ranked["freshness_source"] = "sample"
             return ranked
 
         freshness_cols = [
@@ -601,8 +694,17 @@ class PolymarketInformedTraderTool:
             "last_seen",
             "age_hours_in_sample",
             "fresh_in_sample",
+            "first_seen_onchain",
+            "age_hours_onchain",
+            "fresh_onchain",
+            "fresh_wallet",
+            "freshness_source",
         ]
-        return ranked.merge(freshness[freshness_cols], on="wallet", how="left")
+        merged = ranked.merge(freshness[freshness_cols], on="wallet", how="left")
+        for column in ("fresh_in_sample", "fresh_onchain", "fresh_wallet"):
+            merged[column] = merged[column].fillna(False).astype(bool)
+        merged["freshness_source"] = merged["freshness_source"].fillna("sample")
+        return merged
 
     def wallet_freshness(
         self,
@@ -611,8 +713,21 @@ class PolymarketInformedTraderTool:
         config: InformedTraderFlowConfig | None = None,
         fresh_window_hours: float | None = 24.0,
         fresh_max_trades: int = 3,
+        freshness_source: str = "sample",
+        wallet_first_seen_provider: WalletFirstSeenProvider | None = None,
+        etherscan_api_key: str | None = None,
+        etherscan_chain_id: int = 137,
+        etherscan_timeout_seconds: float = 8.0,
+        etherscan_min_interval_seconds: float = 0.34,
+        etherscan_max_wallets: int | None = None,
+        etherscan_fallback_to_sample: bool = True,
+        wallet_subset: Sequence[str] | None = None,
     ) -> pd.DataFrame:
-        """Heuristic wallet freshness based on first appearance in this dataset."""
+        """Wallet freshness from sample-first-seen and optional on-chain lookup."""
+        source = str(freshness_source).strip().lower()
+        if source not in {"sample", "etherscan"}:
+            raise ValueError("freshness_source must be one of: sample, etherscan")
+
         cfg = config or self.config
         features = self._ensure_feature_frame(trades, cfg)
         columns = [
@@ -622,6 +737,11 @@ class PolymarketInformedTraderTool:
             "trades",
             "age_hours_in_sample",
             "fresh_in_sample",
+            "first_seen_onchain",
+            "age_hours_onchain",
+            "fresh_onchain",
+            "fresh_wallet",
+            "freshness_source",
         ]
         if features.empty:
             return pd.DataFrame(columns=columns)
@@ -651,6 +771,89 @@ class PolymarketInformedTraderTool:
             summary["fresh_in_sample"] = (summary["age_hours_in_sample"] <= max_age_hours) & (
                 summary["trades"] <= max_trades
             )
+        summary["first_seen_onchain"] = pd.Series(
+            pd.NaT, index=summary.index, dtype="datetime64[ns, UTC]"
+        )
+        summary["age_hours_onchain"] = np.nan
+        summary["fresh_onchain"] = False
+        summary["fresh_wallet"] = summary["fresh_in_sample"].astype(bool)
+        summary["freshness_source"] = "sample"
+
+        if source == "etherscan":
+            provider = wallet_first_seen_provider
+            if provider is None and etherscan_api_key:
+                provider = EtherscanWalletFirstSeenProvider(
+                    api_key=str(etherscan_api_key),
+                    chain_id=etherscan_chain_id,
+                    timeout_seconds=etherscan_timeout_seconds,
+                    min_interval_seconds=etherscan_min_interval_seconds,
+                )
+
+            lookup_wallets = summary.index.astype(str).tolist()
+            if wallet_subset is not None:
+                subset_keys = {str(wallet).strip().lower() for wallet in wallet_subset}
+                lookup_wallets = [
+                    wallet for wallet in lookup_wallets if wallet.strip().lower() in subset_keys
+                ]
+            if etherscan_max_wallets is not None:
+                max_wallets = max(int(etherscan_max_wallets), 0)
+                if max_wallets == 0:
+                    lookup_wallets = []
+                elif len(lookup_wallets) > max_wallets:
+                    lookup_wallets = (
+                        summary.loc[lookup_wallets]
+                        .sort_values("trades", ascending=False)
+                        .head(max_wallets)
+                        .index.astype(str)
+                        .tolist()
+                    )
+
+            if provider is not None and lookup_wallets:
+                first_seen_map = provider.get_first_seen(lookup_wallets)
+            else:
+                first_seen_map = {}
+
+            normalized_onchain: dict[str, pd.Timestamp] = {}
+            for wallet, raw_ts in first_seen_map.items():
+                ts = _coerce_utc_timestamp(raw_ts)
+                if ts is not None and str(wallet) in summary.index:
+                    normalized_onchain[str(wallet)] = ts
+            if normalized_onchain:
+                onchain_series = pd.Series(normalized_onchain, dtype="datetime64[ns, UTC]")
+                summary.loc[onchain_series.index, "first_seen_onchain"] = onchain_series
+
+            summary["age_hours_onchain"] = (
+                sample_end - summary["first_seen_onchain"]
+            ).dt.total_seconds() / 3600.0
+            if fresh_window_hours is None:
+                summary["fresh_onchain"] = False
+            else:
+                max_age_hours = max(float(fresh_window_hours), 0.0)
+                max_trades = max(1, int(fresh_max_trades))
+                summary["fresh_onchain"] = (
+                    summary["first_seen_onchain"].notna()
+                    & (summary["age_hours_onchain"] <= max_age_hours)
+                    & (summary["trades"] <= max_trades)
+                )
+
+            if etherscan_fallback_to_sample:
+                summary["fresh_wallet"] = np.where(
+                    summary["first_seen_onchain"].notna(),
+                    summary["fresh_onchain"],
+                    summary["fresh_in_sample"],
+                ).astype(bool)
+                summary["freshness_source"] = np.where(
+                    summary["first_seen_onchain"].notna(),
+                    "etherscan",
+                    "sample_fallback",
+                )
+            else:
+                summary["fresh_wallet"] = summary["fresh_onchain"].astype(bool)
+                summary["freshness_source"] = np.where(
+                    summary["first_seen_onchain"].notna(),
+                    "etherscan",
+                    "unknown",
+                )
 
         return summary.reset_index().rename(columns={"proxy_wallet": "wallet"})
 
@@ -662,6 +865,14 @@ class PolymarketInformedTraderTool:
         config: InformedTraderFlowConfig | None = None,
         fresh_window_hours: float | None = 24.0,
         fresh_max_trades: int = 3,
+        freshness_source: str = "sample",
+        wallet_first_seen_provider: WalletFirstSeenProvider | None = None,
+        etherscan_api_key: str | None = None,
+        etherscan_chain_id: int = 137,
+        etherscan_timeout_seconds: float = 8.0,
+        etherscan_min_interval_seconds: float = 0.34,
+        etherscan_max_wallets: int | None = None,
+        etherscan_fallback_to_sample: bool = True,
     ) -> pd.DataFrame:
         """Summarize per-market informed-trader participation metrics."""
         cfg = config or self.config
@@ -696,24 +907,36 @@ class PolymarketInformedTraderTool:
         if signals is None:
             signals = self._detect_signals_from_features(base, cfg)
 
+        informed_trader_wallets_by_cid: dict[str, set[str]] = {}
+        informed_trader_signal_count_by_cid: dict[str, int] = {}
+        all_informed_wallets: set[str] = set()
+        for signal in signals:
+            cid = str(signal.condition_id)
+            wallet = str(signal.trigger_wallet)
+            informed_trader_wallets_by_cid.setdefault(cid, set()).add(wallet)
+            informed_trader_signal_count_by_cid[cid] = (
+                informed_trader_signal_count_by_cid.get(cid, 0) + 1
+            )
+            all_informed_wallets.add(wallet)
+
         freshness = self.wallet_freshness(
             base,
             config=cfg,
             fresh_window_hours=fresh_window_hours,
             fresh_max_trades=fresh_max_trades,
+            freshness_source=freshness_source,
+            wallet_first_seen_provider=wallet_first_seen_provider,
+            etherscan_api_key=etherscan_api_key,
+            etherscan_chain_id=etherscan_chain_id,
+            etherscan_timeout_seconds=etherscan_timeout_seconds,
+            etherscan_min_interval_seconds=etherscan_min_interval_seconds,
+            etherscan_max_wallets=etherscan_max_wallets,
+            etherscan_fallback_to_sample=etherscan_fallback_to_sample,
+            wallet_subset=sorted(all_informed_wallets) if all_informed_wallets else [],
         )
         fresh_wallets: set[str] = set(
-            freshness[freshness["fresh_in_sample"]]["wallet"].astype(str).tolist()
+            freshness[freshness["fresh_wallet"]]["wallet"].astype(str).tolist()
         )
-
-        informed_trader_wallets_by_cid: dict[str, set[str]] = {}
-        informed_trader_signal_count_by_cid: dict[str, int] = {}
-        for signal in signals:
-            cid = str(signal.condition_id)
-            informed_trader_wallets_by_cid.setdefault(cid, set()).add(str(signal.trigger_wallet))
-            informed_trader_signal_count_by_cid[cid] = (
-                informed_trader_signal_count_by_cid.get(cid, 0) + 1
-            )
 
         rows: list[dict[str, Any]] = []
         for cid, subset in base.groupby("condition_id", sort=False):
@@ -1609,6 +1832,21 @@ def _stable_sort_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 def _looks_like_condition_id(value: str) -> bool:
     return value.startswith("0x") and len(value) >= 42
+
+
+def _looks_like_evm_address(value: str) -> bool:
+    value = str(value).strip()
+    return value.startswith("0x") and len(value) == 42
+
+
+def _coerce_unix_timestamp(value: Any) -> pd.Timestamp | None:
+    try:
+        ts = pd.to_datetime(int(str(value)), unit="s", utc=True, errors="coerce")
+    except Exception:
+        return None
+    if ts is pd.NaT:
+        return None
+    return ts
 
 
 def _build_binary_opposites(

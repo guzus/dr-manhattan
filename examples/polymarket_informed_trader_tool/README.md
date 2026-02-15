@@ -56,18 +56,28 @@ Notes:
 - `Weighted informed-trader %` is computed as `sum(informed_trader_wallets) / sum(market_wallets)` within each category.
 - Per-category market summaries for this run were saved to `/tmp/informed_trader_category_summaries_top1000/*_top1000_summary.csv`.
 
-## Fresh Wallet Heuristic
+## Fresh Wallet Detection
 
-You can flag "fresh" wallets directly in this tool (without external chain APIs) using first-seen
-timestamps inside the fetched trade sample.
+Two freshness modes are supported:
+
+- `sample` (default): in-sample first-seen heuristic
+- `etherscan`: on-chain first activity via Etherscan V2 (`account.txlist`), with sample fallback
+
+Key formulas:
 
 - `fresh_in_sample = (age_hours_in_sample <= fresh_wallet_window_hours) AND (trades <= fresh_wallet_max_trades)`
-- `age_hours_in_sample` is measured from wallet first-seen trade to the sample end time.
-- This is an in-sample heuristic, not true on-chain wallet creation time.
+- `fresh_onchain = (age_hours_onchain <= fresh_wallet_window_hours) AND (trades <= fresh_wallet_max_trades)`
+- `fresh_wallet` picks `fresh_onchain` when on-chain data exists, otherwise sample fallback (default)
 
 CLI knobs:
+
 - `--fresh-wallet-window-hours` (default `24`)
 - `--fresh-wallet-max-trades` (default `3`)
+- `--freshness-source {sample,etherscan}` (default `sample`)
+- `--etherscan-api-key` (or env: `ETHERSCAN_API_KEY`)
+- `--etherscan-chain-id` (default `137`, Polygon)
+- `--etherscan-max-wallets` to cap lookup volume/cost
+- `--no-etherscan-fallback-to-sample` to disable fallback
 - set `--fresh-wallet-window-hours -1` to disable freshness tagging
 
 ## Notes

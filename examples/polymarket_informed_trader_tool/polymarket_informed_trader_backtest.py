@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import pandas as pd
 # Keep this script runnable directly (no `-m`) by importing sibling module.
 from informed_trader_flow import (
     BacktestConfig,
+    EtherscanWalletFirstSeenProvider,
     InformedTraderFlowConfig,
     PolymarketInformedTraderTool,
 )
@@ -99,6 +101,48 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=3,
         help="Max trades in-sample for a wallet to be flagged as fresh.",
+    )
+    parser.add_argument(
+        "--freshness-source",
+        type=str,
+        choices=("sample", "etherscan"),
+        default="sample",
+        help="Wallet freshness source: sample heuristic or Etherscan on-chain first activity.",
+    )
+    parser.add_argument(
+        "--etherscan-api-key",
+        type=str,
+        default=None,
+        help="Etherscan API key (defaults to ETHERSCAN_API_KEY env var).",
+    )
+    parser.add_argument(
+        "--etherscan-chain-id",
+        type=int,
+        default=137,
+        help="Etherscan V2 chainid for lookups (Polygon=137).",
+    )
+    parser.add_argument(
+        "--etherscan-timeout-seconds",
+        type=float,
+        default=8.0,
+        help="HTTP timeout for Etherscan lookups.",
+    )
+    parser.add_argument(
+        "--etherscan-min-interval-seconds",
+        type=float,
+        default=0.34,
+        help="Min delay between Etherscan requests (free-tier friendly).",
+    )
+    parser.add_argument(
+        "--etherscan-max-wallets",
+        type=int,
+        default=5000,
+        help="Cap number of wallets to query via Etherscan (0 disables lookups).",
+    )
+    parser.add_argument(
+        "--no-etherscan-fallback-to-sample",
+        action="store_true",
+        help="Disable fallback to sample-first-seen when Etherscan data is unavailable.",
     )
 
     parser.add_argument("--holding-minutes", type=int, default=60, help="Backtest holding time")
@@ -545,12 +589,37 @@ def main() -> None:
     fresh_window_hours = (
         None if float(args.fresh_wallet_window_hours) < 0 else float(args.fresh_wallet_window_hours)
     )
+    etherscan_api_key = (args.etherscan_api_key or os.getenv("ETHERSCAN_API_KEY", "")).strip()
+    etherscan_fallback_to_sample = not bool(args.no_etherscan_fallback_to_sample)
+    wallet_first_seen_provider = None
+    if args.freshness_source == "etherscan":
+        if etherscan_api_key:
+            wallet_first_seen_provider = EtherscanWalletFirstSeenProvider(
+                api_key=etherscan_api_key,
+                chain_id=args.etherscan_chain_id,
+                timeout_seconds=args.etherscan_timeout_seconds,
+                min_interval_seconds=args.etherscan_min_interval_seconds,
+            )
+        else:
+            print(
+                "\nFreshness source 'etherscan' selected but no API key found; "
+                "using sample-first-seen fallback."
+            )
+
     wallets = tool.rank_wallets(
         features,
         top_n=args.top_wallets,
         config=detector_config,
         fresh_window_hours=fresh_window_hours,
         fresh_max_trades=args.fresh_wallet_max_trades,
+        freshness_source=args.freshness_source,
+        wallet_first_seen_provider=wallet_first_seen_provider,
+        etherscan_api_key=etherscan_api_key or None,
+        etherscan_chain_id=args.etherscan_chain_id,
+        etherscan_timeout_seconds=args.etherscan_timeout_seconds,
+        etherscan_min_interval_seconds=args.etherscan_min_interval_seconds,
+        etherscan_max_wallets=args.etherscan_max_wallets,
+        etherscan_fallback_to_sample=etherscan_fallback_to_sample,
     )
 
     print(f"\nDetected informed trader signals: {len(signals)}")
@@ -662,7 +731,12 @@ def main() -> None:
             "informed_trader_rank_score",
             "age_hours_in_sample",
             "fresh_in_sample",
+            "fresh_wallet",
+            "freshness_source",
         ]
+        if args.freshness_source == "etherscan":
+            display_cols.insert(-2, "age_hours_onchain")
+            display_cols.insert(-2, "fresh_onchain")
         print(wallets[display_cols].to_string(index=False, float_format=lambda v: f"{v:,.4f}"))
     else:
         print("\nNo wallets met minimum history constraints.")
@@ -694,6 +768,14 @@ def main() -> None:
             config=detector_config,
             fresh_window_hours=fresh_window_hours,
             fresh_max_trades=args.fresh_wallet_max_trades,
+            freshness_source=args.freshness_source,
+            wallet_first_seen_provider=wallet_first_seen_provider,
+            etherscan_api_key=etherscan_api_key or None,
+            etherscan_chain_id=args.etherscan_chain_id,
+            etherscan_timeout_seconds=args.etherscan_timeout_seconds,
+            etherscan_min_interval_seconds=args.etherscan_min_interval_seconds,
+            etherscan_max_wallets=args.etherscan_max_wallets,
+            etherscan_fallback_to_sample=etherscan_fallback_to_sample,
         )
         informed_metrics_by_cid = (
             informed_metrics.set_index("condition_id", drop=False)

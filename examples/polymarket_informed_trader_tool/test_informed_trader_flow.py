@@ -78,6 +78,17 @@ def _build_synthetic_trades() -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("timestamp").reset_index(drop=True)
 
 
+class _StaticFirstSeenProvider:
+    def __init__(self, first_seen_by_wallet: dict[str, pd.Timestamp | None]):
+        self.first_seen_by_wallet = {str(k): v for k, v in first_seen_by_wallet.items()}
+        self.requested_wallets: list[str] = []
+
+    def get_first_seen(self, wallets):
+        wallet_list = [str(wallet) for wallet in wallets]
+        self.requested_wallets.extend(wallet_list)
+        return {wallet: self.first_seen_by_wallet.get(wallet) for wallet in wallet_list}
+
+
 def test_detect_signals_and_wallet_ranking():
     trades = _build_synthetic_trades()
     config = InformedTraderFlowConfig(
@@ -205,6 +216,46 @@ def test_wallet_freshness_flags_recent_wallets_in_sample():
     )
     fresh_ranked = ranked[ranked["wallet"] == "0xnewwallet"].iloc[0]
     assert bool(fresh_ranked["fresh_in_sample"]) is True
+
+
+def test_wallet_freshness_uses_etherscan_provider_with_subset_and_fallback():
+    trades = _build_synthetic_trades()
+    sample_end = pd.Timestamp(trades["timestamp"].max())
+    provider = _StaticFirstSeenProvider(
+        {
+            "0xinformed": sample_end - pd.Timedelta(minutes=30),
+        }
+    )
+    config = InformedTraderFlowConfig(
+        horizon_minutes=10,
+        lookback_trades=8,
+        signal_threshold=0.20,
+        cooldown_minutes=10,
+        min_wallet_history=0,
+        min_trade_notional=250.0,
+        long_only=True,
+    )
+    tool = PolymarketInformedTraderTool(config)
+
+    freshness = tool.wallet_freshness(
+        trades,
+        config=config,
+        fresh_window_hours=1.0,
+        fresh_max_trades=10,
+        freshness_source="etherscan",
+        wallet_first_seen_provider=provider,
+        wallet_subset=["0xinformed"],
+    )
+    assert set(provider.requested_wallets) == {"0xinformed"}
+
+    informed_row = freshness[freshness["wallet"] == "0xinformed"].iloc[0]
+    noise_row = freshness[freshness["wallet"] == "0xnoise0"].iloc[0]
+    assert bool(informed_row["fresh_onchain"]) is True
+    assert bool(informed_row["fresh_wallet"]) is True
+    assert str(informed_row["freshness_source"]) == "etherscan"
+
+    assert bool(noise_row["fresh_onchain"]) is False
+    assert str(noise_row["freshness_source"]) == "sample_fallback"
 
 
 def test_backtest_positive_pnl_on_informed_flow():
