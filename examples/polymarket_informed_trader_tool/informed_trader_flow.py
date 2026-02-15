@@ -135,12 +135,15 @@ class EtherscanWalletFirstSeenProvider:
     """Etherscan V2-backed wallet first-activity lookup."""
 
     _BASE_URL = "https://api.etherscan.io/v2/api"
+    _POLYGONSCAN_BASE_URL = "https://api.polygonscan.com/api"
 
     def __init__(
         self,
         *,
         api_key: str,
         chain_id: int = 137,
+        base_url: str | None = None,
+        include_chain_id: bool = True,
         timeout_seconds: float = 8.0,
         min_interval_seconds: float = 0.34,
         session: requests.Session | None = None,
@@ -149,11 +152,36 @@ class EtherscanWalletFirstSeenProvider:
             raise ValueError("Etherscan API key is required.")
         self.api_key = str(api_key).strip()
         self.chain_id = int(chain_id)
+        self.base_url = (str(base_url).strip() if base_url is not None else self._BASE_URL).rstrip(
+            "/"
+        )
+        self.include_chain_id = bool(include_chain_id)
         self.timeout_seconds = max(float(timeout_seconds), 0.1)
         self.min_interval_seconds = max(float(min_interval_seconds), 0.0)
         self.session = session or requests.Session()
         self._last_request_at = 0.0
         self._cache: dict[str, pd.Timestamp | None] = {}
+
+    @classmethod
+    def from_polygonscan(
+        cls,
+        *,
+        api_key: str,
+        base_url: str | None = None,
+        timeout_seconds: float = 8.0,
+        min_interval_seconds: float = 0.34,
+        session: requests.Session | None = None,
+    ) -> "EtherscanWalletFirstSeenProvider":
+        """Create provider using PolygonScan-compatible endpoint/key."""
+        return cls(
+            api_key=api_key,
+            chain_id=137,
+            base_url=base_url or cls._POLYGONSCAN_BASE_URL,
+            include_chain_id=False,
+            timeout_seconds=timeout_seconds,
+            min_interval_seconds=min_interval_seconds,
+            session=session,
+        )
 
     def get_first_seen(self, wallets: Sequence[str]) -> dict[str, pd.Timestamp | None]:
         resolved: dict[str, pd.Timestamp | None] = {}
@@ -179,7 +207,6 @@ class EtherscanWalletFirstSeenProvider:
         self._last_request_at = time.monotonic()
 
         params = {
-            "chainid": str(self.chain_id),
             "module": "account",
             "action": "txlist",
             "address": wallet,
@@ -188,8 +215,10 @@ class EtherscanWalletFirstSeenProvider:
             "sort": "asc",
             "apikey": self.api_key,
         }
+        if self.include_chain_id:
+            params["chainid"] = str(self.chain_id)
         try:
-            response = self.session.get(self._BASE_URL, params=params, timeout=self.timeout_seconds)
+            response = self.session.get(self.base_url, params=params, timeout=self.timeout_seconds)
             response.raise_for_status()
             payload = response.json()
         except Exception:

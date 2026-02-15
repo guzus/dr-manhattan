@@ -140,6 +140,21 @@ def parse_args() -> argparse.Namespace:
         help="Cap number of wallets to query via Etherscan (0 disables lookups).",
     )
     parser.add_argument(
+        "--polygonscan-api-key",
+        type=str,
+        default=None,
+        help=(
+            "PolygonScan API key fallback (defaults to POLYGONSCAN_API_KEY env var). "
+            "Used when --freshness-source etherscan and Etherscan key is absent."
+        ),
+    )
+    parser.add_argument(
+        "--polygonscan-endpoint",
+        type=str,
+        default="https://api.polygonscan.com/api",
+        help="PolygonScan-compatible endpoint used with --polygonscan-api-key.",
+    )
+    parser.add_argument(
         "--no-etherscan-fallback-to-sample",
         action="store_true",
         help="Disable fallback to sample-first-seen when Etherscan data is unavailable.",
@@ -590,6 +605,7 @@ def main() -> None:
         None if float(args.fresh_wallet_window_hours) < 0 else float(args.fresh_wallet_window_hours)
     )
     etherscan_api_key = (args.etherscan_api_key or os.getenv("ETHERSCAN_API_KEY", "")).strip()
+    polygonscan_api_key = (args.polygonscan_api_key or os.getenv("POLYGONSCAN_API_KEY", "")).strip()
     etherscan_fallback_to_sample = not bool(args.no_etherscan_fallback_to_sample)
     wallet_first_seen_provider = None
     if args.freshness_source == "etherscan":
@@ -600,9 +616,16 @@ def main() -> None:
                 timeout_seconds=args.etherscan_timeout_seconds,
                 min_interval_seconds=args.etherscan_min_interval_seconds,
             )
+        elif polygonscan_api_key:
+            wallet_first_seen_provider = EtherscanWalletFirstSeenProvider.from_polygonscan(
+                api_key=polygonscan_api_key,
+                base_url=args.polygonscan_endpoint,
+                timeout_seconds=args.etherscan_timeout_seconds,
+                min_interval_seconds=args.etherscan_min_interval_seconds,
+            )
         else:
             print(
-                "\nFreshness source 'etherscan' selected but no API key found; "
+                "\nFreshness source 'etherscan' selected but no Etherscan/PolygonScan API key found; "
                 "using sample-first-seen fallback."
             )
 

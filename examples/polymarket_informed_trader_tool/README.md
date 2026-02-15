@@ -75,6 +75,8 @@ CLI knobs:
 - `--fresh-wallet-max-trades` (default `3`)
 - `--freshness-source {sample,etherscan}` (default `sample`)
 - `--etherscan-api-key` (or env: `ETHERSCAN_API_KEY`)
+- `--polygonscan-api-key` (or env: `POLYGONSCAN_API_KEY`) as fallback
+- `--polygonscan-endpoint` (default `https://api.polygonscan.com/api`)
 - `--etherscan-chain-id` (default `137`, Polygon)
 - `--etherscan-max-wallets` to cap lookup volume/cost
 - `--no-etherscan-fallback-to-sample` to disable fallback

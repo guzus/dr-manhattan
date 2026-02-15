@@ -7,6 +7,7 @@ import pandas as pd
 
 from examples.polymarket_informed_trader_tool.informed_trader_flow import (
     BacktestConfig,
+    EtherscanWalletFirstSeenProvider,
     InformedTraderFlowConfig,
     PolymarketInformedTraderTool,
 )
@@ -87,6 +88,27 @@ class _StaticFirstSeenProvider:
         wallet_list = [str(wallet) for wallet in wallets]
         self.requested_wallets.extend(wallet_list)
         return {wallet: self.first_seen_by_wallet.get(wallet) for wallet in wallet_list}
+
+
+class _DummyResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+class _DummySession:
+    def __init__(self, payload):
+        self.payload = payload
+        self.calls = []
+
+    def get(self, url, params=None, timeout=None):
+        self.calls.append({"url": url, "params": dict(params or {}), "timeout": timeout})
+        return _DummyResponse(self.payload)
 
 
 def test_detect_signals_and_wallet_ranking():
@@ -256,6 +278,28 @@ def test_wallet_freshness_uses_etherscan_provider_with_subset_and_fallback():
 
     assert bool(noise_row["fresh_onchain"]) is False
     assert str(noise_row["freshness_source"]) == "sample_fallback"
+
+
+def test_etherscan_provider_supports_polygonscan_endpoint():
+    wallet = "0x1234567890123456789012345678901234567890"
+    session = _DummySession({"result": [{"timeStamp": "1735689600"}]})
+    provider = EtherscanWalletFirstSeenProvider.from_polygonscan(
+        api_key="test",
+        session=session,
+        min_interval_seconds=0.0,
+    )
+
+    first_seen = provider.get_first_seen([wallet])
+    assert wallet in first_seen
+    assert pd.Timestamp(first_seen[wallet]) == pd.Timestamp("2025-01-01T00:00:00Z")
+
+    assert len(session.calls) == 1
+    call = session.calls[0]
+    assert call["url"] == "https://api.polygonscan.com/api"
+    assert call["params"].get("module") == "account"
+    assert call["params"].get("action") == "txlist"
+    assert call["params"].get("address") == wallet.lower()
+    assert "chainid" not in call["params"]
 
 
 def test_backtest_positive_pnl_on_informed_flow():
