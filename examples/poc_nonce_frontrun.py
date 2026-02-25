@@ -44,24 +44,19 @@ market = Market(
 )
 
 print("=" * 60)
-print("PoC: Polymarket incrementNonce Ghost Fill Exploit")
+print("PoC: Polymarket Ghost Fill Exploit")
+print("Vectors: USDC withdrawal + incrementNonce (both fired per cycle)")
 print("Mode: DRY RUN (no real transactions)")
 print("=" * 60)
 
-# Test both methods
-for method in ["increment_nonce", "usdc_withdraw"]:
-    print(f"\n{'#' * 60}")
-    print(f"# Testing method: {method}")
-    print(f"{'#' * 60}")
+poc = NonceFrontrunPoC(
+    exchange=exchange,
+    market=market,
+    gas_multiplier=3.0,
+    order_size=5.0,
+    dry_run=True,
+)
 
-    poc = NonceFrontrunPoC(
-        exchange=exchange,
-        market=market,
-        gas_multiplier=3.0,
-        order_size=5.0,
-        dry_run=True,
-    )
-
-    poc.run(cycles=1, method=method)
+poc.run(cycles=1)
 
 print("\nValidation complete. Both exploit vectors demonstrated.")

