@@ -71,17 +71,21 @@ class TestCredentialExtraction:
         assert credentials == {}
 
     def test_partial_credentials(self):
-        """Test extraction with only some Polymarket headers."""
+        """Test that partial/incomplete credentials are not returned.
+
+        Partial creds (e.g. only api_key without api_secret/passphrase) would
+        cause a spurious 'Missing credentials' error in get_exchange because
+        they make exchange_creds non-empty but fail the auth check.  The
+        function must return {} when no complete auth method is present.
+        """
         from dr_manhattan.mcp.utils.security import get_credentials_from_headers
 
         headers = {"X-Polymarket-Api-Key": "key_only"}
 
         credentials = get_credentials_from_headers(headers)
 
-        # Should still extract partial credentials
-        assert "polymarket" in credentials
-        assert credentials["polymarket"]["api_key"] == "key_only"
-        assert "api_secret" not in credentials["polymarket"]
+        # Incomplete builder creds (missing api_secret + passphrase) must be dropped.
+        assert credentials == {}
 
 
 class TestCredentialMasking:

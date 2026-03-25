@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 # Readable market ID as a path-like list:
@@ -98,7 +98,10 @@ class Market:
         # Fallback to close_time check
         if not self.close_time:
             return True
-        return datetime.now() < self.close_time
+        close_time = self.close_time
+        if close_time.tzinfo is None:
+            close_time = close_time.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) < close_time
 
     @property
     def spread(self) -> Optional[float]:

@@ -52,14 +52,21 @@ class PolymarketBuilder(Polymarket):
         self._ws = None
         self._user_ws = None
         self.private_key = None
-        self.funder = None
         self._clob_client = None
         self._address = None
 
-        # Extract Builder credentials
-        self._api_key = self.config.get("api_key")
-        self._api_secret = self.config.get("api_secret")
-        self._api_passphrase = self.config.get("api_passphrase")
+        # Extract Builder credentials — always coerce to str or None so we
+        # never pass a bare None into the SDK (which does `in` checks on its
+        # internal credential objects and raises TypeError if they are None).
+        _raw_key = self.config.get("api_key") or None
+        _raw_secret = self.config.get("api_secret") or None
+        _raw_passphrase = self.config.get("api_passphrase") or None
+
+        self._api_key = str(_raw_key) if _raw_key is not None else None
+        self._api_secret = str(_raw_secret) if _raw_secret is not None else None
+        self._api_passphrase = str(_raw_passphrase) if _raw_passphrase is not None else None
+
+        self.funder = self.config.get("funder") or None
 
         if not all([self._api_key, self._api_secret, self._api_passphrase]):
             raise AuthenticationError(
@@ -70,6 +77,22 @@ class PolymarketBuilder(Polymarket):
 
     def _initialize_builder_client(self):
         """Initialize CLOB client with Builder profile credentials."""
+        # Explicit pre-flight guard: ensure all credential fields are non-empty
+        # strings before touching the SDK.  BuilderApiKeyCreds / BuilderConfig
+        # perform membership tests ("x" in self._field) on their internals;
+        # if any field is None those tests raise
+        # 'TypeError: argument of type NoneType is not iterable'.
+        for field_name, field_val in (
+            ("api_key", self._api_key),
+            ("api_secret", self._api_secret),
+            ("api_passphrase", self._api_passphrase),
+        ):
+            if not isinstance(field_val, str) or not field_val.strip():
+                raise AuthenticationError(
+                    f"Builder credential '{field_name}' must be a non-empty string; "
+                    f"got {type(field_val).__name__!r}."
+                )
+
         try:
             # Create Builder credentials
             builder_creds = BuilderApiKeyCreds(
@@ -98,6 +121,12 @@ class PolymarketBuilder(Polymarket):
 
         except AuthenticationError:
             raise
+        except TypeError as e:
+            # SDK internal 'in' check on None — surface a useful message
+            raise AuthenticationError(
+                f"Builder SDK raised TypeError during initialisation (likely a None "
+                f"credential field leaked into the SDK): {e}"
+            ) from e
         except Exception as e:
             raise AuthenticationError(f"Failed to initialize Builder client: {e}")
 
@@ -220,6 +249,12 @@ class PolymarketBuilder(Polymarket):
 
             return {"USDC": usdc_balance}
 
+        except AuthenticationError:
+            raise
+        except TypeError as e:
+            raise AuthenticationError(
+                f"Builder SDK raised TypeError fetching balance (likely None internal state): {e}"
+            ) from e
         except Exception as e:
             raise AuthenticationError(f"Failed to fetch balance: {str(e)}")
 

@@ -19,15 +19,17 @@ Security:
     - HTTPS required in production (handled by Railway/hosting)
 """
 
-import asyncio
 import contextvars
+import inspect
 import json
 import logging
 import os
 import signal
 import sys
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 # =============================================================================
 # CRITICAL: Logger patching MUST happen BEFORE importing dr_manhattan modules
@@ -78,7 +80,7 @@ from starlette.middleware import Middleware  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.requests import Request  # noqa: E402
 from starlette.responses import JSONResponse, Response  # noqa: E402
-from starlette.routing import Route  # noqa: E402
+from starlette.routing import Mount, Route  # noqa: E402
 
 # Load environment variables
 env_path = Path(__file__).parent.parent.parent / ".env"
@@ -126,15 +128,20 @@ fix_all_loggers()
 # Get logger for this module
 logger = logging.getLogger(__name__)
 
-# Context variable to store current request credentials
-_request_credentials: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar(
-    "request_credentials", default=None
+# Context variable to store current request credentials.
+# Default to an empty dict (never None) so callers can always safely iterate.
+_request_credentials: contextvars.ContextVar[Dict[str, Any]] = contextvars.ContextVar(
+    "request_credentials", default={}
 )
 
 
-def get_current_credentials() -> Optional[Dict[str, Any]]:
-    """Get credentials from current request context."""
-    return _request_credentials.get()
+def get_current_credentials() -> Dict[str, Any]:
+    """Get credentials from current request context.
+
+    Always returns a dict – never None – so callers can safely do
+    ``if exchange in get_current_credentials()`` without a None-check.
+    """
+    return _request_credentials.get() or {}
 
 
 # Register the credentials getter with exchange manager
@@ -179,7 +186,13 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
             raise ValueError(error_msg)
 
         handler, requires_args = TOOL_DISPATCH[name]
-        result = handler(**arguments) if requires_args else handler()
+        if requires_args:
+            result = handler(**arguments)
+        else:
+            result = handler()
+
+        if inspect.iscoroutinefunction(handler):
+            result = await result
 
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
@@ -216,17 +229,27 @@ async def handle_sse(request: Request) -> Response:
     return Response()
 
 
-async def handle_messages(request: Request) -> Response:
-    """Handle POST messages for SSE transport."""
-    # Extract credentials for this request
+async def handle_messages(scope, receive, send):
+    """Handle POST messages for SSE transport.
+
+    Defined as a raw ASGI callable so that sse_transport.handle_post_message
+    (which is itself a raw ASGI app) writes the HTTP response directly via
+    the ASGI 'send' callable without triggering a Starlette double-response
+    RuntimeError.  We use Request only to read headers and set the ContextVar;
+    we never ask Starlette to send any response of our own.
+    """
+    # Read headers via a lightweight Request wrapper (no body consumed).
+    request = Request(scope, receive, send)
     headers = dict(request.headers)
+
+    # Extract credentials for this request and store in context.
     credentials = get_credentials_from_headers(headers)
     token = _request_credentials.set(credentials)
 
     try:
-        return await sse_transport.handle_post_message(
-            request.scope, request.receive, request._send
-        )
+        # Delegate fully to the transport – it owns the ASGI send callable
+        # and sends the complete HTTP response itself.
+        await sse_transport.handle_post_message(scope, receive, send)
     finally:
         _request_credentials.reset(token)
 
@@ -303,38 +326,49 @@ middleware = [
     )
 ]
 
+def _run_strategy() -> None:
+    """Run BTCScalpStrategy in a background daemon thread."""
+    try:
+        from .. import create_exchange
+        from ..strategies.btc_scalp import BTCScalpStrategy
+
+        exchange = create_exchange("polymarket", use_env=True, verbose=True)
+        strategy = BTCScalpStrategy(
+            exchange=exchange,
+            half_spread=float(os.getenv("HALF_SPREAD", "0.03").strip()),
+            order_size=int(os.getenv("ORDER_SIZE", "5").strip()),
+            max_inventory=float(os.getenv("MAX_INVENTORY", "50.0").strip()),
+            max_daily_loss=float(os.getenv("MAX_DAILY_LOSS", "50.0").strip()),
+        )
+        strategy.run()
+    except Exception as e:
+        logger.error("Strategy thread error: %s", e)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    if os.getenv("POLYMARKET_PRIVATE_KEY") and os.getenv("POLYMARKET_FUNDER"):
+        t = threading.Thread(target=_run_strategy, daemon=True, name="btc-scalp")
+        t.start()
+        logger.info("BTCScalpStrategy started in background thread")
+    else:
+        logger.warning("POLYMARKET_PRIVATE_KEY or POLYMARKET_FUNDER not set — strategy not started")
+    yield
+
+
 routes = [
     Route("/", endpoint=root, methods=["GET"]),
     Route("/health", endpoint=health_check, methods=["GET"]),
     Route("/sse", endpoint=handle_sse, methods=["GET"]),
-    Route("/messages/", endpoint=handle_messages, methods=["POST"]),
+    Mount("/messages", app=handle_messages),
 ]
 
-app = Starlette(routes=routes, middleware=middleware)
+app = Starlette(routes=routes, middleware=middleware, lifespan=lifespan)
 
 
 # =============================================================================
 # Cleanup and Main
 # =============================================================================
-
-_shutdown_requested = False
-
-
-def cleanup_handler(signum, frame):
-    """Handle shutdown signal."""
-    global _shutdown_requested
-    _shutdown_requested = True
-    sys.stderr.write("[SIGNAL] Shutdown requested, cleaning up...\n")
-    sys.stderr.flush()
-
-
-async def cleanup():
-    """Cleanup resources on shutdown."""
-    logger.info("Shutting down MCP SSE server...")
-    await asyncio.to_thread(strategy_manager.cleanup)
-    await asyncio.to_thread(exchange_manager.cleanup)
-    logger.info("Cleanup complete")
-
 
 def _validate_env() -> tuple[str, int]:
     """Validate and return environment configuration."""
@@ -362,21 +396,34 @@ def run_sse():
     """Run the SSE server."""
     import uvicorn
 
-    signal.signal(signal.SIGINT, cleanup_handler)
-    signal.signal(signal.SIGTERM, cleanup_handler)
-
     host, port = _validate_env()
 
     logger.info(f"Starting Dr. Manhattan MCP SSE Server on {host}:{port}")
     logger.info(f"CORS allowed origins: {ALLOWED_ORIGINS}")
 
-    uvicorn.run(
+    config = uvicorn.Config(
         app,
         host=host,
         port=port,
         log_level="info",
-        access_log=True,
+        access_log=False,
     )
+    server = uvicorn.Server(config)
+
+    def shutdown_handler(signum, frame):
+        sys.stderr.write("[SIGNAL] Shutdown requested, cleaning up...\n")
+        sys.stderr.flush()
+        server.should_exit = True
+
+    signal.signal(signal.SIGINT, shutdown_handler)
+    signal.signal(signal.SIGTERM, shutdown_handler)
+
+    server.run()
+
+    # Synchronous cleanup after server stops
+    strategy_manager.cleanup()
+    exchange_manager.cleanup()
+    logger.info("Cleanup complete")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,6 @@ import json
 import logging
 import signal
 import sys
-from pathlib import Path
 from typing import Any, List
 
 # =============================================================================
@@ -82,8 +81,7 @@ from mcp.server.stdio import stdio_server  # noqa: E402
 from mcp.types import TextContent, Tool  # noqa: E402
 
 # Load environment variables from .env file
-env_path = Path(__file__).parent.parent.parent / ".env"
-load_dotenv(env_path)
+load_dotenv()
 
 
 def fix_all_loggers():

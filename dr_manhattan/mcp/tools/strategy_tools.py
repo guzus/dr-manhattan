@@ -1,6 +1,6 @@
 """Strategy management tools."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional  # noqa: F401
 
 from ..session import ExchangeSessionManager, StrategySessionManager
 from ..utils import (
@@ -19,12 +19,18 @@ strategy_manager = StrategySessionManager()
 def create_strategy_session(
     strategy_type: str,
     exchange: str,
-    market_id: str,
+    market_id: Optional[str] = None,
     max_position: float = 100.0,
     order_size: float = 5.0,
     max_delta: float = 20.0,
     check_interval: float = 5.0,
     duration_minutes: Optional[int] = None,
+    # btc_scalp parameters
+    entry_price: float = 0.30,
+    profit_target: float = 0.33,
+    order_size_usd: float = 10.0,
+    order_lifetime: float = 72.0,
+    cancel_before_expiry: float = 90.0,
 ) -> str:
     """
     Start strategy in background thread.
@@ -32,14 +38,19 @@ def create_strategy_session(
     Based on: dr_manhattan.Strategy class
 
     Args:
-        strategy_type: "market_making" or custom strategy name
+        strategy_type: "market_making" or "btc_scalp"
         exchange: Exchange name
-        market_id: Market ID to trade
+        market_id: Market ID to trade (not required for btc_scalp — auto-discovered)
         max_position: Maximum position size per outcome
         order_size: Default order size
         max_delta: Maximum position imbalance
         check_interval: Seconds between strategy ticks
         duration_minutes: Run duration (None = indefinite)
+        entry_price: (btc_scalp) Limit buy price for YES and NO (default 0.30)
+        profit_target: (btc_scalp) Limit sell price after fill (default 0.33)
+        order_size_usd: (btc_scalp) USD per side per entry (default 10.0)
+        order_lifetime: (btc_scalp) Seconds before cancelling unfilled buys (default 72)
+        cancel_before_expiry: (btc_scalp) Cancel everything N seconds before window close (default 90)
 
     Returns:
         session_id for monitoring/control
@@ -52,16 +63,30 @@ def create_strategy_session(
         ...     max_position=100,
         ...     order_size=5
         ... )
+        >>> session_id = create_strategy_session(
+        ...     strategy_type="btc_scalp",
+        ...     exchange="polymarket",
+        ...     order_size_usd=10.0,
+        ...     entry_price=0.30,
+        ...     profit_target=0.33,
+        ... )
     """
     try:
         # Validate inputs
         exchange = validate_exchange(exchange)
-        market_id = validate_market_id(market_id)
 
         # Validate strategy_type
         if not strategy_type or not isinstance(strategy_type, str):
             raise ValueError("strategy_type is required")
         strategy_type = strategy_type.strip().lower()
+
+        # btc_scalp auto-discovers its market — market_id is optional
+        if strategy_type == "btc_scalp":
+            resolved_market_id = market_id or "btc-5min-auto"
+        else:
+            if not market_id:
+                raise ValueError("market_id is required for strategy_type='market_making'")
+            resolved_market_id = validate_market_id(market_id)
 
         # Validate numeric parameters
         max_position = validate_positive_float(max_position, "max_position")
@@ -76,33 +101,45 @@ def create_strategy_session(
         # Get exchange instance
         exch = exchange_manager.get_exchange(exchange)
 
-        # Determine strategy class
+        # Determine strategy class and params
         if strategy_type == "market_making":
-            # Use base Strategy class (user must implement on_tick)
-            # For now, create a simple market making strategy
             from dr_manhattan.base.strategy import Strategy as BaseStrategy
 
-            # Create anonymous strategy class with on_tick
             class MarketMakingStrategy(BaseStrategy):
                 def on_tick(self):
                     self.log_status()
                     self.place_bbo_orders()
 
             strategy_class = MarketMakingStrategy
+            extra_params: Dict[str, Any] = {}
+
+        elif strategy_type == "btc_scalp":
+            from dr_manhattan.strategies.btc_scalp import BTCScalpStrategy
+
+            strategy_class = BTCScalpStrategy
+            extra_params = {
+                "entry_price": entry_price,
+                "profit_target": profit_target,
+                "order_size_usd": order_size_usd,
+                "order_lifetime": order_lifetime,
+                "cancel_before_expiry": cancel_before_expiry,
+            }
+
         else:
-            raise ValueError(f"Unknown strategy type: {strategy_type}")
+            raise ValueError(f"Unknown strategy type: {strategy_type}. Supported: market_making, btc_scalp")
 
         # Create session
         session_id = strategy_manager.create_session(
             strategy_class=strategy_class,
             exchange=exch,
             exchange_name=exchange,
-            market_id=market_id,
+            market_id=resolved_market_id,
             max_position=max_position,
             order_size=order_size,
             max_delta=max_delta,
             check_interval=check_interval,
             duration_minutes=duration_minutes,
+            **extra_params,
         )
 
         return session_id

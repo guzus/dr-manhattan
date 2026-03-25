@@ -649,7 +649,11 @@ class Strategy(ABC):
                 if end_time and time.time() >= end_time:
                     break
 
-                self.on_tick()
+                try:
+                    self.on_tick()
+                except Exception as e:
+                    logger.error(f"on_tick error: {e}", exc_info=True)
+
                 time.sleep(self.check_interval)
 
         except KeyboardInterrupt:

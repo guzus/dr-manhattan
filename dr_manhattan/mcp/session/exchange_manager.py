@@ -170,6 +170,9 @@ def _zeroize_credentials() -> None:
     global MCP_CREDENTIALS
     with _CREDENTIALS_LOCK:
         for exchange_creds in MCP_CREDENTIALS.values():
+            # Guard: exchange_creds must be a dict before doing `in` checks
+            if not isinstance(exchange_creds, dict):
+                continue
             if "private_key" in exchange_creds:
                 exchange_creds["private_key"] = ""
             if "funder" in exchange_creds:
@@ -194,6 +197,9 @@ def reload_credentials() -> Dict[str, Dict[str, Any]]:
     with _CREDENTIALS_LOCK:
         # Zeroize old credentials first (inline to avoid nested lock)
         for exchange_creds in MCP_CREDENTIALS.values():
+            # Guard: exchange_creds must be a dict before doing `in` checks
+            if not isinstance(exchange_creds, dict):
+                continue
             if "private_key" in exchange_creds:
                 exchange_creds["private_key"] = ""
             if "funder" in exchange_creds:
@@ -254,6 +260,9 @@ class ExchangeSessionManager:
         from ...exchanges.polymarket_builder import PolymarketBuilder
         from ...exchanges.polymarket_operator import PolymarketOperator
 
+        # Guard: config_dict must be a dict – never None – before any `in` checks.
+        config_dict = config_dict or {}
+
         # For Polymarket, determine which mode to use:
         # 1. Operator mode (preferred): user provides wallet address, server signs
         # 2. Builder profile: user provides api_key, api_secret, api_passphrase
@@ -276,7 +285,7 @@ class ExchangeSessionManager:
                     description=f"{exchange_name} Operator initialization",
                 )
 
-            # Priority 2: Builder profile (api credentials provided)
+            # Priority 2: Builder profile (api credentials provided, no private key)
             if has_builder_creds and not has_private_key:
                 logger.info(f"Using PolymarketBuilder for {exchange_name} (Builder profile)")
                 config_dict["verbose"] = DEFAULT_VERBOSE
@@ -333,7 +342,10 @@ class ExchangeSessionManager:
         # Check for context credentials (SSE mode - per-request credentials)
         context_creds = get_context_credentials()
         if context_creds:
-            exchange_creds = context_creds.get(exchange_name.lower())
+            # Guard: context_creds must be a dict before .get()
+            exchange_creds = (context_creds or {}).get(exchange_name.lower())
+            # Guard: exchange_creds must be a dict – never None – before any `in` checks
+            exchange_creds = exchange_creds or {}
             if exchange_creds:
                 # Validate required credentials (transport-agnostic messages)
                 if exchange_name.lower() == "polymarket":
@@ -377,7 +389,8 @@ class ExchangeSessionManager:
                 logger.info(f"Creating new exchange instance: {exchange_name}")
 
                 # Use MCP credentials if available (Single Source of Truth)
-                config_dict = MCP_CREDENTIALS.get(exchange_name.lower())
+                # Guard: config_dict must be a non-None dict before any `in` checks
+                config_dict = MCP_CREDENTIALS.get(exchange_name.lower()) or {}
                 if config_dict:
                     # Validate required credentials for Polymarket
                     if exchange_name.lower() == "polymarket":

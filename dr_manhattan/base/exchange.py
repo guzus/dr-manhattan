@@ -26,7 +26,10 @@ class Exchange(ABC):
         Args:
             config: Dictionary containing API keys, options, etc.
         """
-        self.config = config or {}
+        # Always normalise to a dict so that subclasses calling
+        # Exchange.__init__(self, None) never produce a None self.config
+        # that causes downstream .get() calls to raise AttributeError.
+        self.config = config if isinstance(config, dict) else (config or {})
         self.api_key = self.config.get("api_key")
         self.api_secret = self.config.get("api_secret")
         self.timeout = self.config.get("timeout", 30)

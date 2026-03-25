@@ -350,6 +350,18 @@ class ExchangeClient:
             logger.debug("Exchange does not support WebSocket, using REST polling")
             return self._setup_orderbook_polling(token_ids)
 
+        # Tear down any existing WS thread before creating a new one
+        if self._market_ws and self._market_ws.loop:
+            try:
+                if self._market_ws.loop.is_running():
+                    self._market_ws.loop.call_soon_threadsafe(self._market_ws.loop.stop)
+                if self._ws_thread and self._ws_thread.is_alive():
+                    self._ws_thread.join(timeout=2.0)
+            except Exception as e:
+                logger.debug(f"Old WS cleanup: {e}")
+        self._market_ws = None
+        self._ws_thread = None
+
         try:
             self._market_ws = self._exchange.get_websocket()
             self._orderbook_manager = self._market_ws.get_orderbook_manager()

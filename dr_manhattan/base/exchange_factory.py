@@ -130,10 +130,10 @@ def _load_env_config(name: str) -> ExchangeConfig:
     """Load exchange config from environment variables."""
     if name == "polymarket":
         return PolymarketConfig(
-            private_key=os.getenv("POLYMARKET_PRIVATE_KEY", ""),
-            funder=os.getenv("POLYMARKET_FUNDER", ""),
-            api_key=os.getenv("POLYMARKET_API_KEY"),
-            cache_ttl=float(os.getenv("POLYMARKET_CACHE_TTL", "2.0")),
+            private_key=os.getenv("POLYMARKET_PRIVATE_KEY", "").strip(),
+            funder=os.getenv("POLYMARKET_FUNDER", "").strip(),
+            api_key=(os.getenv("POLYMARKET_API_KEY") or "").strip() or None,
+            cache_ttl=float(os.getenv("POLYMARKET_CACHE_TTL", "2.0").strip()),
         )
     elif name == "opinion":
         return OpinionConfig(

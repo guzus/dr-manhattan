@@ -12,6 +12,7 @@ from .security import (
     sanitize_error_message,
     sanitize_headers_for_logging,
     validate_credentials_present,
+    validate_operator_credentials,
     validate_write_operation,
 )
 from .serializers import serialize_model
@@ -47,6 +48,7 @@ __all__ = [
     "sanitize_error_message",
     "sanitize_headers_for_logging",
     "validate_credentials_present",
+    "validate_operator_credentials",
     "validate_write_operation",
     # Validation
     "SUPPORTED_EXCHANGES",

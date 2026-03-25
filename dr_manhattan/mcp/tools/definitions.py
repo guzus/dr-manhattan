@@ -314,16 +314,37 @@ def get_tool_definitions() -> List[Tool]:
         # =================================================================
         Tool(
             name="create_strategy_session",
-            description="Create a new strategy session",
+            description=(
+                "Start a trading strategy in a background thread. "
+                "strategy_type='market_making' requires market_id. "
+                "strategy_type='btc_scalp' auto-discovers the active BTC 5-min Up/Down market — "
+                "market_id is optional."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "exchange": {"type": "string"},
-                    "strategy_name": {"type": "string"},
-                    "market_id": {"type": "string"},
-                    "params": {"type": "object"},
+                    "exchange": {"type": "string", "description": "Exchange name (e.g. polymarket)"},
+                    "strategy_type": {
+                        "type": "string",
+                        "enum": ["market_making", "btc_scalp"],
+                        "description": "Strategy type",
+                    },
+                    "market_id": {
+                        "type": "string",
+                        "description": "Market ID (required for market_making; optional for btc_scalp)",
+                    },
+                    "max_position": {"type": "number", "default": 100.0},
+                    "order_size": {"type": "number", "default": 5.0},
+                    "max_delta": {"type": "number", "default": 20.0},
+                    "check_interval": {"type": "number", "default": 5.0},
+                    "duration_minutes": {"type": "integer", "description": "Run duration (omit for indefinite)"},
+                    "entry_price": {"type": "number", "default": 0.30, "description": "(btc_scalp) Limit buy price"},
+                    "profit_target": {"type": "number", "default": 0.33, "description": "(btc_scalp) Limit sell price"},
+                    "order_size_usd": {"type": "number", "default": 10.0, "description": "(btc_scalp) USD per side"},
+                    "order_lifetime": {"type": "number", "default": 72.0, "description": "(btc_scalp) Seconds before cancelling unfilled buys"},
+                    "cancel_before_expiry": {"type": "number", "default": 90.0, "description": "(btc_scalp) Seconds before window close to cancel all orders"},
                 },
-                "required": ["exchange", "strategy_name", "market_id"],
+                "required": ["exchange", "strategy_type"],
             },
         ),
         Tool(
