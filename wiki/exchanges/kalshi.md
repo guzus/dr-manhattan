@@ -6,12 +6,20 @@
 - **Exchange Name**: Kalshi
 - **Type**: Prediction Market (CFTC-regulated)
 - **Base Class**: [Exchange](../../dr_manhattan/base/exchange.py)
-- **REST API**: `https://api.elections.kalshi.com/trade-api/v2`
-- **Demo API**: `https://demo-api.kalshi.co/trade-api/v2`
-- **WebSocket API**: `wss://api.elections.kalshi.com`
+- **REST API used by this wrapper**: `https://api.elections.kalshi.com/trade-api/v2`
+- **Demo API used by this wrapper**: `https://demo-api.kalshi.co/trade-api/v2`
+- **Current documented WebSocket API**: `wss://external-api-ws.kalshi.com/trade-api/ws/v2`
+- **Current documented Demo WebSocket API**: `wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2`
 - **Documentation**: https://docs.kalshi.com/
 
 Kalshi is the first CFTC-regulated prediction market exchange in the United States. It offers binary event contracts on various topics including politics, economics, and current events. Prices are quoted in cents (1-99) and converted to decimals (0.01-0.99) in the SDK.
+
+## Current API Notes
+
+- Kalshi authentication signs `timestamp + method + path` with RSA-PSS/SHA256 and sends `KALSHI-ACCESS-KEY`, `KALSHI-ACCESS-SIGNATURE`, and `KALSHI-ACCESS-TIMESTAMP`.
+- Query parameters are not included in the signed path. The wrapper mirrors this by stripping `?` and everything after it before signing.
+- The official WebSocket API requires an authenticated session even for public market-data channels. This wrapper does not currently implement Kalshi WebSocket streaming; use REST methods or add a WebSocket adapter before relying on live deltas.
+- The official docs now emphasize `external-api` WebSocket hosts; this wrapper's REST defaults remain the legacy `api.elections.kalshi.com` and `demo-api.kalshi.co` hosts unless `api_url` is overridden.
 
 ## Table of Contents
 
@@ -311,8 +319,11 @@ Kalshi provides WebSocket connections for real-time data.
 
 ### WebSocket URL
 
-- Production: `wss://api.elections.kalshi.com`
-- Demo: `wss://demo-api.kalshi.co`
+- Production: `wss://external-api-ws.kalshi.com/trade-api/ws/v2`
+- Demo: `wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2`
+- Legacy shared hosts still noted by Kalshi docs: `wss://api.elections.kalshi.com/trade-api/ws/v2` and `wss://demo-api.kalshi.co/trade-api/ws/v2`
+
+This wrapper does not currently expose `get_websocket()` for Kalshi despite documenting the upstream protocol here.
 
 ### Authentication
 

@@ -13,6 +13,14 @@
 
 Limitless is a prediction market platform built on Base chain with CLOB-style orderbook. It uses EIP-712 message signing for authentication and order placement.
 
+## Current API Notes
+
+- Current Limitless API docs list `https://api.limitless.exchange` as the base URL and describe HMAC-SHA256 scoped API tokens for authenticated integrations.
+- This wrapper currently authenticates by signing the `/auth/signing-message` challenge with an EOA private key and storing the returned session cookie. That matches older/web-session behavior, not the current documented scoped-token flow.
+- Public browsing, market detail, orderbook, search, feed events, and public portfolio endpoints do not require authentication. Trading, user orders, positions, allowance, and balances require authentication.
+- CLOB markets include venue `exchange` and `adapter` addresses. Order signing must use the market venue's `exchange` address as the EIP-712 verifying contract; do not hard-code one exchange contract across all markets.
+- USDC on Base has 6 decimals. Prices are represented as decimal probabilities in this wrapper, while signed order amounts are scaled before submission.
+
 ### Key Features
 
 - **CLOB Trading**: Central Limit Order Book for efficient price discovery

@@ -93,6 +93,7 @@ polymarket = dr_manhattan.Polymarket({'timeout': 30})
 opinion = dr_manhattan.Opinion({'timeout': 30})
 limitless = dr_manhattan.Limitless({'timeout': 30})
 predictfun = dr_manhattan.PredictFun({'timeout': 30})
+kalshi = dr_manhattan.Kalshi({'timeout': 30})
 
 # Fetch markets
 markets = polymarket.fetch_markets()
@@ -168,11 +169,16 @@ strategy.run()
 from dr_manhattan import create_exchange, list_exchanges
 
 # List available exchanges
-print(list_exchanges())  # ['polymarket', 'limitless', 'opinion', 'predictfun']
+print(list_exchanges())  # ['polymarket', 'opinion', 'limitless', 'predictfun', 'kalshi']
 
-# Create exchange by name
-exchange = create_exchange('polymarket', {'timeout': 30})
+# Create exchange by name using environment credentials
+exchange = create_exchange('polymarket')
+
+# Read-only instance without requiring credentials
+public_exchange = create_exchange('polymarket', validate=False)
 ```
+
+Use `predictfun` with `create_exchange()` and CLI examples. The low-level `PredictFun.id` property is `predict.fun`, matching the venue name, but the factory key is `predictfun`.
 
 ### MCP Server
 
@@ -283,6 +289,7 @@ exchanges = {
     "opinion": Opinion,
     "limitless": Limitless,
     "predictfun": PredictFun,
+    "kalshi": Kalshi,
     "newexchange": NewExchange,
 }
 ```
@@ -335,6 +342,7 @@ uv run python examples/list_all_markets.py polymarket
 uv run python examples/list_all_markets.py opinion
 uv run python examples/list_all_markets.py limitless
 uv run python examples/list_all_markets.py predictfun
+uv run python examples/list_all_markets.py kalshi
 
 # Run spread strategy
 uv run python examples/spread_strategy.py --exchange polymarket --slug fed-decision

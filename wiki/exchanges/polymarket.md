@@ -15,6 +15,12 @@
 
 Polymarket is a decentralized prediction market platform built on Polygon. Users can trade on the outcome of real-world events.
 
+## Current API Notes
+
+- Polymarket's current public docs preview unified TypeScript and Python SDKs. This repo still uses the `py-clob-client` dependency, so verify order placement against Polymarket's current SDK guidance before production trading.
+- Public market discovery is split across Gamma and CLOB data. For trading, resolve token IDs from market metadata and pass a concrete token ID when creating an order.
+- CLOB WebSockets expose market and user channels; user streams require the same API credential context as authenticated REST trading.
+
 ### Key Features
 
 - **Multiple APIs**: CLOB, Gamma, Data API, WebSocket, and GraphQL
@@ -29,7 +35,7 @@ Polymarket is a decentralized prediction market platform built on Polygon. Users
 - [Developer Quickstart](https://docs.polymarket.com/quickstart)
 - [API Showcase](https://docs.polymarket.com/quickstart/introduction/showcase)
 - [Discord Community](https://discord.gg/polymarket)
-- [Official Python Client](https://github.com/Polymarket/py-clob-client)
+- [Official SDKs](https://docs.polymarket.com/)
 
 ## Table of Contents
 
@@ -870,7 +876,7 @@ result = exchange.convert_no_tokens(
 ### Official SDKs
 
 **Python:**
-- [`py-clob-client`](https://github.com/Polymarket/py-clob-client) - Official Python client
+- Official Python SDK - see the current SDK links in [Polymarket Docs](https://docs.polymarket.com/)
 - [`polymarket-apis`](https://pypi.org/project/polymarket-apis/) - Unified API with Pydantic validation
 
 **TypeScript/JavaScript:**
@@ -1083,7 +1089,7 @@ except RateLimitError as e:
 
 Official open-source projects:
 
-- [py-clob-client](https://github.com/Polymarket/py-clob-client) - Python client library
+- Python SDK - see the current [Polymarket SDK docs](https://docs.polymarket.com/)
 - [clob-client](https://github.com/Polymarket/clob-client) - TypeScript/JavaScript client
 - [ctf-utils](https://github.com/Polymarket/ctf-utils) - Conditional Token Framework utilities
 - [subgraph](https://github.com/Polymarket/polymarket-subgraph) - GraphQL subgraph
@@ -1307,7 +1313,7 @@ exchange = Polymarket({
 
 ### GitHub Repositories
 
-- [py-clob-client](https://github.com/Polymarket/py-clob-client) - Official Python client
+- Python SDK - see the current [Polymarket SDK docs](https://docs.polymarket.com/)
 - [clob-client](https://github.com/Polymarket/clob-client) - Official TypeScript client
 - [ctf-utils](https://github.com/Polymarket/ctf-utils) - Conditional Token Framework utilities
 - [polymarket-subgraph](https://github.com/Polymarket/polymarket-subgraph) - GraphQL subgraph
