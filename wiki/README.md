@@ -7,8 +7,10 @@ Documentation for the Dr. Manhattan prediction market trading library.
 Exchange-specific documentation:
 
 - [Polymarket](exchanges/polymarket.md) - Decentralized prediction market on Polygon
-- Opinion - Prediction market on BNB Chain
-- Limitless - Prediction market on Base
+- [Opinion](exchanges/opinion.md) - Prediction market on BNB Chain
+- [Limitless](exchanges/limitless.md) - Prediction market on Base
+- [Predict.fun](exchanges/predictfun.md) - Prediction market on BNB Chain
+- [Kalshi](exchanges/kalshi.md) - CFTC-regulated prediction market
 - [Template](exchanges/TEMPLATE.md) - Template for creating new exchange documentation
 
 ## MCP Server
@@ -213,10 +215,13 @@ dr_manhattan/
 │   ├── websocket.py        # Base WebSocket class
 │   └── errors.py           # Exception definitions
 ├── exchanges/
-│   ├── polymarket.py       # Polymarket implementation
-│   ├── polymarket_ws.py    # Polymarket WebSocket
+│   ├── polymarket/         # Polymarket package implementation
+│   ├── kalshi.py           # Kalshi implementation
 │   ├── opinion.py          # Opinion implementation
-│   └── limitless.py        # Limitless implementation
+│   ├── limitless.py        # Limitless implementation
+│   ├── limitless_ws.py     # Limitless WebSocket
+│   ├── predictfun.py       # Predict.fun implementation
+│   └── predictfun_ws.py    # Predict.fun WebSocket
 ├── models/
 │   ├── market.py           # Market model
 │   ├── order.py            # Order model
@@ -254,6 +259,10 @@ uv run python examples/test_polymarket_ws.py
 
 - [GitHub Repository](https://github.com/guzus/dr-manhattan)
 - [Polymarket Docs](https://docs.polymarket.com/)
+- [Kalshi Docs](https://docs.kalshi.com/)
+- [Opinion Docs](https://docs.opinion.trade/developer-guide/opinion-open-api/overview)
+- [Limitless Docs](https://limitless.mintlify.app/api-reference/introduction)
+- [Predict.fun Docs](https://dev.predict.fun/)
 
 ## Contributing
 

@@ -3,6 +3,8 @@
 Unified Python client for the Polymarket prediction market platform.  
 Built as a mixin-based package — all methods are accessible directly on the `Polymarket` class.
 
+For current upstream API and SDK caveats, see [wiki/exchanges/polymarket.md](../../../wiki/exchanges/polymarket.md). This package README documents the local module layout and wrapper surface.
+
 ```python
 from dr_manhattan.exchanges import Polymarket
 
