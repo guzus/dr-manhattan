@@ -285,14 +285,38 @@ class PolymarketOperator(Polymarket):
     def fetch_positions(
         self, market_id: Optional[str] = None, params: Optional[Dict[str, Any]] = None
     ) -> list[Position]:
-        """Fetch user's positions."""
-        if not self._clob_client:
-            raise AuthenticationError("CLOB client not initialized.")
+        """Fetch the user's positions via the public Data API.
 
-        if not market_id:
-            return []
+        Operator mode holds the user's wallet address but signs with the
+        operator key, so conditional-token balance queries are not available
+        for the user. Positions are instead read from the Data API, which is
+        public and keyed by wallet address. This returns real positions for
+        the unified contract instead of an empty list. When market_id is given
+        it is resolved to its condition id to filter the result.
+        """
+        raw_positions = self.fetch_positions_data(self._user_address)
 
-        return []
+        positions = []
+        for p in raw_positions:
+            size = float(p.get("size", 0) or 0)
+            if size <= 0:
+                continue
+            positions.append(
+                Position(
+                    market_id=str(p.get("conditionId", "")),
+                    outcome=str(p.get("outcome", "")),
+                    size=size,
+                    average_price=float(p.get("avgPrice", 0) or 0),
+                    current_price=float(p.get("curPrice", 0) or 0),
+                )
+            )
+
+        if market_id:
+            market = self.fetch_market(market_id)
+            condition_id = str(market.metadata.get("conditionId", market.id))
+            positions = [pos for pos in positions if pos.market_id == condition_id]
+
+        return positions
 
     def check_operator_approval(self) -> bool:
         """Check if user has approved the operator.
