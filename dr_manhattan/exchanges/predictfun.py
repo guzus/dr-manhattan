@@ -1061,7 +1061,13 @@ class PredictFun(Exchange):
             }
         }
 
-        @self._retry_on_failure
+        # The order is signed once ABOVE this point, so the retry inside _request
+        # resends a byte-identical payload (same salt, same signature, same order hash)
+        # and Predict.fun dedupes by order hash - that is what makes the single retry
+        # safe, NOT any property of the salt itself (it is random per order). Do not add
+        # a second retry layer here (it previously compounded to (max_retries + 1) ** 2
+        # resubmissions), and keep _build_signed_order OUTSIDE the retry path: signing
+        # per attempt would mint a fresh salt/hash and could double-submit.
         def _create():
             result = self._request("POST", "/v1/orders", data=payload, require_auth=True)
             order_data = result.get("data", result)
@@ -1390,28 +1396,25 @@ class PredictFun(Exchange):
         """
         self._ensure_authenticated()
 
-        @self._retry_on_failure
-        def _cancel():
-            self._request(
-                "POST",
-                "/v1/orders/remove",
-                data={"data": {"ids": [order_id]}},
-                require_auth=True,
-            )
+        # _request already retries; the cancel is idempotent, so no second retry layer.
+        self._request(
+            "POST",
+            "/v1/orders/remove",
+            data={"data": {"ids": [order_id]}},
+            require_auth=True,
+        )
 
-            return Order(
-                id=order_id,
-                market_id=market_id or "",
-                outcome="",
-                side=OrderSide.BUY,
-                price=0,
-                size=0,
-                filled=0,
-                status=OrderStatus.CANCELLED,
-                created_at=datetime.now(timezone.utc),
-            )
-
-        return _cancel()
+        return Order(
+            id=order_id,
+            market_id=market_id or "",
+            outcome="",
+            side=OrderSide.BUY,
+            price=0,
+            size=0,
+            filled=0,
+            status=OrderStatus.CANCELLED,
+            created_at=datetime.now(timezone.utc),
+        )
 
     def fetch_order(self, order_id: str, market_id: Optional[str] = None) -> Order:
         """
@@ -1426,13 +1429,10 @@ class PredictFun(Exchange):
         """
         self._ensure_authenticated()
 
-        @self._retry_on_failure
-        def _fetch():
-            response = self._request("GET", f"/v1/orders/{order_id}", require_auth=True)
-            order_data = response.get("data", response)
-            return self._parse_order(order_data)
-
-        return _fetch()
+        # _request already retries; the read is idempotent, so no second retry layer.
+        response = self._request("GET", f"/v1/orders/{order_id}", require_auth=True)
+        order_data = response.get("data", response)
+        return self._parse_order(order_data)
 
     def fetch_open_orders(self, market_id: Optional[str] = None) -> List[Order]:
         """
