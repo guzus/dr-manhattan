@@ -9,38 +9,49 @@ ReadableMarketId = List[str]
 
 START_TIME_METADATA_KEYS = (
     "start_time",
+    "event_start_time",
+    "eventStartTime",
+    "game_start_time",
+    "gameStartTime",
+    "match_start_time",
+    "matchStartTime",
     "startTime",
     "startAt",
     "start_at",
-    "startDate",
-    "start_date",
-    "startDateIso",
+    "startsAt",
+    "starts_at",
     "scheduledTime",
     "scheduled_time",
     "kickoff",
     "kickoffTime",
     "kickoff_time",
+    "kickoffAt",
+    "kickoff_at",
     "gameStart",
     "game_start",
 )
 
 END_TIME_METADATA_KEYS = (
     "end_time",
+    "event_end_time",
+    "eventEndTime",
     "endTime",
     "endAt",
     "end_at",
-    "endDate",
-    "end_date",
-    "endDateIso",
     "closeTime",
     "close_time",
-    "closedAt",
-    "closed_at",
-    "expirationDate",
     "expirationTimestamp",
+    "expirationTime",
     "expiresAt",
     "expiry",
     "deadline",
+    "endDate",
+    "end_date",
+    "endDateIso",
+    "end_date_iso",
+    "closedAt",
+    "closed_at",
+    "expirationDate",
     "resolvedAt",
     "resolutionTime",
 )
@@ -54,7 +65,7 @@ DATE_FORMATS = (
 )
 
 
-def _parse_market_datetime(value: Any) -> Optional[datetime]:
+def parse_market_datetime(value: Any) -> Optional[datetime]:
     """Parse exchange timestamp shapes into a datetime."""
     if value is None or value == "":
         return None
@@ -96,7 +107,7 @@ def _parse_market_datetime(value: Any) -> Optional[datetime]:
 
 def _metadata_datetime(metadata: Dict[str, Any], keys: tuple[str, ...]) -> Optional[datetime]:
     for key in keys:
-        parsed = _parse_market_datetime(metadata.get(key))
+        parsed = parse_market_datetime(metadata.get(key))
         if parsed is not None:
             return parsed
     return None

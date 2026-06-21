@@ -171,6 +171,26 @@ class TestMarket:
 
         assert market.end_time == datetime(2026, 6, 22)
 
+    def test_market_start_time_ignores_ambiguous_start_date(self):
+        """Test generic startDate is not treated as event start time."""
+        market = Market(
+            id="m1",
+            question="Ambiguous start date?",
+            outcomes=["Yes", "No"],
+            close_time=None,
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={
+                "startDate": "2025-05-02T15:48:10.582Z",
+                "endDate": "2026-07-31T12:00:00Z",
+            },
+            tick_size=0.01,
+        )
+
+        assert market.start_time is None
+        assert market.event_time == datetime(2026, 7, 31, 12, 0, tzinfo=timezone.utc)
+
     def test_market_spread(self):
         """Test spread property"""
         # Binary market with perfect prices (sum to 1.0)

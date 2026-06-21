@@ -13,9 +13,41 @@ from ...base.errors import (
     NetworkError,
 )
 from ...models import CryptoHourlyMarket
-from ...models.market import Market
+from ...models.market import Market, parse_market_datetime
 from ...utils import setup_logger
 from .polymarket_core import PricePoint, Tag
+
+POLYMARKET_START_TIME_KEYS = (
+    "game_start_time",
+    "gameStartTime",
+    "event_start_time",
+    "eventStartTime",
+    "scheduledTime",
+    "startAt",
+)
+
+POLYMARKET_END_TIME_KEYS = (
+    "endDate",
+    "endDateIso",
+    "end_date_iso",
+)
+
+
+def _first_present(data: Dict[str, Any], keys: Sequence[str]) -> Any:
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _add_normalized_market_times(metadata: Dict[str, Any], source: Dict[str, Any]) -> None:
+    start_time = _first_present(source, POLYMARKET_START_TIME_KEYS)
+    end_time = _first_present(source, POLYMARKET_END_TIME_KEYS)
+    if start_time is not None:
+        metadata["start_time"] = start_time
+    if end_time is not None:
+        metadata["end_time"] = end_time
 
 
 class PolymarketGamma:
@@ -551,14 +583,15 @@ class PolymarketGamma:
                 continue
 
             # Check expiry time filtering based on is_active and is_expired parameters
-            if market.close_time:
+            market_end_time = market.end_time
+            if market_end_time:
                 # Handle timezone-aware datetime
-                if market.close_time.tzinfo is not None:
+                if market_end_time.tzinfo is not None:
                     now = datetime.now(timezone.utc)
                 else:
                     now = datetime.now()
 
-                time_until_expiry = (market.close_time - now).total_seconds()
+                time_until_expiry = (market_end_time - now).total_seconds()
 
                 # Apply is_expired filter
                 if is_expired:
@@ -586,9 +619,7 @@ class PolymarketGamma:
                 if token_symbol and parsed_token != self.normalize_token(token_symbol):
                     continue
 
-                expiry = (
-                    market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
-                )
+                expiry = market.end_time if market.end_time else datetime.now() + timedelta(hours=1)
 
                 crypto_market = CryptoHourlyMarket(
                     token_symbol=parsed_token,
@@ -614,9 +645,7 @@ class PolymarketGamma:
                 if token_symbol and parsed_token != self.normalize_token(token_symbol):
                     continue
 
-                expiry = (
-                    market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
-                )
+                expiry = market.end_time if market.end_time else datetime.now() + timedelta(hours=1)
 
                 crypto_market = CryptoHourlyMarket(
                     token_symbol=parsed_token,
@@ -675,12 +704,13 @@ class PolymarketGamma:
                 "condition_id": condition_id,
                 "minimum_tick_size": minimum_tick_size,
             }
+            _add_normalized_market_times(metadata, data)
 
             return Market(
                 id=condition_id,
                 question=question,
                 outcomes=outcomes if outcomes else ["Yes", "No"],
-                close_time=None,  # Can parse if needed
+                close_time=parse_market_datetime(metadata.get("end_time")),
                 volume=0,  # Not in sampling-markets
                 liquidity=0,  # Not in sampling-markets
                 prices=prices,
@@ -732,12 +762,13 @@ class PolymarketGamma:
                 "condition_id": condition_id,
                 "minimum_tick_size": minimum_tick_size,
             }
+            _add_normalized_market_times(metadata, data)
 
             return Market(
                 id=condition_id,
                 question="",  # CLOB API doesn't include question text
                 outcomes=outcomes if outcomes else ["Yes", "No"],
-                close_time=None,  # CLOB API doesn't include end date
+                close_time=parse_market_datetime(metadata.get("end_time")),
                 volume=0,  # CLOB API doesn't include volume
                 liquidity=0,  # CLOB API doesn't include liquidity
                 prices=prices,
@@ -802,8 +833,8 @@ class PolymarketGamma:
                 except (ValueError, TypeError):
                     pass
 
-        # Parse close time - check both endDate and closed status
-        close_time = self._parse_datetime(data.get("endDate"))
+        # Parse close time - check both endDate and CLOB-compatible end fields
+        close_time = parse_market_datetime(_first_present(data, POLYMARKET_END_TIME_KEYS))
 
         # Use volumeNum if available, fallback to volume
         volume = float(data.get("volumeNum", data.get("volume", 0)))
@@ -812,6 +843,7 @@ class PolymarketGamma:
         # Try to extract token IDs from various possible fields
         # Gamma API sometimes includes these in the response
         metadata = dict(data)
+        _add_normalized_market_times(metadata, data)
 
         # Set match_id from groupItemTitle for cross-exchange matching
         if "groupItemTitle" in data:

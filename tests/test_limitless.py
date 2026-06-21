@@ -1,5 +1,6 @@
 """Tests for Limitless exchange implementation."""
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -77,7 +78,9 @@ class TestLimitlessMarketParsing:
             "noPrice": 0.35,
             "volume": 10000.0,
             "liquidity": 5000.0,
-            "deadline": 1735689600,
+            "startAt": "2026-06-21T13:12:02.020Z",
+            "expirationDate": "Jun 21, 2026",
+            "expirationTimestamp": 1782049380000,
             "status": "active",
         }
 
@@ -93,6 +96,9 @@ class TestLimitlessMarketParsing:
         assert market.metadata["clobTokenIds"] == ["token_yes_123", "token_no_456"]
         assert market.metadata["tokens"]["Yes"] == "token_yes_123"
         assert market.metadata["tokens"]["No"] == "token_no_456"
+        assert market.start_time == datetime(2026, 6, 21, 13, 12, 2, 20000, timezone.utc)
+        assert market.end_time == datetime.fromtimestamp(1782049380, timezone.utc)
+        assert market.close_time == market.end_time
 
     def test_parse_market_with_nested_prices(self):
         """Test parsing market with nested price structure."""
@@ -127,6 +133,25 @@ class TestLimitlessMarketParsing:
         market = exchange._parse_market(mock_data)
 
         assert market.metadata["closed"] is True
+
+    def test_parse_nested_market_sets_normalized_times(self):
+        """Test nested markets preserve parent event timing fields."""
+        exchange = Limitless({})
+
+        mock_data = {
+            "title": "Team A",
+            "prices": [65, 35],
+            "tokens": {"yes": "yes_token", "no": "no_token"},
+            "startAt": "2026-06-21T16:00:00Z",
+            "expirationTimestamp": 1782144000000,
+            "status": "active",
+        }
+
+        market = exchange._parse_nested_market(mock_data, "world-cup-event")
+
+        assert market.start_time == datetime(2026, 6, 21, 16, 0, tzinfo=timezone.utc)
+        assert market.end_time == datetime.fromtimestamp(1782144000, timezone.utc)
+        assert market.close_time == market.end_time
 
 
 class TestLimitlessOrderParsing:
@@ -260,6 +285,13 @@ class TestLimitlessDatetimeParsing:
 
         dt = exchange._parse_datetime(1735689600)
         assert dt is not None
+
+    def test_parse_datetime_timestamp_milliseconds(self):
+        """Test parsing unix millisecond timestamp."""
+        exchange = Limitless({})
+
+        dt = exchange._parse_datetime(1782049380000)
+        assert dt == datetime.fromtimestamp(1782049380, timezone.utc)
 
     def test_parse_datetime_none(self):
         """Test parsing None returns None."""
