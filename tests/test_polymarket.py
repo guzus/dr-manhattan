@@ -1,5 +1,6 @@
 """Tests for Polymarket exchange implementation"""
 
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 import pytest
@@ -58,6 +59,8 @@ def test_fetch_markets(mock_get):
                 "active": True,
                 "closed": False,
                 "accepting_orders": True,
+                "game_start_time": "2026-06-21T16:00:00Z",
+                "end_date_iso": "2026-06-21T18:00:00Z",
                 "minimum_tick_size": 0.01,
             }
         ]
@@ -71,6 +74,9 @@ def test_fetch_markets(mock_get):
     assert len(markets) == 1
     assert markets[0].id == "0xabc123"
     assert markets[0].prices == {"Yes": 0.6, "No": 0.4}
+    assert markets[0].start_time == datetime(2026, 6, 21, 16, 0, tzinfo=timezone.utc)
+    assert markets[0].end_time == datetime(2026, 6, 21, 18, 0, tzinfo=timezone.utc)
+    assert markets[0].close_time == markets[0].end_time
 
 
 @patch.object(Polymarket, "fetch_token_ids", return_value=["token1", "token2"])
@@ -191,3 +197,89 @@ def test_parse_datetime():
     # Test invalid
     dt = exchange._parse_datetime("invalid")
     assert dt is None
+
+
+def test_parse_gamma_market_normalizes_event_times():
+    """Test Gamma parser normalizes endDate but does not treat startDate as kickoff."""
+    exchange = Polymarket()
+
+    market = exchange._parse_market(
+        {
+            "id": "540817",
+            "question": "New Rihanna Album before GTA VI?",
+            "outcomes": '["Yes", "No"]',
+            "outcomePrices": '["0.515", "0.485"]',
+            "startDate": "2025-05-02T15:48:10.582Z",
+            "endDate": "2026-07-31T12:00:00Z",
+            "active": True,
+            "closed": False,
+        }
+    )
+
+    assert market.start_time is None
+    assert market.end_time == datetime(2026, 7, 31, 12, 0, tzinfo=timezone.utc)
+    assert market.event_time == market.end_time
+
+
+def test_parse_gamma_market_uses_game_start_time():
+    """Test Gamma parser maps game_start_time to normalized start_time."""
+    exchange = Polymarket()
+
+    market = exchange._parse_market(
+        {
+            "id": "sports-market",
+            "question": "World Cup: Team A vs Team B",
+            "outcomes": '["Team A", "Team B"]',
+            "outcomePrices": '["0.5", "0.5"]',
+            "startDate": "2026-06-01T00:00:00Z",
+            "game_start_time": "2026-06-21T16:00:00Z",
+            "endDate": "2026-06-22T00:00:00Z",
+            "active": True,
+            "closed": False,
+        }
+    )
+
+    assert market.start_time == datetime(2026, 6, 21, 16, 0, tzinfo=timezone.utc)
+    assert market.end_time == datetime(2026, 6, 22, 0, 0, tzinfo=timezone.utc)
+
+
+def test_parse_gamma_market_normalizes_snake_case_end_date():
+    """Test Gamma parser accepts snake_case end_date from API responses."""
+    exchange = Polymarket()
+
+    market = exchange._parse_market(
+        {
+            "id": "snake-case-end-date",
+            "question": "Snake case end date?",
+            "outcomes": '["Yes", "No"]',
+            "outcomePrices": '["0.5", "0.5"]',
+            "end_date": "2026-06-22T00:00:00Z",
+            "active": True,
+            "closed": False,
+        }
+    )
+
+    assert market.end_time == datetime(2026, 6, 22, 0, 0, tzinfo=timezone.utc)
+
+
+def test_parse_gamma_market_extracts_clob_token_ids_from_token_objects():
+    """Test Gamma parser exposes clobTokenIds as strings when tokens are objects."""
+    exchange = Polymarket()
+
+    market = exchange._parse_market(
+        {
+            "id": "token-object-market",
+            "question": "Token objects?",
+            "outcomes": '["Yes", "No"]',
+            "outcomePrices": '["0.6", "0.4"]',
+            "tokens": [
+                {"token_id": "token_yes", "outcome": "Yes"},
+                {"token_id": "token_no", "outcome": "No"},
+            ],
+            "active": True,
+            "closed": False,
+        }
+    )
+
+    assert market.metadata["clobTokenIds"] == ["token_yes", "token_no"]
+    assert market.metadata["tokens"][0]["token_id"] == "token_yes"

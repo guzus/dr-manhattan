@@ -353,9 +353,8 @@ class Exchange(ABC):
             if direction and parsed_direction != direction.lower():
                 continue
 
-            # Estimate expiry time from close_time
-            # For hourly markets, close_time is typically the settlement time
-            expiry = market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
+            # For hourly markets, end_time is typically the settlement time.
+            expiry = market.end_time if market.end_time else datetime.now() + timedelta(hours=1)
 
             crypto_market = CryptoHourlyMarket(
                 token_symbol=parsed_token,
