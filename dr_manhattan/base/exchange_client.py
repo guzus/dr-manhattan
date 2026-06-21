@@ -147,15 +147,17 @@ class ExchangeClient:
         # Order tracking
         self._track_fills = track_fills
         self._order_tracker: Optional[OrderTracker] = None
-        self._user_ws = None
+        # WebSocket handles are duck-typed; concrete types live in exchanges/
+        # (excluded from the type gate) and base getters are unannotated.
+        self._user_ws: Optional[Any] = None
 
         # Market data WebSocket for orderbook
-        self._market_ws = None
-        self._orderbook_manager = None
-        self._ws_thread = None
+        self._market_ws: Optional[Any] = None
+        self._orderbook_manager: Optional[OrderbookManager] = None
+        self._ws_thread: Optional[threading.Thread] = None
 
         # Polling fallback for exchanges without WebSocket
-        self._polling_thread = None
+        self._polling_thread: Optional[threading.Thread] = None
         self._polling_stop = False
         self._polling_token_ids: List[str] = []
 
@@ -359,6 +361,7 @@ class ExchangeClient:
             fetch_start = time.time()
 
             def fetch_and_update(token_id: str):
+                assert self._orderbook_manager is not None  # set above from get_websocket()
                 rest_data = self.get_orderbook(token_id)
                 if rest_data:
                     orderbook = Orderbook.from_rest_response(rest_data, token_id)
@@ -961,7 +964,7 @@ def calculate_delta(positions: Dict[str, float]) -> DeltaInfo:
 
     max_outcome = None
     if delta > 0:
-        max_outcome = max(positions, key=positions.get)
+        max_outcome = max(positions, key=lambda outcome: positions[outcome])
 
     return DeltaInfo(
         delta=delta,
