@@ -137,7 +137,7 @@ class TestMarket:
             tick_size=0.01,
         )
 
-        assert market.end_time == close_time
+        assert market.end_time == datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 
     def test_market_is_open_uses_metadata_end_time_when_close_time_missing(self):
         """Test is_open falls back to exchange expiry metadata."""
@@ -155,6 +155,103 @@ class TestMarket:
 
         assert market.is_open is False
 
+    def test_market_is_open_checks_end_time_when_closed_is_false(self):
+        """Test explicit closed=false does not hide an expired end_time."""
+        market = Market(
+            id="m1",
+            question="Expired but not marked closed?",
+            outcomes=["Yes", "No"],
+            close_time=None,
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={"closed": False, "expirationTimestamp": 1},
+            tick_size=0.01,
+        )
+
+        assert market.is_open is False
+
+    def test_market_is_open_treats_closed_strings_as_closed(self):
+        """Test closed metadata from stringly APIs is interpreted safely."""
+        market = Market(
+            id="m1",
+            question="Closed string?",
+            outcomes=["Yes", "No"],
+            close_time=datetime(2099, 1, 1),
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={"closed": "true"},
+            tick_size=0.01,
+        )
+
+        assert market.is_open is False
+
+    def test_market_is_open_treats_false_closed_strings_as_open(self):
+        """Test false-like closed strings do not short-circuit open checks."""
+        market = Market(
+            id="m1",
+            question="Open string?",
+            outcomes=["Yes", "No"],
+            close_time=datetime(2099, 1, 1, tzinfo=timezone.utc),
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={"closed": "false"},
+            tick_size=0.01,
+        )
+
+        assert market.is_open is True
+
+    def test_market_is_open_treats_unknown_closed_strings_as_closed(self):
+        """Test unknown closed strings fail closed for trading safety."""
+        market = Market(
+            id="m1",
+            question="Unknown closed string?",
+            outcomes=["Yes", "No"],
+            close_time=datetime(2099, 1, 1, tzinfo=timezone.utc),
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={"closed": "halted"},
+            tick_size=0.01,
+        )
+
+        assert market.is_open is False
+
+    def test_market_is_open_treats_naive_close_time_as_utc(self):
+        """Test legacy naive close_time values still compare safely."""
+        market = Market(
+            id="m1",
+            question="Naive close time?",
+            outcomes=["Yes", "No"],
+            close_time=datetime(2000, 1, 1),
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={},
+            tick_size=0.01,
+        )
+
+        assert market.is_open is False
+
+    def test_market_time_accessors_ignore_zero_bool_and_overflow_timestamps(self):
+        """Test invalid timestamp-like values are treated as unknown."""
+        for raw_value in (0, "0", True, 10**30):
+            market = Market(
+                id="m1",
+                question="Invalid timestamp?",
+                outcomes=["Yes", "No"],
+                close_time=None,
+                volume=0,
+                liquidity=0,
+                prices={},
+                metadata={"expirationTimestamp": raw_value},
+                tick_size=0.01,
+            )
+
+            assert market.end_time is None
+
     def test_market_time_accessors_parse_date_strings(self):
         """Test date-only exchange metadata is parsed."""
         market = Market(
@@ -169,7 +266,39 @@ class TestMarket:
             tick_size=0.01,
         )
 
-        assert market.end_time == datetime(2026, 6, 22)
+        assert market.end_time == datetime(2026, 6, 22, tzinfo=timezone.utc)
+
+    def test_market_time_accessors_normalize_naive_datetimes_to_utc(self):
+        """Test datetime metadata is always normalized to UTC."""
+        market = Market(
+            id="m1",
+            question="Naive datetime?",
+            outcomes=["Yes", "No"],
+            close_time=None,
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={"start_time": datetime(2026, 6, 22, 12, 30)},
+            tick_size=0.01,
+        )
+
+        assert market.start_time == datetime(2026, 6, 22, 12, 30, tzinfo=timezone.utc)
+
+    def test_market_time_accessors_parse_iso_date_as_utc(self):
+        """Test ISO date-only metadata is parsed as UTC midnight."""
+        market = Market(
+            id="m1",
+            question="ISO date?",
+            outcomes=["Yes", "No"],
+            close_time=None,
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={"end_time": "2026-06-22"},
+            tick_size=0.01,
+        )
+
+        assert market.end_time == datetime(2026, 6, 22, tzinfo=timezone.utc)
 
     def test_market_start_time_ignores_ambiguous_start_date(self):
         """Test generic startDate is not treated as event start time."""

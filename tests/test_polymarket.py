@@ -241,3 +241,45 @@ def test_parse_gamma_market_uses_game_start_time():
 
     assert market.start_time == datetime(2026, 6, 21, 16, 0, tzinfo=timezone.utc)
     assert market.end_time == datetime(2026, 6, 22, 0, 0, tzinfo=timezone.utc)
+
+
+def test_parse_gamma_market_normalizes_snake_case_end_date():
+    """Test Gamma parser accepts snake_case end_date from API responses."""
+    exchange = Polymarket()
+
+    market = exchange._parse_market(
+        {
+            "id": "snake-case-end-date",
+            "question": "Snake case end date?",
+            "outcomes": '["Yes", "No"]',
+            "outcomePrices": '["0.5", "0.5"]',
+            "end_date": "2026-06-22T00:00:00Z",
+            "active": True,
+            "closed": False,
+        }
+    )
+
+    assert market.end_time == datetime(2026, 6, 22, 0, 0, tzinfo=timezone.utc)
+
+
+def test_parse_gamma_market_extracts_clob_token_ids_from_token_objects():
+    """Test Gamma parser exposes clobTokenIds as strings when tokens are objects."""
+    exchange = Polymarket()
+
+    market = exchange._parse_market(
+        {
+            "id": "token-object-market",
+            "question": "Token objects?",
+            "outcomes": '["Yes", "No"]',
+            "outcomePrices": '["0.6", "0.4"]',
+            "tokens": [
+                {"token_id": "token_yes", "outcome": "Yes"},
+                {"token_id": "token_no", "outcome": "No"},
+            ],
+            "active": True,
+            "closed": False,
+        }
+    )
+
+    assert market.metadata["clobTokenIds"] == ["token_yes", "token_no"]
+    assert market.metadata["tokens"][0]["token_id"] == "token_yes"

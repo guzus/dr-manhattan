@@ -84,6 +84,23 @@ def _add_normalized_market_times(metadata: Dict[str, Any], source: Dict[str, Any
         metadata["end_time"] = end_time
 
 
+def _inherit_parent_market_time(
+    data: Dict[str, Any], parent: Dict[str, Any], keys: Sequence[str], normalized_key: str
+) -> None:
+    if _first_present(data, keys) is not None or data.get(normalized_key) not in (None, ""):
+        return
+
+    for key in keys:
+        value = parent.get(key)
+        if value not in (None, ""):
+            data[key] = value
+            return
+
+    value = parent.get(normalized_key)
+    if value not in (None, ""):
+        data[normalized_key] = value
+
+
 @dataclass
 class PricePoint:
     """Represents a single price history point"""
@@ -424,7 +441,20 @@ class Limitless(Exchange):
         # Expand nested markets
         result = []
         for nested_data in nested_markets:
-            nested_market = self._parse_nested_market(nested_data, slug)
+            nested_with_parent_times = dict(nested_data)
+            _inherit_parent_market_time(
+                nested_with_parent_times,
+                market.metadata,
+                LIMITLESS_START_TIME_KEYS,
+                "start_time",
+            )
+            _inherit_parent_market_time(
+                nested_with_parent_times,
+                market.metadata,
+                LIMITLESS_END_TIME_KEYS,
+                "end_time",
+            )
+            nested_market = self._parse_nested_market(nested_with_parent_times, slug)
             result.append(nested_market)
 
         return result
@@ -449,7 +479,7 @@ class Limitless(Exchange):
         token_ids = [yes_token, no_token] if yes_token and no_token else []
 
         # Parse close time
-        end_time_value = _first_present(data, LIMITLESS_END_TIME_KEYS)
+        end_time_value = _first_present(data, LIMITLESS_END_TIME_KEYS) or data.get("end_time")
         close_time = parse_market_datetime(end_time_value)
 
         # Volume

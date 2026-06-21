@@ -153,6 +153,37 @@ class TestLimitlessMarketParsing:
         assert market.end_time == datetime.fromtimestamp(1782144000, timezone.utc)
         assert market.close_time == market.end_time
 
+    def test_fetch_markets_by_slug_inherits_parent_times_for_nested_markets(self):
+        """Test expanded nested markets inherit parent timing when child timing is absent."""
+        exchange = Limitless({})
+
+        parent_data = {
+            "slug": "world-cup-event",
+            "title": "World Cup event",
+            "tokens": {"yes": "parent_yes", "no": "parent_no"},
+            "startAt": "2026-06-21T16:00:00Z",
+            "expirationTimestamp": 1782144000000,
+            "status": "active",
+            "markets": [
+                {
+                    "title": "Team A",
+                    "prices": [65, 35],
+                    "tokens": {"yes": "yes_token", "no": "no_token"},
+                    "status": "active",
+                }
+            ],
+        }
+
+        with patch.object(
+            exchange, "fetch_market", return_value=exchange._parse_market(parent_data)
+        ):
+            markets = exchange.fetch_markets_by_slug("world-cup-event")
+
+        assert len(markets) == 1
+        assert markets[0].start_time == datetime(2026, 6, 21, 16, 0, tzinfo=timezone.utc)
+        assert markets[0].end_time == datetime.fromtimestamp(1782144000, timezone.utc)
+        assert markets[0].close_time == markets[0].end_time
+
 
 class TestLimitlessOrderParsing:
     """Test order parsing logic."""

@@ -30,6 +30,7 @@ POLYMARKET_END_TIME_KEYS = (
     "endDate",
     "endDateIso",
     "end_date_iso",
+    "end_date",
 )
 
 
@@ -48,6 +49,24 @@ def _add_normalized_market_times(metadata: Dict[str, Any], source: Dict[str, Any
         metadata["start_time"] = start_time
     if end_time is not None:
         metadata["end_time"] = end_time
+
+
+def _extract_token_ids_from_tokens(tokens: Any) -> list[str]:
+    if isinstance(tokens, str):
+        try:
+            tokens = json.loads(tokens)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    if not isinstance(tokens, list):
+        return []
+
+    token_ids = []
+    for token in tokens:
+        token_id = token.get("token_id") if isinstance(token, dict) else token
+        if token_id:
+            token_ids.append(str(token_id))
+    return token_ids
 
 
 class PolymarketGamma:
@@ -850,7 +869,9 @@ class PolymarketGamma:
             metadata["match_id"] = data["groupItemTitle"]
 
         if "tokens" in data and data["tokens"]:
-            metadata["clobTokenIds"] = data["tokens"]
+            token_ids = _extract_token_ids_from_tokens(data["tokens"])
+            if token_ids:
+                metadata["clobTokenIds"] = token_ids
         elif "clobTokenIds" not in metadata and "tokenID" in data:
             # Single token ID - might be a simplified response
             metadata["clobTokenIds"] = [data["tokenID"]]

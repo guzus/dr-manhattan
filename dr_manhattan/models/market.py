@@ -64,6 +64,27 @@ DATE_FORMATS = (
     "%B %d %Y",
 )
 
+EPOCH_MILLISECONDS_THRESHOLD = 10_000_000_000
+
+
+def _datetime_from_epoch(value: float) -> Optional[datetime]:
+    if value <= 0:
+        return None
+
+    # Present-day exchange APIs use 13-digit millisecond epochs; a seconds epoch
+    # above this threshold would be year 2286+, outside supported market windows.
+    timestamp = value / 1000 if value > EPOCH_MILLISECONDS_THRESHOLD else value
+    try:
+        return datetime.fromtimestamp(timestamp, timezone.utc)
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def _as_utc_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
 
 def parse_market_datetime(value: Any) -> Optional[datetime]:
     """Parse exchange timestamp shapes into a datetime."""
@@ -71,11 +92,13 @@ def parse_market_datetime(value: Any) -> Optional[datetime]:
         return None
 
     if isinstance(value, datetime):
-        return value
+        return _as_utc_datetime(value)
+
+    if isinstance(value, bool):
+        return None
 
     if isinstance(value, (int, float)):
-        timestamp = value / 1000 if value > 10_000_000_000 else value
-        return datetime.fromtimestamp(timestamp, timezone.utc)
+        return _datetime_from_epoch(value)
 
     if isinstance(value, str):
         stripped = value.strip()
@@ -88,17 +111,16 @@ def parse_market_datetime(value: Any) -> Optional[datetime]:
             timestamp = None
 
         if timestamp is not None:
-            timestamp = timestamp / 1000 if timestamp > 10_000_000_000 else timestamp
-            return datetime.fromtimestamp(timestamp, timezone.utc)
+            return _datetime_from_epoch(timestamp)
 
         try:
-            return datetime.fromisoformat(stripped.replace("Z", "+00:00"))
+            return _as_utc_datetime(datetime.fromisoformat(stripped.replace("Z", "+00:00")))
         except ValueError:
             pass
 
         for date_format in DATE_FORMATS:
             try:
-                return datetime.strptime(stripped, date_format)
+                return _as_utc_datetime(datetime.strptime(stripped, date_format))
             except ValueError:
                 continue
 
@@ -202,7 +224,7 @@ class Market:
     def end_time(self) -> Optional[datetime]:
         """Get normalized trading close or event end time."""
         if self.close_time is not None:
-            return self.close_time
+            return _as_utc_datetime(self.close_time)
         return _metadata_datetime(self.metadata, END_TIME_METADATA_KEYS)
 
     @property
@@ -215,15 +237,24 @@ class Market:
         """Check if market is still open for trading"""
         # Check metadata for explicit closed status (e.g., Polymarket)
         if "closed" in self.metadata:
-            return not self.metadata["closed"]
+            closed = self.metadata["closed"]
+            if isinstance(closed, str):
+                closed_value = closed.strip().lower()
+                if closed_value in ("true", "1", "yes", "closed", "resolved"):
+                    return False
+                if closed_value in ("false", "0", "no", "open", "active"):
+                    pass
+                elif closed_value:
+                    return False
+            elif closed:
+                return False
 
         # Fallback to normalized end_time check
         end_time = self.end_time
         if not end_time:
             return True
 
-        now = datetime.now(end_time.tzinfo) if end_time.tzinfo else datetime.now()
-        return now < end_time
+        return datetime.now(timezone.utc) < end_time
 
     @property
     def spread(self) -> Optional[float]:
