@@ -3,8 +3,14 @@
 from unittest.mock import Mock, patch
 
 import pytest
+import requests
 
-from dr_manhattan.base.errors import AuthenticationError, InvalidOrder, MarketNotFound
+from dr_manhattan.base.errors import (
+    AuthenticationError,
+    InvalidOrder,
+    MarketNotFound,
+    NetworkError,
+)
 from dr_manhattan.exchanges.kalshi import Kalshi
 from dr_manhattan.models.order import OrderSide, OrderStatus
 
@@ -292,6 +298,118 @@ class TestKalshiParsing:
         # #then
         assert position.outcome == "No"
         assert position.size == 50
+
+
+class TestKalshiOrderSubmission:
+    """Order placement safety: payload encoding, no double-submit, size guard."""
+
+    def _authed_exchange(self, **overrides):
+        config = {
+            "api_key_id": "test",
+            "private_key_pem": _get_test_rsa_key(),
+            "max_retries": 2,
+            "retry_delay": 0,
+        }
+        config.update(overrides)
+        return Kalshi(config)
+
+    @patch("requests.request")
+    def test_create_order_encodes_price_as_cents_and_integer_count(self, mock_request):
+        # #given a successful order response
+        mock_response = Mock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "order": {
+                "order_id": "ord_1",
+                "ticker": "TEST",
+                "action": "buy",
+                "side": "yes",
+                "status": "resting",
+                "yes_price": 65,
+                "count": 10,
+                "filled_count": 0,
+            }
+        }
+        mock_response.raise_for_status = Mock()
+        mock_request.return_value = mock_response
+        exchange = self._authed_exchange()
+
+        # #when placing a 0.65 / 10-share YES buy
+        exchange.create_order(
+            market_id="TEST", outcome="Yes", side=OrderSide.BUY, price=0.65, size=10
+        )
+
+        # #then the outgoing body encodes price as integer cents and an integer count
+        body = mock_request.call_args.kwargs["json"]
+        assert body["yes_price"] == 65
+        assert "no_price" not in body
+        assert body["count"] == 10
+        assert isinstance(body["count"], int)
+        assert body["action"] == "buy"
+        assert body["side"] == "yes"
+
+    @patch("requests.request")
+    def test_create_order_does_not_retry_on_network_error(self, mock_request):
+        # #given a transport that times out (response possibly lost after the order rested)
+        mock_request.side_effect = requests.Timeout("boom")
+        exchange = self._authed_exchange(max_retries=3)
+
+        # #when / #then the error surfaces WITHOUT a resubmit (no double position)
+        with pytest.raises(NetworkError):
+            exchange.create_order(
+                market_id="TEST", outcome="Yes", side=OrderSide.BUY, price=0.65, size=10
+            )
+        assert mock_request.call_count == 1
+
+    @patch("requests.request")
+    def test_idempotent_get_requests_still_retry(self, mock_request):
+        # #given the same timing-out transport
+        mock_request.side_effect = requests.Timeout("boom")
+        exchange = self._authed_exchange(max_retries=2, retry_delay=0)
+
+        # #when / #then a normal GET retries max_retries + 1 times (contrast with the order POST)
+        with pytest.raises(NetworkError):
+            exchange._request("GET", "/portfolio/balance")
+        assert mock_request.call_count == 3
+
+    @patch("requests.request")
+    def test_no_retry_path_still_enforces_rate_limit(self, mock_request):
+        # #given a successful order response
+        mock_response = Mock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "order": {
+                "order_id": "x",
+                "ticker": "T",
+                "action": "buy",
+                "side": "yes",
+                "status": "resting",
+                "yes_price": 50,
+                "count": 1,
+            }
+        }
+        mock_response.raise_for_status = Mock()
+        mock_request.return_value = mock_response
+        exchange = self._authed_exchange()
+
+        # #when placing an order on the retry-disabled path
+        with patch.object(exchange, "_check_rate_limit") as mock_rate_limit:
+            exchange.create_order(
+                market_id="T", outcome="Yes", side=OrderSide.BUY, price=0.5, size=1
+            )
+
+        # #then rate limiting still runs (it normally lives inside the retry wrapper)
+        mock_rate_limit.assert_called_once()
+
+    def test_create_order_rejects_subunit_size(self):
+        # #given a fractional size that truncates to zero whole contracts
+        exchange = self._authed_exchange()
+
+        # #when / #then a silent zero-contract order is rejected, not submitted
+        with pytest.raises(InvalidOrder, match="at least 1 contract"):
+            exchange.create_order(
+                market_id="TEST", outcome="Yes", side=OrderSide.BUY, price=0.5, size=0.5
+            )
 
 
 class TestKalshiDescribe:

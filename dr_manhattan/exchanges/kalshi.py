@@ -141,8 +141,8 @@ class Kalshi(Exchange):
         path: str,
         params: Optional[Dict[str, Any]] = None,
         body: Optional[Dict[str, Any]] = None,
+        retry: bool = True,
     ) -> Any:
-        @self._retry_on_failure
         def _make_request():
             url = f"{self._api_url}{path}"
             headers = {
@@ -184,6 +184,14 @@ class Kalshi(Exchange):
             except requests.RequestException as e:
                 raise ExchangeError(f"Request failed: {e}") from e
 
+        if retry:
+            return self._retry_on_failure(_make_request)()
+
+        # Non-idempotent requests (order placement) must not auto-retry: a lost
+        # response after the order has rested would resubmit and double the
+        # position. Rate limiting normally runs inside the retry wrapper, so
+        # enforce it explicitly on this path.
+        self._check_rate_limit()
         return _make_request()
 
     def _parse_market(self, data: Dict[str, Any]) -> Optional[Market]:
@@ -311,6 +319,10 @@ class Kalshi(Exchange):
         outcome = "Yes" if position_value >= 0 else "No"
         size = abs(float(position_value))
 
+        # The positions endpoint does not carry per-share price context, so these
+        # stay 0.0. Position.current_value/unrealized_pnl are therefore unreliable
+        # for direct consumers on Kalshi; ExchangeClient.calculate_nav(market) values
+        # the position correctly by overriding mid-price from that market's data.
         average_price = 0.0
         current_price = 0.0
 
@@ -498,6 +510,14 @@ class Kalshi(Exchange):
         action = "buy" if side == OrderSide.BUY else "sell"
         price_cents = int(round(price * 100))
 
+        # Kalshi trades whole contracts. Guard against a fractional size silently
+        # truncating to a zero-contract order (e.g. size=0.5 -> count=0).
+        count = int(size)
+        if count <= 0:
+            raise InvalidOrder(
+                f"Order size must be at least 1 contract; got {size} which rounds to 0 on Kalshi"
+            )
+
         # Map time_in_force to Kalshi API values
         tif_map = {
             OrderTimeInForce.GTC: "good_till_canceled",
@@ -510,7 +530,7 @@ class Kalshi(Exchange):
             "action": action,
             "side": outcome_lower,
             "type": "limit",
-            "count": int(size),
+            "count": count,
             "time_in_force": tif_map.get(time_in_force, "good_till_canceled"),
         }
 
@@ -520,7 +540,9 @@ class Kalshi(Exchange):
             body["no_price"] = price_cents
 
         try:
-            response = self._request("POST", "/portfolio/orders", body=body)
+            # retry=False: the order body carries no client-side idempotency key,
+            # so a network error after the order rests must not trigger a resubmit.
+            response = self._request("POST", "/portfolio/orders", body=body, retry=False)
             order_data = response.get("order", {})
             return self._parse_order(order_data)
         except ExchangeError as e:
