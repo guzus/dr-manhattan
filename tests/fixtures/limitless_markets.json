@@ -1,0 +1,677 @@
+[
+  {
+    "automationType": "lumy",
+    "categories": [
+      "Minutely",
+      "5 min"
+    ],
+    "collateralToken": {
+      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "decimals": 6,
+      "symbol": "USDC"
+    },
+    "conditionId": "0xd08ee2a7395b61d1b4e7b9a5629f99f0bad678f048b341ce30b9568a2d35a39a",
+    "createdAt": "2026-06-21T18:15:10.891Z",
+    "creator": {
+      "address": "0x60e61631d9a585797cDee9f79FafDecf3bd7F64D",
+      "imageURI": "https://limitless.exchange/assets/images/logo.svg",
+      "link": "https://x.com/trylimitless",
+      "name": "Limitless"
+    },
+    "description": "<p>This market will resolve to \"Up\" if the <a href=\"https://data.chain.link/streams/sol-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink SOL/USD</a> price on June 21, 2026, at 18:30 UTC is greater than or equal to the price captured on June 21, 2026, at 18:25 UTC. Otherwise, this market will resolve to \"Down\".</p><p><br></p><p>Resolution source: <a href=\"https://data.chain.link/streams/sol-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink SOL/USD</a> data stream. Other exchanges, spot markets, and oracles will not be used.</p><p><br></p><p>If Chainlink is briefly missing data on June 21, 2026, at 18:30 UTC, the next available price within 5 seconds will be used. In the rare event of a longer Chainlink outage, the market will be resolved manually by the Limitless team using the closest available Chainlink price.</p><p><br></p><p>The <a href=\"https://data.chain.link/streams/sol-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink SOL/USD</a> price captured on June 21, 2026, at 18:25 UTC was $73.946430000000000000.</p>",
+    "expirationDate": "Jun 21, 2026",
+    "expirationTimestamp": 1782066600000,
+    "expired": false,
+    "groupId": null,
+    "hidden": false,
+    "id": 269949,
+    "imageUrl": "https://cdn.limitless.exchange/price-oracles/95/fdb68a2d-aedd-472a-8bca-1b293a8980ad.svg",
+    "isOther": false,
+    "isRewardable": true,
+    "logo": "https://cdn.limitless.exchange/price-oracles/95/fdb68a2d-aedd-472a-8bca-1b293a8980ad.svg",
+    "marketType": "single",
+    "metadata": {
+      "c": 3,
+      "chainlinkDataStream": {
+        "enabled": true,
+        "pair": "BTC/USD"
+      },
+      "fee": true,
+      "frequencySubType": "minutes_5",
+      "hidden": false,
+      "isBannered": false,
+      "isPolyArbitrage": false,
+      "makerRebateMult": 1,
+      "marketVariant": "clob",
+      "maxSpread": 0.035,
+      "minSize": 100000000,
+      "minutesDeadline": 5,
+      "openPrice": "73.946430000000000000",
+      "openPriceCapturedAt": "2026-06-21T18:25:00.000Z",
+      "oracleVersion": 2,
+      "pythLazerChannel": null,
+      "pythLazerId": null,
+      "pythProHistorySymbol": null,
+      "pythToleranceDirection": null,
+      "pythToleranceSeconds": null,
+      "rewardsEpoch": 0.3472222222222222,
+      "shouldMarketMake": true
+    },
+    "negRiskRequestId": null,
+    "priceOracleMetadata": {
+      "assetType": "CRYPTO",
+      "chainlinkFeedAddress": null,
+      "chainlinkFeedId": "0x0003b778d3f6b2ac4991302b89cb313f99a42467d6c9c5f96f57c29c0d2bc24f",
+      "chainlinkPair": "BTC/USD",
+      "chainlinkStreamUrl": null,
+      "chartSource": "chainlink",
+      "logo": "https://cdn.limitless.exchange/price-oracles/95/fdb68a2d-aedd-472a-8bca-1b293a8980ad.svg",
+      "name": "SOL",
+      "pythAddress": "0x0003b778d3f6b2ac4991302b89cb313f99a42467d6c9c5f96f57c29c0d2bc24f",
+      "symbol": "Crypto.SOL/USD",
+      "ticker": "SOL"
+    },
+    "prices": [
+      0.5,
+      0.5
+    ],
+    "priorityIndex": 10,
+    "proxyTitle": null,
+    "settings": {
+      "c": "3",
+      "creatorFeePct": 0,
+      "dailyReward": "500",
+      "maxSpread": 0.035,
+      "minSize": "100000000",
+      "rebateRate": "1",
+      "rewardsEpoch": "0.3472222222222222",
+      "takerDelayMs": 0
+    },
+    "slug": "sol-up-or-down-5-min-1782065705541",
+    "stableSlug": "sol-5min-price",
+    "startAt": "2026-06-21T18:25:00.000Z",
+    "status": "FUNDED",
+    "tags": [
+      "Lumy",
+      "Recurring",
+      "Minutely",
+      "Minutes 5"
+    ],
+    "title": "SOL Up or Down - 5 Min",
+    "tokens": {
+      "no": "104549425648028930098953517860072427929968621516063549104078338806227686374871",
+      "yes": "17545305483835376826217772114472493237070114997204625607665531406032476347708"
+    },
+    "tradePrices": {
+      "buy": {
+        "limit": [
+          0.001,
+          0.001
+        ],
+        "market": [
+          0.999,
+          0.999
+        ]
+      },
+      "sell": {
+        "limit": [
+          0.999,
+          0.999
+        ],
+        "market": [
+          0.001,
+          0.001
+        ]
+      }
+    },
+    "tradeType": "clob",
+    "updatedAt": "2026-06-21T18:25:25.591Z",
+    "venue": {
+      "adapter": null,
+      "exchange": "0x05c748E2f4DcDe0ec9Fa8DDc40DE6b867f923fa5"
+    },
+    "volume": "0",
+    "volumeFormatted": "0.000000",
+    "winningOutcomeIndex": null
+  },
+  {
+    "automationType": "lumy",
+    "categories": [
+      "Minutely",
+      "5 min"
+    ],
+    "collateralToken": {
+      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "decimals": 6,
+      "symbol": "USDC"
+    },
+    "conditionId": "0xdb751aaef943c422592fcfef982af247271224d7004d60f9ceb0845b69691044",
+    "createdAt": "2026-06-21T17:55:35.531Z",
+    "creator": {
+      "address": "0x60e61631d9a585797cDee9f79FafDecf3bd7F64D",
+      "imageURI": "https://limitless.exchange/assets/images/logo.svg",
+      "link": "https://x.com/trylimitless",
+      "name": "Limitless"
+    },
+    "description": "<p>This market will resolve to \"Up\" if the <a href=\"https://data.chain.link/streams/btc-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink BTC/USD</a> price on June 21, 2026, at 18:30 UTC is greater than or equal to the price captured on June 21, 2026, at 18:25 UTC. Otherwise, this market will resolve to \"Down\".</p><p><br></p><p>Resolution source: <a href=\"https://data.chain.link/streams/btc-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink BTC/USD</a> data stream. Other exchanges, spot markets, and oracles will not be used.</p><p><br></p><p>If Chainlink is briefly missing data on June 21, 2026, at 18:30 UTC, the next available price within 5 seconds will be used. In the rare event of a longer Chainlink outage, the market will be resolved manually by the Limitless team using the closest available Chainlink price.</p><p><br></p><p>The <a href=\"https://data.chain.link/streams/btc-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink BTC/USD</a> price captured on June 21, 2026, at 18:25 UTC was $63947.471446920625000000.</p>",
+    "expirationDate": "Jun 21, 2026",
+    "expirationTimestamp": 1782066600000,
+    "expired": false,
+    "groupId": null,
+    "hidden": false,
+    "id": 269893,
+    "imageUrl": "https://cdn.limitless.exchange/price-oracles/93/0bd1eeb0-1b4c-4426-969d-9cafa6fb21f9.svg",
+    "isOther": false,
+    "isRewardable": true,
+    "logo": "https://cdn.limitless.exchange/price-oracles/93/0bd1eeb0-1b4c-4426-969d-9cafa6fb21f9.svg",
+    "marketType": "single",
+    "metadata": {
+      "c": 3,
+      "chainlinkDataStream": {
+        "enabled": true,
+        "pair": "BTC/USD"
+      },
+      "fee": true,
+      "frequencySubType": "minutes_5",
+      "hidden": false,
+      "isBannered": false,
+      "isPolyArbitrage": false,
+      "makerRebateMult": 1,
+      "marketVariant": "clob",
+      "maxSpread": 0.035,
+      "minSize": 100000000,
+      "minutesDeadline": 5,
+      "openPrice": "63947.471446920625000000",
+      "openPriceCapturedAt": "2026-06-21T18:25:00.000Z",
+      "oracleVersion": 2,
+      "pythLazerChannel": null,
+      "pythLazerId": null,
+      "pythProHistorySymbol": null,
+      "pythToleranceDirection": null,
+      "pythToleranceSeconds": null,
+      "rewardsEpoch": 0.3472222222222222,
+      "shouldMarketMake": true
+    },
+    "negRiskRequestId": null,
+    "priceOracleMetadata": {
+      "assetType": "CRYPTO",
+      "chainlinkFeedAddress": null,
+      "chainlinkFeedId": "0x00039d9e45394f473ab1f050a1b963e6b05351e52d71e507509ada0c95ed75b8",
+      "chainlinkPair": "BTC/USD",
+      "chainlinkStreamUrl": null,
+      "chartSource": "chainlink",
+      "logo": "https://cdn.limitless.exchange/price-oracles/93/0bd1eeb0-1b4c-4426-969d-9cafa6fb21f9.svg",
+      "name": "BTC",
+      "pythAddress": "0x00039d9e45394f473ab1f050a1b963e6b05351e52d71e507509ada0c95ed75b8",
+      "symbol": "Crypto.BTC/USD",
+      "ticker": "BTC"
+    },
+    "prices": [
+      0.755,
+      0.245
+    ],
+    "priorityIndex": 10,
+    "proxyTitle": null,
+    "settings": {
+      "c": "3",
+      "creatorFeePct": 0,
+      "dailyReward": "500",
+      "maxSpread": 0.035,
+      "minSize": "100000000",
+      "rebateRate": "1",
+      "rewardsEpoch": "0.3472222222222222",
+      "takerDelayMs": 0
+    },
+    "slug": "btc-up-or-down-5-min-1782064530057",
+    "stableSlug": "btc-5min-price",
+    "startAt": "2026-06-21T18:25:00.000Z",
+    "status": "FUNDED",
+    "tags": [
+      "Lumy",
+      "Recurring",
+      "Minutely",
+      "Minutes 5"
+    ],
+    "title": "BTC Up or Down - 5 Min",
+    "tokens": {
+      "no": "92261739927457215435216909806982562777237894940233206678711932981145198898245",
+      "yes": "86297994442942716048758447737288852489214791638461279672991139128443057999096"
+    },
+    "tradePrices": {
+      "buy": {
+        "limit": [
+          0.54,
+          0.03
+        ],
+        "market": [
+          0.97,
+          0.46
+        ]
+      },
+      "sell": {
+        "limit": [
+          0.97,
+          0.46
+        ],
+        "market": [
+          0.54,
+          0.03
+        ]
+      }
+    },
+    "tradeType": "clob",
+    "updatedAt": "2026-06-21T18:25:23.689Z",
+    "venue": {
+      "adapter": null,
+      "exchange": "0x05c748E2f4DcDe0ec9Fa8DDc40DE6b867f923fa5"
+    },
+    "volume": "0",
+    "volumeFormatted": "0.000000",
+    "winningOutcomeIndex": null
+  },
+  {
+    "automationType": "lumy",
+    "categories": [
+      "Minutely",
+      "5 min"
+    ],
+    "collateralToken": {
+      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "decimals": 6,
+      "symbol": "USDC"
+    },
+    "conditionId": "0xbcc4ae51b0319f1c4dbd53221bc0875245391aa5e57205b5428177e4a24b5098",
+    "createdAt": "2026-06-21T18:15:26.122Z",
+    "creator": {
+      "address": "0x60e61631d9a585797cDee9f79FafDecf3bd7F64D",
+      "imageURI": "https://limitless.exchange/assets/images/logo.svg",
+      "link": "https://x.com/trylimitless",
+      "name": "Limitless"
+    },
+    "description": "<p>This market will resolve to \"Up\" if the <a href=\"https://data.chain.link/streams/doge-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink DOGE/USD</a> price on June 21, 2026, at 18:30 UTC is greater than or equal to the price captured on June 21, 2026, at 18:25 UTC. Otherwise, this market will resolve to \"Down\".</p><p><br></p><p>Resolution source: <a href=\"https://data.chain.link/streams/doge-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink DOGE/USD</a> data stream. Other exchanges, spot markets, and oracles will not be used.</p><p><br></p><p>If Chainlink is briefly missing data on June 21, 2026, at 18:30 UTC, the next available price within 5 seconds will be used. In the rare event of a longer Chainlink outage, the market will be resolved manually by the Limitless team using the closest available Chainlink price.</p><p><br></p><p>The <a href=\"https://data.chain.link/streams/doge-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink DOGE/USD</a> price captured on June 21, 2026, at 18:25 UTC was $0.083265193000000000.</p>",
+    "expirationDate": "Jun 21, 2026",
+    "expirationTimestamp": 1782066600000,
+    "expired": false,
+    "groupId": null,
+    "hidden": false,
+    "id": 269958,
+    "imageUrl": "https://cdn.limitless.exchange/price-oracles/99/8c4d97f8-ba3f-4694-b64c-1d412b48c922.svg",
+    "isOther": false,
+    "isRewardable": true,
+    "logo": "https://cdn.limitless.exchange/price-oracles/99/8c4d97f8-ba3f-4694-b64c-1d412b48c922.svg",
+    "marketType": "single",
+    "metadata": {
+      "c": 3,
+      "chainlinkDataStream": {
+        "enabled": true,
+        "pair": "BTC/USD"
+      },
+      "fee": true,
+      "frequencySubType": "minutes_5",
+      "hidden": false,
+      "isBannered": false,
+      "isPolyArbitrage": false,
+      "makerRebateMult": 1,
+      "marketVariant": "clob",
+      "maxSpread": 0.035,
+      "minSize": 100000000,
+      "minutesDeadline": 5,
+      "openPrice": "0.083265193000000000",
+      "openPriceCapturedAt": "2026-06-21T18:25:00.000Z",
+      "oracleVersion": 2,
+      "pythLazerChannel": null,
+      "pythLazerId": null,
+      "pythProHistorySymbol": null,
+      "pythToleranceDirection": null,
+      "pythToleranceSeconds": null,
+      "rewardsEpoch": 0.3472222222222222,
+      "shouldMarketMake": true
+    },
+    "negRiskRequestId": null,
+    "priceOracleMetadata": {
+      "assetType": "CRYPTO",
+      "chainlinkFeedAddress": null,
+      "chainlinkFeedId": "0x000356ca64d3b32135e17dc0dc721a645bf50d0303be8ceb2cdca0a50bab8fdc",
+      "chainlinkPair": "BTC/USD",
+      "chainlinkStreamUrl": null,
+      "chartSource": "chainlink",
+      "logo": "https://cdn.limitless.exchange/price-oracles/99/8c4d97f8-ba3f-4694-b64c-1d412b48c922.svg",
+      "name": "DOGE Chainlink",
+      "pythAddress": "0x000356ca64d3b32135e17dc0dc721a645bf50d0303be8ceb2cdca0a50bab8fdc",
+      "symbol": "Crypto.DOGE/USD",
+      "ticker": "DOGE"
+    },
+    "prices": [
+      0.5,
+      0.5
+    ],
+    "priorityIndex": 10,
+    "proxyTitle": null,
+    "settings": {
+      "c": "3",
+      "creatorFeePct": 0,
+      "dailyReward": "500",
+      "maxSpread": 0.035,
+      "minSize": "100000000",
+      "rebateRate": "1",
+      "rewardsEpoch": "0.3472222222222222",
+      "takerDelayMs": 0
+    },
+    "slug": "doge-up-or-down-5-min-1782065716563",
+    "stableSlug": "doge-5min-price",
+    "startAt": "2026-06-21T18:25:00.000Z",
+    "status": "FUNDED",
+    "tags": [
+      "Lumy",
+      "Recurring",
+      "Minutely",
+      "Minutes 5"
+    ],
+    "title": "DOGE Up or Down - 5 Min",
+    "tokens": {
+      "no": "21413934056960981722266908954453786993504977368045734419727537634053640147339",
+      "yes": "106400510276424297831306558672770968848081415783387059155335814247308696051876"
+    },
+    "tradePrices": {
+      "buy": {
+        "limit": [
+          0.001,
+          0.001
+        ],
+        "market": [
+          0.999,
+          0.999
+        ]
+      },
+      "sell": {
+        "limit": [
+          0.999,
+          0.999
+        ],
+        "market": [
+          0.001,
+          0.001
+        ]
+      }
+    },
+    "tradeType": "clob",
+    "updatedAt": "2026-06-21T18:25:21.832Z",
+    "venue": {
+      "adapter": null,
+      "exchange": "0x05c748E2f4DcDe0ec9Fa8DDc40DE6b867f923fa5"
+    },
+    "volume": "0",
+    "volumeFormatted": "0.000000",
+    "winningOutcomeIndex": null
+  },
+  {
+    "automationType": "lumy",
+    "categories": [
+      "Minutely",
+      "5 min"
+    ],
+    "collateralToken": {
+      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "decimals": 6,
+      "symbol": "USDC"
+    },
+    "conditionId": "0x3aa8054fff7eea707795fe37f1a933bff9533b9fc731fc8a9f0d960108d6f5df",
+    "createdAt": "2026-06-21T18:15:27.320Z",
+    "creator": {
+      "address": "0x60e61631d9a585797cDee9f79FafDecf3bd7F64D",
+      "imageURI": "https://limitless.exchange/assets/images/logo.svg",
+      "link": "https://x.com/trylimitless",
+      "name": "Limitless"
+    },
+    "description": "<p>This market will resolve to \"Up\" if the <a href=\"https://data.chain.link/streams/bnb-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink BNB/USD</a> price on June 21, 2026, at 18:30 UTC is greater than or equal to the price captured on June 21, 2026, at 18:25 UTC. Otherwise, this market will resolve to \"Down\".</p><p><br></p><p>Resolution source: <a href=\"https://data.chain.link/streams/bnb-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink BNB/USD</a> data stream. Other exchanges, spot markets, and oracles will not be used.</p><p><br></p><p>If Chainlink is briefly missing data on June 21, 2026, at 18:30 UTC, the next available price within 5 seconds will be used. In the rare event of a longer Chainlink outage, the market will be resolved manually by the Limitless team using the closest available Chainlink price.</p><p><br></p><p>The <a href=\"https://data.chain.link/streams/bnb-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink BNB/USD</a> price captured on June 21, 2026, at 18:25 UTC was $588.938021829039400000.</p>",
+    "expirationDate": "Jun 21, 2026",
+    "expirationTimestamp": 1782066600000,
+    "expired": false,
+    "groupId": null,
+    "hidden": false,
+    "id": 269959,
+    "imageUrl": "https://cdn.limitless.exchange/price-oracles/61/5e1ab167-0806-4db4-a742-6819ea67654b.svg",
+    "isOther": false,
+    "isRewardable": true,
+    "logo": "https://cdn.limitless.exchange/price-oracles/61/5e1ab167-0806-4db4-a742-6819ea67654b.svg",
+    "marketType": "single",
+    "metadata": {
+      "c": 3,
+      "chainlinkDataStream": {
+        "enabled": true,
+        "pair": "BTC/USD"
+      },
+      "fee": true,
+      "frequencySubType": "minutes_5",
+      "hidden": false,
+      "isBannered": false,
+      "isPolyArbitrage": false,
+      "makerRebateMult": 1,
+      "marketVariant": "clob",
+      "maxSpread": 0.035,
+      "minSize": 100000000,
+      "minutesDeadline": 5,
+      "openPrice": "588.938021829039400000",
+      "openPriceCapturedAt": "2026-06-21T18:25:00.000Z",
+      "oracleVersion": 2,
+      "pythLazerChannel": null,
+      "pythLazerId": null,
+      "pythProHistorySymbol": null,
+      "pythToleranceDirection": null,
+      "pythToleranceSeconds": null,
+      "rewardsEpoch": 0.3472222222222222,
+      "shouldMarketMake": true
+    },
+    "negRiskRequestId": null,
+    "priceOracleMetadata": {
+      "assetType": "CRYPTO",
+      "chainlinkFeedAddress": null,
+      "chainlinkFeedId": "0x000335fd3f3ffa06cfd9297b97367f77145d7a5f132e84c736cc471dd98621fe",
+      "chainlinkPair": "BTC/USD",
+      "chainlinkStreamUrl": null,
+      "chartSource": "chainlink",
+      "logo": "https://cdn.limitless.exchange/price-oracles/61/5e1ab167-0806-4db4-a742-6819ea67654b.svg",
+      "name": "BNB Chainlink",
+      "pythAddress": "0x000335fd3f3ffa06cfd9297b97367f77145d7a5f132e84c736cc471dd98621fe",
+      "symbol": "Crypto.BNB/USD",
+      "ticker": "BNB"
+    },
+    "prices": [
+      0.54,
+      0.46
+    ],
+    "priorityIndex": 10,
+    "proxyTitle": null,
+    "settings": {
+      "c": "3",
+      "creatorFeePct": 0,
+      "dailyReward": "500",
+      "maxSpread": 0.035,
+      "minSize": "100000000",
+      "rebateRate": "1",
+      "rewardsEpoch": "0.3472222222222222",
+      "takerDelayMs": 0
+    },
+    "slug": "bnb-up-or-down-5-min-1782065726254",
+    "stableSlug": "bnb-5min-price",
+    "startAt": "2026-06-21T18:25:00.000Z",
+    "status": "FUNDED",
+    "tags": [
+      "Lumy",
+      "Recurring",
+      "Minutely",
+      "Minutes 5"
+    ],
+    "title": "BNB Up or Down - 5 Min",
+    "tokens": {
+      "no": "50950258152276406522237697636194587697957986396801157120937780069261122519604",
+      "yes": "101198324635909158577904343454558675240453648781766694945079685795072343629716"
+    },
+    "tradePrices": {
+      "buy": {
+        "limit": [
+          0.1,
+          0.02
+        ],
+        "market": [
+          0.98,
+          0.9
+        ]
+      },
+      "sell": {
+        "limit": [
+          0.98,
+          0.9
+        ],
+        "market": [
+          0.1,
+          0.02
+        ]
+      }
+    },
+    "tradeType": "clob",
+    "updatedAt": "2026-06-21T18:25:16.507Z",
+    "venue": {
+      "adapter": null,
+      "exchange": "0x05c748E2f4DcDe0ec9Fa8DDc40DE6b867f923fa5"
+    },
+    "volume": "0",
+    "volumeFormatted": "0.000000",
+    "winningOutcomeIndex": null
+  },
+  {
+    "automationType": "lumy",
+    "categories": [
+      "Minutely",
+      "5 min"
+    ],
+    "collateralToken": {
+      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "decimals": 6,
+      "symbol": "USDC"
+    },
+    "conditionId": "0x153c13aca154f1fb95c1e81d3fdf5c0728f5b61a3a3daf2cb58e074f75091b9c",
+    "createdAt": "2026-06-21T18:15:32.801Z",
+    "creator": {
+      "address": "0x60e61631d9a585797cDee9f79FafDecf3bd7F64D",
+      "imageURI": "https://limitless.exchange/assets/images/logo.svg",
+      "link": "https://x.com/trylimitless",
+      "name": "Limitless"
+    },
+    "description": "<p>This market will resolve to \"Up\" if the <a href=\"https://data.chain.link/streams/hype-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink HYPE/USD</a> price on June 21, 2026, at 18:30 UTC is greater than or equal to the price captured on June 21, 2026, at 18:25 UTC. Otherwise, this market will resolve to \"Down\".</p><p><br></p><p>Resolution source: <a href=\"https://data.chain.link/streams/hype-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink HYPE/USD</a> data stream. Other exchanges, spot markets, and oracles will not be used.</p><p><br></p><p>If Chainlink is briefly missing data on June 21, 2026, at 18:30 UTC, the next available price within 5 seconds will be used. In the rare event of a longer Chainlink outage, the market will be resolved manually by the Limitless team using the closest available Chainlink price.</p><p><br></p><p>The <a href=\"https://data.chain.link/streams/hype-usd-cexprice-streams\" target=\"_blank\" rel=\"noopener noreferrer\">Chainlink HYPE/USD</a> price captured on June 21, 2026, at 18:25 UTC was $67.746088000000000000.</p>",
+    "expirationDate": "Jun 21, 2026",
+    "expirationTimestamp": 1782066600000,
+    "expired": false,
+    "groupId": null,
+    "hidden": false,
+    "id": 269960,
+    "imageUrl": "https://cdn.limitless.exchange/price-oracles/64/1365fd22-d140-407c-a8f8-f8ecb516d29a.svg",
+    "isOther": false,
+    "isRewardable": true,
+    "logo": "https://cdn.limitless.exchange/price-oracles/64/1365fd22-d140-407c-a8f8-f8ecb516d29a.svg",
+    "marketType": "single",
+    "metadata": {
+      "c": 3,
+      "chainlinkDataStream": {
+        "enabled": true,
+        "pair": "BTC/USD"
+      },
+      "fee": true,
+      "frequencySubType": "minutes_5",
+      "hidden": false,
+      "isBannered": false,
+      "isPolyArbitrage": false,
+      "makerRebateMult": 1,
+      "marketVariant": "clob",
+      "maxSpread": 0.035,
+      "minSize": 100000000,
+      "minutesDeadline": 5,
+      "openPrice": "67.746088000000000000",
+      "openPriceCapturedAt": "2026-06-21T18:25:00.000Z",
+      "oracleVersion": 2,
+      "pythLazerChannel": null,
+      "pythLazerId": null,
+      "pythProHistorySymbol": null,
+      "pythToleranceDirection": null,
+      "pythToleranceSeconds": null,
+      "rewardsEpoch": 0.3472222222222222,
+      "shouldMarketMake": true
+    },
+    "negRiskRequestId": null,
+    "priceOracleMetadata": {
+      "assetType": "CRYPTO",
+      "chainlinkFeedAddress": null,
+      "chainlinkFeedId": "0x0003d34539af562867c3cb309b59efccf40e74b404fb415eeb7699d61322aed9",
+      "chainlinkPair": "BTC/USD",
+      "chainlinkStreamUrl": null,
+      "chartSource": "chainlink",
+      "logo": "https://cdn.limitless.exchange/price-oracles/64/1365fd22-d140-407c-a8f8-f8ecb516d29a.svg",
+      "name": "HYPE Chainlink",
+      "pythAddress": "0x0003d34539af562867c3cb309b59efccf40e74b404fb415eeb7699d61322aed9",
+      "symbol": "Crypto.HYPE/USD",
+      "ticker": "HYPE"
+    },
+    "prices": [
+      0.54,
+      0.46
+    ],
+    "priorityIndex": 10,
+    "proxyTitle": null,
+    "settings": {
+      "c": "3",
+      "creatorFeePct": 0,
+      "dailyReward": "500",
+      "maxSpread": 0.035,
+      "minSize": "100000000",
+      "rebateRate": "1",
+      "rewardsEpoch": "0.3472222222222222",
+      "takerDelayMs": 0
+    },
+    "slug": "hype-up-or-down-5-min-1782065727372",
+    "stableSlug": "hype-5min-price",
+    "startAt": "2026-06-21T18:25:00.000Z",
+    "status": "FUNDED",
+    "tags": [
+      "Lumy",
+      "Recurring",
+      "Minutely",
+      "Minutes 5"
+    ],
+    "title": "HYPE Up or Down - 5 Min",
+    "tokens": {
+      "no": "61792231558876896453535255565774858082396141579535546158770192946187076443380",
+      "yes": "9551348383944778518174420751157591154961319764789311055355940313060139025199"
+    },
+    "tradePrices": {
+      "buy": {
+        "limit": [
+          0.1,
+          0.02
+        ],
+        "market": [
+          0.98,
+          0.9
+        ]
+      },
+      "sell": {
+        "limit": [
+          0.98,
+          0.9
+        ],
+        "market": [
+          0.1,
+          0.02
+        ]
+      }
+    },
+    "tradeType": "clob",
+    "updatedAt": "2026-06-21T18:25:12.578Z",
+    "venue": {
+      "adapter": null,
+      "exchange": "0x05c748E2f4DcDe0ec9Fa8DDc40DE6b867f923fa5"
+    },
+    "volume": "0",
+    "volumeFormatted": "0.000000",
+    "winningOutcomeIndex": null
+  }
+]
