@@ -1,6 +1,6 @@
 """Tests for data models"""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dr_manhattan.models.market import Market
 from dr_manhattan.models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
@@ -100,6 +100,76 @@ class TestMarket:
             tick_size=0.01,
         )
         assert no_close_time_market.is_open is True
+
+    def test_market_time_accessors_parse_exchange_metadata(self):
+        """Test normalized market timing accessors parse common exchange metadata."""
+        market = Market(
+            id="m1",
+            question="World Cup match?",
+            outcomes=["Team A", "Team B"],
+            close_time=None,
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={
+                "startAt": "2026-06-21T16:00:00Z",
+                "expirationTimestamp": 1782144000000,
+            },
+            tick_size=0.01,
+        )
+
+        assert market.start_time == datetime(2026, 6, 21, 16, 0, tzinfo=timezone.utc)
+        assert market.end_time == datetime.fromtimestamp(1782144000, timezone.utc)
+        assert market.event_time == market.start_time
+
+    def test_market_end_time_prefers_close_time(self):
+        """Test close_time remains the canonical end_time when present."""
+        close_time = datetime(2026, 1, 1, 12, 0)
+        market = Market(
+            id="m1",
+            question="Close time?",
+            outcomes=["Yes", "No"],
+            close_time=close_time,
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={"expirationTimestamp": 1782144000000},
+            tick_size=0.01,
+        )
+
+        assert market.end_time == close_time
+
+    def test_market_is_open_uses_metadata_end_time_when_close_time_missing(self):
+        """Test is_open falls back to exchange expiry metadata."""
+        market = Market(
+            id="m1",
+            question="Expired?",
+            outcomes=["Yes", "No"],
+            close_time=None,
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={"expirationTimestamp": 1},
+            tick_size=0.01,
+        )
+
+        assert market.is_open is False
+
+    def test_market_time_accessors_parse_date_strings(self):
+        """Test date-only exchange metadata is parsed."""
+        market = Market(
+            id="m1",
+            question="Date string?",
+            outcomes=["Yes", "No"],
+            close_time=None,
+            volume=0,
+            liquidity=0,
+            prices={},
+            metadata={"expirationDate": "Jun 22, 2026"},
+            tick_size=0.01,
+        )
+
+        assert market.end_time == datetime(2026, 6, 22)
 
     def test_market_spread(self):
         """Test spread property"""

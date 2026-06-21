@@ -1,11 +1,105 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 # Readable market ID as a path-like list:
 # - ["61"] for simple ID (Opinion)
 # - ["fed-decision-in-january", "No change"] for hierarchical (Polymarket)
 ReadableMarketId = List[str]
+
+START_TIME_METADATA_KEYS = (
+    "start_time",
+    "startTime",
+    "startAt",
+    "start_at",
+    "startDate",
+    "start_date",
+    "startDateIso",
+    "scheduledTime",
+    "scheduled_time",
+    "kickoff",
+    "kickoffTime",
+    "kickoff_time",
+    "gameStart",
+    "game_start",
+)
+
+END_TIME_METADATA_KEYS = (
+    "end_time",
+    "endTime",
+    "endAt",
+    "end_at",
+    "endDate",
+    "end_date",
+    "endDateIso",
+    "closeTime",
+    "close_time",
+    "closedAt",
+    "closed_at",
+    "expirationDate",
+    "expirationTimestamp",
+    "expiresAt",
+    "expiry",
+    "deadline",
+    "resolvedAt",
+    "resolutionTime",
+)
+
+DATE_FORMATS = (
+    "%Y-%m-%d",
+    "%b %d, %Y",
+    "%B %d, %Y",
+    "%b %d %Y",
+    "%B %d %Y",
+)
+
+
+def _parse_market_datetime(value: Any) -> Optional[datetime]:
+    """Parse exchange timestamp shapes into a datetime."""
+    if value is None or value == "":
+        return None
+
+    if isinstance(value, datetime):
+        return value
+
+    if isinstance(value, (int, float)):
+        timestamp = value / 1000 if value > 10_000_000_000 else value
+        return datetime.fromtimestamp(timestamp, timezone.utc)
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+
+        try:
+            timestamp = float(stripped)
+        except ValueError:
+            timestamp = None
+
+        if timestamp is not None:
+            timestamp = timestamp / 1000 if timestamp > 10_000_000_000 else timestamp
+            return datetime.fromtimestamp(timestamp, timezone.utc)
+
+        try:
+            return datetime.fromisoformat(stripped.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+
+        for date_format in DATE_FORMATS:
+            try:
+                return datetime.strptime(stripped, date_format)
+            except ValueError:
+                continue
+
+    return None
+
+
+def _metadata_datetime(metadata: Dict[str, Any], keys: tuple[str, ...]) -> Optional[datetime]:
+    for key in keys:
+        parsed = _parse_market_datetime(metadata.get(key))
+        if parsed is not None:
+            return parsed
+    return None
 
 
 @dataclass
@@ -89,16 +183,36 @@ class Market:
         return len(self.outcomes) == 2
 
     @property
+    def start_time(self) -> Optional[datetime]:
+        """Get normalized event start time from exchange metadata."""
+        return _metadata_datetime(self.metadata, START_TIME_METADATA_KEYS)
+
+    @property
+    def end_time(self) -> Optional[datetime]:
+        """Get normalized trading close or event end time."""
+        if self.close_time is not None:
+            return self.close_time
+        return _metadata_datetime(self.metadata, END_TIME_METADATA_KEYS)
+
+    @property
+    def event_time(self) -> Optional[datetime]:
+        """Get the best available timestamp for scheduling around this market."""
+        return self.start_time or self.end_time
+
+    @property
     def is_open(self) -> bool:
         """Check if market is still open for trading"""
         # Check metadata for explicit closed status (e.g., Polymarket)
         if "closed" in self.metadata:
             return not self.metadata["closed"]
 
-        # Fallback to close_time check
-        if not self.close_time:
+        # Fallback to normalized end_time check
+        end_time = self.end_time
+        if not end_time:
             return True
-        return datetime.now() < self.close_time
+
+        now = datetime.now(end_time.tzinfo) if end_time.tzinfo else datetime.now()
+        return now < end_time
 
     @property
     def spread(self) -> Optional[float]:
