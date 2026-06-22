@@ -35,7 +35,7 @@ class Exchange(ABC):
         # Rate limiting
         self.rate_limit = self.config.get("rate_limit", 10)  # requests per second
         self.last_request_time = 0
-        self.request_times = []  # For sliding window rate limiting
+        self.request_times: list[float] = []  # For sliding window rate limiting
 
         # Retry configuration
         self.max_retries = self.config.get("max_retries", 3)
