@@ -138,6 +138,12 @@ Dr. Manhattan exposes all trading capabilities as MCP tools. Configure in Claude
 - `stop_strategy(session_id, cleanup?)` - Stop a strategy and optionally cancel orders.
 - `list_strategy_sessions` - List all active strategy sessions.
 
+**Insider Verification:**
+- `fetch_wallet_trades(exchange, wallet_address, market_id?, limit?)` - Fetch all trades for a wallet address.
+- `analyze_wallet_performance(exchange, wallet_address, limit?)` - Analyze trading performance and patterns.
+- `detect_insider_signals(exchange, wallet_address, market_id?, limit?)` - Detect potential insider trading signals.
+- `compare_wallets(exchange, wallet_addresses, limit_per_wallet?)` - Compare trading patterns across multiple wallets.
+
 ## Common Workflows
 
 ### Find and Analyze a Market
@@ -168,6 +174,13 @@ Dr. Manhattan exposes all trading capabilities as MCP tools. Configure in Claude
 2. `fetch_positions` to see all open positions with unrealized PnL.
 3. `calculate_nav` for total portfolio value (cash + positions).
 
+### Verify Insider Trading Activity
+
+1. Use `fetch_wallet_trades` with a wallet address to get trading history.
+2. Use `analyze_wallet_performance` to see metrics like win rate, market exposure, and timing patterns.
+3. Use `detect_insider_signals` to identify suspicious patterns (market concentration, large trades, one-sided trading).
+4. Use `compare_wallets` with multiple addresses to detect coordinated trading between accounts.
+
 ## Key Concepts
 
 - **Prices are probabilities** ranging from 0 to 1 (exclusive). A price of 0.65 means the market implies a 65% chance.
@@ -182,6 +195,8 @@ Dr. Manhattan exposes all trading capabilities as MCP tools. Configure in Claude
 uv run python examples/list_all_markets.py polymarket
 uv run python examples/spread_strategy.py --exchange polymarket --slug fed-decision
 uv run python examples/spike_strategy.py -e opinion -m 813 --spike-threshold 0.02
+uv run python examples/verify_insider.py 0xWALLET_ADDRESS --detect-signals
+uv run python examples/verify_insider.py --compare 0xWALLET1 0xWALLET2
 ```
 
 ## Data Models

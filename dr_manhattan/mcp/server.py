@@ -114,6 +114,7 @@ from .session import ExchangeSessionManager, StrategySessionManager  # noqa: E40
 from .tools import (  # noqa: E402
     account_tools,
     exchange_tools,
+    insider_tools,
     market_tools,
     strategy_tools,
     trading_tools,
@@ -515,6 +516,65 @@ async def list_tools() -> List[Tool]:
                 "required": ["slug"],
             },
         ),
+        # Insider verification tools (4)
+        Tool(
+            name="fetch_wallet_trades",
+            description="Fetch all trades for a specific wallet address",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string", "description": "Exchange name (polymarket)"},
+                    "wallet_address": {"type": "string", "description": "Wallet/proxy wallet address"},
+                    "market_id": {"type": "string", "description": "Optional market filter"},
+                    "limit": {"type": "integer", "default": 500, "description": "Max trades to fetch"},
+                },
+                "required": ["exchange", "wallet_address"],
+            },
+        ),
+        Tool(
+            name="analyze_wallet_performance",
+            description="Analyze trading performance and patterns for a wallet",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "wallet_address": {"type": "string"},
+                    "limit": {"type": "integer", "default": 500},
+                },
+                "required": ["exchange", "wallet_address"],
+            },
+        ),
+        Tool(
+            name="detect_insider_signals",
+            description="Detect potential insider trading signals for a wallet (market concentration, large trades, timing patterns)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "wallet_address": {"type": "string"},
+                    "market_id": {"type": "string", "description": "Optional market filter"},
+                    "limit": {"type": "integer", "default": 500},
+                },
+                "required": ["exchange", "wallet_address"],
+            },
+        ),
+        Tool(
+            name="compare_wallets",
+            description="Compare trading patterns across multiple wallets to detect coordinated trading",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string"},
+                    "wallet_addresses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of wallet addresses to compare (2-10)",
+                    },
+                    "limit_per_wallet": {"type": "integer", "default": 200},
+                },
+                "required": ["exchange", "wallet_addresses"],
+            },
+        ),
     ]
 
 
@@ -556,6 +616,11 @@ TOOL_DISPATCH = {
     "pause_strategy": (strategy_tools.pause_strategy, True),
     "resume_strategy": (strategy_tools.resume_strategy, True),
     "get_strategy_metrics": (strategy_tools.get_strategy_metrics, True),
+    # Insider verification tools (4)
+    "fetch_wallet_trades": (insider_tools.fetch_wallet_trades, True),
+    "analyze_wallet_performance": (insider_tools.analyze_wallet_performance, True),
+    "detect_insider_signals": (insider_tools.detect_insider_signals, True),
+    "compare_wallets": (insider_tools.compare_wallets, True),
 }
 
 
