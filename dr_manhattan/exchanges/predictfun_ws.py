@@ -220,11 +220,16 @@ class PredictFunWebSocket(OrderBookWebSocket):
         bids.sort(reverse=True)
         asks.sort()
 
+        timestamp = (
+            data.get("updateTimestampMs") or data.get("timestamp") or int(time.time() * 1000)
+        )
+
         return {
             "market_id": market_id,
             "bids": bids,
             "asks": asks,
-            "timestamp": data.get("timestamp", int(time.time() * 1000)),
+            "timestamp": timestamp,
+            "updateTimestampMs": data.get("updateTimestampMs"),
         }
 
     async def _send_heartbeat_response(self):
