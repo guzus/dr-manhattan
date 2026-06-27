@@ -7,7 +7,8 @@ Diagnostic and operational tools organized by exchange.
 ```
 scripts/
 ├── polymarket/          # Polymarket-specific utilities
-│   └── check_approval.py
+│   ├── check_approval.py
+│   └── orderbook_relay.py
 └── README.md
 ```
 
@@ -40,6 +41,24 @@ Exchange Allowance: $0.00
 
 ---
 
+### polymarket/orderbook_relay.py
+
+**Purpose:** Run one upstream Polymarket CLOB market websocket and fan out orderbook updates to local websocket clients.
+
+**Usage:**
+```bash
+uv run scripts/polymarket/orderbook_relay.py --host 127.0.0.1 --port 8765
+```
+
+Clients subscribe with:
+```json
+{"type":"subscribe","assets":["<clob token id>"]}
+```
+
+Forwarded messages include `relay_received_ms` and `relay_sent_ms` so clients can measure relay overhead.
+
+---
+
 ## Adding New Scripts
 
 Utility scripts should:
@@ -48,4 +67,3 @@ Utility scripts should:
 3. Require minimal setup (use .env)
 4. Provide clear output and guidance
 5. Handle errors gracefully
-
