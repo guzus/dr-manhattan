@@ -6,6 +6,7 @@ import pytest
 
 from dr_manhattan.base.errors import AuthenticationError, ExchangeError, InvalidOrder
 from dr_manhattan.exchanges.predictfun import PredictFun
+from dr_manhattan.exchanges.predictfun_ws import PredictFunWebSocket
 from dr_manhattan.models.order import OrderSide, OrderStatus
 
 
@@ -524,3 +525,22 @@ def test_fetch_order_matches_forwards_filters(monkeypatch):
         },
         "require_auth": False,
     }
+
+
+def test_predictfun_websocket_preserves_update_timestamp():
+    ws = PredictFunWebSocket()
+
+    parsed = ws._parse_orderbook_message(
+        {
+            "type": "M",
+            "topic": "predictOrderbook/1518",
+            "data": {
+                "updateTimestampMs": 1782098035543,
+                "bids": [{"price": "0.12", "size": "10"}],
+                "asks": [{"price": "0.13", "size": "20"}],
+            },
+        }
+    )
+
+    assert parsed["timestamp"] == 1782098035543
+    assert parsed["updateTimestampMs"] == 1782098035543
