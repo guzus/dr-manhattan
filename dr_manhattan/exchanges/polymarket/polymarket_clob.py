@@ -410,23 +410,25 @@ class PolymarketCLOB:
         """
         Fetch current positions from Polymarket.
 
-        Note: On Polymarket, positions are represented by conditional token balances.
-        This method queries token balances for the specified market.
-        Since positions require market-specific token data, we can't query positions
-        without a market context. Returns empty list if no market_id is provided.
+        Note: On Polymarket, positions are represented by conditional token balances,
+        which require the market's token IDs. When a market_id is given we resolve the
+        market and query its token balances so the unified contract returns real
+        positions (matching the other exchanges) instead of an empty list.
+
+        Returns an empty list only when no market_id is provided or the market
+        genuinely holds no position. Errors (e.g. market lookup or balance query
+        failures) propagate so callers do not mistake a transient failure for a
+        flat book.
         """
         if not self._clob_client:
             raise AuthenticationError("CLOB client not initialized. Private key required.")
 
-        # Positions require market context on Polymarket
-        # Without market_id, we can't determine which tokens to query
+        # Without a market_id we cannot determine which conditional tokens to query.
         if not market_id:
             return []
 
-        # For now, return empty positions list
-        # Positions will be queried on-demand when we have the market object with token IDs
-        # This avoids the chicken-and-egg problem of needing to fetch the market just to get positions
-        return []
+        market = self.fetch_market(market_id)
+        return self.fetch_positions_for_market(market)
 
     def fetch_positions_for_market(self, market: Market) -> list[Position]:
         """

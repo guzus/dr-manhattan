@@ -144,9 +144,11 @@ class Strategy(ABC):
 
         try:
             balance = self.client.fetch_balance()
-            # Support both USDC and USDT
-            amount = balance.get("USDC", 0.0) or balance.get("USDT", 0.0)
-            symbol = "USDC" if balance.get("USDC") else "USDT"
+            # Balance is keyed by collateral currency, which differs by exchange
+            # (USDC on Polymarket, USD on Kalshi, USDT on Predict.fun). Sum the
+            # values so the displayed amount is correct regardless of the key.
+            amount = sum(balance.values())
+            symbol = next(iter(balance), "USD")
             logger.info(f"Balance: {Colors.green(f'${amount:,.2f}')} {symbol}")
         except Exception as e:
             logger.warning(f"Failed to fetch balance: {e}")
@@ -512,7 +514,8 @@ class Strategy(ABC):
             self.cancel_stale_orders(buy_orders, our_bid)
 
             if position + self.order_size <= self.max_position:
-                if self.cash >= self.order_size:
+                # cash is in dollars; the order costs order_size shares * price.
+                if self.cash >= self.order_size * our_bid:
                     try:
                         self.create_order(
                             outcome, OrderSide.BUY, our_bid, self.order_size, token_id

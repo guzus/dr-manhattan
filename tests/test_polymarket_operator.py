@@ -7,6 +7,7 @@ import pytest
 
 from dr_manhattan.base.errors import AuthenticationError
 from dr_manhattan.exchanges.polymarket_operator import PolymarketOperator
+from dr_manhattan.models.market import Market
 
 
 class TestPolymarketOperatorInit:
@@ -73,3 +74,85 @@ class TestPolymarketOperatorMethods:
     def test_has_operator_specific_methods(self):
         """Test that operator-specific methods exist."""
         assert hasattr(PolymarketOperator, "check_operator_approval")
+
+
+class TestPolymarketOperatorPositions:
+    """Operator reads positions from the public Data API (keyed by wallet address)."""
+
+    def _operator(self, user_address="0xUser"):
+        # Bypass __init__ (needs an operator key + live CLOB client); we only
+        # exercise fetch_positions, which needs _user_address and the data mixin.
+        operator = object.__new__(PolymarketOperator)
+        operator._user_address = user_address
+        return operator
+
+    def test_fetch_positions_parses_data_api_response(self):
+        operator = self._operator()
+        raw = [
+            {
+                "conditionId": "0xcond1",
+                "outcome": "Yes",
+                "size": 12.0,
+                "avgPrice": 0.4,
+                "curPrice": 0.55,
+            },
+            {  # zero size must be filtered out
+                "conditionId": "0xcond2",
+                "outcome": "No",
+                "size": 0,
+                "avgPrice": 0.0,
+                "curPrice": 0.0,
+            },
+        ]
+
+        with patch.object(
+            PolymarketOperator, "fetch_positions_data", return_value=raw
+        ) as mock_data:
+            positions = operator.fetch_positions()
+
+        # #then the wallet's positions are returned (no longer an empty list)
+        mock_data.assert_called_once_with("0xUser")
+        assert len(positions) == 1
+        assert positions[0].market_id == "0xcond1"
+        assert positions[0].outcome == "Yes"
+        assert positions[0].size == 12.0
+        assert positions[0].average_price == 0.4
+        assert positions[0].current_price == 0.55
+
+    def test_fetch_positions_filters_by_resolved_condition_id(self):
+        operator = self._operator()
+        raw = [
+            {
+                "conditionId": "0xcond1",
+                "outcome": "Yes",
+                "size": 5.0,
+                "avgPrice": 0.4,
+                "curPrice": 0.5,
+            },
+            {
+                "conditionId": "0xcond2",
+                "outcome": "Yes",
+                "size": 7.0,
+                "avgPrice": 0.3,
+                "curPrice": 0.6,
+            },
+        ]
+        market = Market(
+            id="0xcond2",
+            question="?",
+            outcomes=["Yes", "No"],
+            close_time=None,
+            volume=0.0,
+            liquidity=0.0,
+            prices={"Yes": 0.6, "No": 0.4},
+            metadata={"conditionId": "0xcond2"},
+            tick_size=0.01,
+        )
+
+        with patch.object(PolymarketOperator, "fetch_positions_data", return_value=raw):
+            with patch.object(PolymarketOperator, "fetch_market", return_value=market):
+                positions = operator.fetch_positions(market_id="0xcond2")
+
+        assert len(positions) == 1
+        assert positions[0].market_id == "0xcond2"
+        assert positions[0].size == 7.0

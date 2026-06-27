@@ -7,7 +7,24 @@ import pytest
 
 from dr_manhattan.base.errors import AuthenticationError, MarketNotFound
 from dr_manhattan.exchanges.polymarket import Polymarket
+from dr_manhattan.models.market import Market
 from dr_manhattan.models.order import OrderSide, OrderStatus
+
+
+def _market(**overrides):
+    data = dict(
+        id="0xmarket123",
+        question="Test?",
+        outcomes=["Yes", "No"],
+        close_time=None,
+        volume=0.0,
+        liquidity=0.0,
+        prices={"Yes": 0.6, "No": 0.4},
+        metadata={"clobTokenIds": ["token1", "token2"]},
+        tick_size=0.01,
+    )
+    data.update(overrides)
+    return Market(**data)
 
 
 def test_polymarket_properties():
@@ -165,6 +182,47 @@ def test_fetch_positions_without_client():
 
     with pytest.raises(AuthenticationError, match="CLOB client not initialized"):
         exchange.fetch_positions()
+
+
+def test_fetch_positions_without_market_id_returns_empty():
+    """Without a market_id there is no token context, so an empty list is correct."""
+    exchange = Polymarket()
+    exchange._clob_client = Mock()
+
+    assert exchange.fetch_positions() == []
+
+
+@patch.object(Polymarket, "fetch_market")
+def test_fetch_positions_delegates_to_market_lookup(mock_fetch_market):
+    """fetch_positions(market_id) resolves the market and returns real token balances."""
+    # #given an authenticated client holding 5 YES shares and no NO shares
+    exchange = Polymarket()
+    exchange._clob_client = Mock()
+    exchange._clob_client.get_balance_allowance.side_effect = [
+        {"balance": "5000000"},  # token1 (Yes): 5.0 shares at 6 decimals
+        {"balance": "0"},  # token2 (No): flat
+    ]
+    mock_fetch_market.return_value = _market()
+
+    # #when
+    positions = exchange.fetch_positions(market_id="0xmarket123")
+
+    # #then the market is resolved once and the wei balance becomes a real position
+    mock_fetch_market.assert_called_once_with("0xmarket123")
+    assert len(positions) == 1
+    assert positions[0].outcome == "Yes"
+    assert positions[0].size == 5.0
+    assert positions[0].current_price == 0.6
+
+
+@patch.object(Polymarket, "fetch_market", side_effect=MarketNotFound("nope"))
+def test_fetch_positions_propagates_lookup_error(mock_fetch_market):
+    """A lookup failure must raise, not be silently reported as a flat book."""
+    exchange = Polymarket()
+    exchange._clob_client = Mock()
+
+    with pytest.raises(MarketNotFound):
+        exchange.fetch_positions(market_id="0xmarket123")
 
 
 def test_parse_order_status():

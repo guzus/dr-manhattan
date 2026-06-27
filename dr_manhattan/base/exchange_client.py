@@ -924,6 +924,11 @@ class ExchangeClient:
 
         if yes_mid is not None:
             if market.is_binary:
+                # Keyed by literal "Yes"/"No". For binary markets whose outcomes are
+                # named (e.g. candidate names) these keys won't match market.outcomes,
+                # so NAV falls back to market.prices below; multi-outcome markets only
+                # price the first leg here. Acceptable for now (NAV stays correct via
+                # the market.prices fallback); a per-token mid lookup is a follow-up.
                 mid_prices["Yes"] = yes_mid
                 mid_prices["No"] = 1.0 - yes_mid
             else:
