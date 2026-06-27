@@ -1,0 +1,28 @@
+name: Contract Drift
+
+# Hits the live public exchange APIs and verifies their responses still parse into
+# the unified contract. Scheduled (not a PR gate) so an upstream API change pages us
+# before it breaks production. Trigger manually via the Actions tab or `gh workflow run`.
+
+on:
+  schedule:
+    - cron: "0 13 * * *" # daily, 13:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Check exchange contract drift
+        run: uv run python scripts/contract_drift_check.py

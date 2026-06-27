@@ -24,7 +24,7 @@ from ..base.errors import (
     RateLimitError,
 )
 from ..base.exchange import Exchange
-from ..models.market import Market
+from ..models.market import Market, parse_market_datetime
 from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from ..models.position import Position
 from .limitless_ws import (
@@ -47,6 +47,58 @@ __all__ = [
     "PositionUpdate",
     "Trade",
 ]
+
+LIMITLESS_START_TIME_KEYS = (
+    "startAt",
+    "start_at",
+    "startTime",
+    "eventStartTime",
+    "gameStartTime",
+    "scheduledTime",
+)
+
+LIMITLESS_END_TIME_KEYS = (
+    "expirationTimestamp",
+    "deadline",
+    "closeDate",
+    "expirationDate",
+    "endDate",
+    "expiresAt",
+)
+
+
+def _first_present(data: Dict[str, Any], keys: Sequence[str]) -> Any:
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _add_normalized_market_times(metadata: Dict[str, Any], source: Dict[str, Any]) -> None:
+    start_time = _first_present(source, LIMITLESS_START_TIME_KEYS)
+    end_time = _first_present(source, LIMITLESS_END_TIME_KEYS)
+    if start_time is not None:
+        metadata["start_time"] = start_time
+    if end_time is not None:
+        metadata["end_time"] = end_time
+
+
+def _inherit_parent_market_time(
+    data: Dict[str, Any], parent: Dict[str, Any], keys: Sequence[str], normalized_key: str
+) -> None:
+    if _first_present(data, keys) is not None or data.get(normalized_key) not in (None, ""):
+        return
+
+    for key in keys:
+        value = parent.get(key)
+        if value not in (None, ""):
+            data[key] = value
+            return
+
+    value = parent.get(normalized_key)
+    if value not in (None, ""):
+        data[normalized_key] = value
 
 
 @dataclass
@@ -389,7 +441,20 @@ class Limitless(Exchange):
         # Expand nested markets
         result = []
         for nested_data in nested_markets:
-            nested_market = self._parse_nested_market(nested_data, slug)
+            nested_with_parent_times = dict(nested_data)
+            _inherit_parent_market_time(
+                nested_with_parent_times,
+                market.metadata,
+                LIMITLESS_START_TIME_KEYS,
+                "start_time",
+            )
+            _inherit_parent_market_time(
+                nested_with_parent_times,
+                market.metadata,
+                LIMITLESS_END_TIME_KEYS,
+                "end_time",
+            )
+            nested_market = self._parse_nested_market(nested_with_parent_times, slug)
             result.append(nested_market)
 
         return result
@@ -414,10 +479,8 @@ class Limitless(Exchange):
         token_ids = [yes_token, no_token] if yes_token and no_token else []
 
         # Parse close time
-        close_time = None
-        deadline = data.get("deadline") or data.get("expirationDate")
-        if deadline:
-            close_time = self._parse_datetime(deadline)
+        end_time_value = _first_present(data, LIMITLESS_END_TIME_KEYS) or data.get("end_time")
+        close_time = parse_market_datetime(end_time_value)
 
         # Volume
         volume = float(data.get("volumeFormatted") or data.get("volume") or 0)
@@ -433,6 +496,7 @@ class Limitless(Exchange):
             "minimum_tick_size": 0.001,
             "closed": data.get("status", "").lower() in ("resolved", "closed"),
         }
+        _add_normalized_market_times(metadata, data)
 
         return Market(
             id=title,
@@ -483,10 +547,8 @@ class Limitless(Exchange):
                 prices["No"] = no_price / 100 if no_price > 1 else no_price
 
         # Parse close time
-        close_time = None
-        deadline = data.get("deadline") or data.get("closeDate") or data.get("expirationDate")
-        if deadline:
-            close_time = self._parse_datetime(deadline)
+        end_time_value = _first_present(data, LIMITLESS_END_TIME_KEYS)
+        close_time = parse_market_datetime(end_time_value)
 
         # Volume and liquidity (use formatted values if available)
         volume_raw = data.get("volumeFormatted") or data.get("volume") or 0
@@ -506,6 +568,7 @@ class Limitless(Exchange):
             "tokens": {"Yes": yes_token_id, "No": no_token_id},
             "minimum_tick_size": tick_size,
         }
+        _add_normalized_market_times(metadata, data)
 
         # Check status
         status = data.get("status", "")
@@ -1344,21 +1407,7 @@ class Limitless(Exchange):
 
     def _parse_datetime(self, timestamp: Optional[Any]) -> Optional[datetime]:
         """Parse datetime from various formats."""
-        if not timestamp:
-            return None
-
-        if isinstance(timestamp, datetime):
-            return timestamp
-
-        try:
-            if isinstance(timestamp, (int, float)):
-                # Unix timestamp
-                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
-            # ISO format string
-            ts_str = str(timestamp).replace("Z", "+00:00")
-            return datetime.fromisoformat(ts_str)
-        except (ValueError, TypeError):
-            return None
+        return parse_market_datetime(timestamp)
 
     # Search and exploration methods
 

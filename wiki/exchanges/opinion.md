@@ -7,10 +7,18 @@
 - **Type**: Prediction Market
 - **Base Class**: [Exchange](../../dr_manhattan/base/exchange.py)
 - **REST API**: `https://proxy.opinion.trade:8443`
+- **OpenAPI Documentation Host**: `https://openapi.opinion.trade`
 - **Chain**: BNB Chain (Chain ID: 56)
 - **Documentation**: https://docs.opinion.trade/developer-guide/opinion-open-api/overview
 
 Opinion is a prediction market platform built on BNB Chain. It supports both binary and categorical (multi-outcome) markets.
+
+## Current API Notes
+
+- Opinion's OpenAPI is a read-only data API; official docs direct trading, order management, positions, and on-chain actions to the Opinion CLOB SDK.
+- All OpenAPI requests require an `apikey` header. The wrapper also sends `Authorization: Bearer <api_key>` and `X-API-Key` for compatibility with the current SDK/proxy behavior.
+- The documented public rate limit is 15 requests per second per API key, and list endpoints are paginated with a maximum `limit` of 20.
+- The wrapper initializes `opinion_clob_sdk.Client` only when `api_key`, `private_key`, and `multi_sig_addr` are provided. Public methods that call SDK endpoints still need an API key.
 
 ### Key Features
 

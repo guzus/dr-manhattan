@@ -52,6 +52,17 @@ ignore = [
     "E501",  # Line too long (handled by black where possible)
 ]
 
+[tool.mypy]
+python_version = "3.11"
+# Type gate scope (ratchet plan): only the clean contract layer is gated today.
+# dr_manhattan/exchanges/ and dr_manhattan/mcp/ are excluded until annotated
+# (they carry the bulk of the remaining errors). Widen `files` below as each
+# module is cleaned, until the whole package is covered.
+files = ["dr_manhattan/models", "dr_manhattan/base"]
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -87,6 +98,7 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "black>=24.0.0",
     "ruff==0.14.2",
+    "mypy>=1.8.0",
     "twine>=6.0.0",
     "pre-commit>=4.5.1",
 ]

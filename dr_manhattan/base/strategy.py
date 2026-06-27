@@ -298,8 +298,11 @@ class Strategy(ABC):
         Get current positions as dict.
 
         Returns:
-            Dict mapping outcome name to position size
+            Dict mapping outcome name to position size.
+            Empty dict if the market has not been loaded yet (setup() not run).
         """
+        if self.market is None:
+            return {}
         return self.client.fetch_positions_dict_for_market(self.market)
 
     def get_open_orders(self) -> List[Order]:

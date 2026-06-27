@@ -35,7 +35,7 @@ class Exchange(ABC):
         # Rate limiting
         self.rate_limit = self.config.get("rate_limit", 10)  # requests per second
         self.last_request_time = 0
-        self.request_times = []  # For sliding window rate limiting
+        self.request_times: list[float] = []  # For sliding window rate limiting
 
         # Retry configuration
         self.max_retries = self.config.get("max_retries", 3)
@@ -353,9 +353,8 @@ class Exchange(ABC):
             if direction and parsed_direction != direction.lower():
                 continue
 
-            # Estimate expiry time from close_time
-            # For hourly markets, close_time is typically the settlement time
-            expiry = market.close_time if market.close_time else datetime.now() + timedelta(hours=1)
+            # For hourly markets, end_time is typically the settlement time.
+            expiry = market.end_time if market.end_time else datetime.now() + timedelta(hours=1)
 
             crypto_market = CryptoHourlyMarket(
                 token_symbol=parsed_token,

@@ -53,10 +53,10 @@ class OrderBookWebSocket(ABC):
 
         # Event loop
         self.loop = None
-        self.tasks = []
+        self.tasks: list[asyncio.Task] = []
 
         # Last activity tracking
-        self.last_message_time = 0
+        self.last_message_time: float = 0
 
     @property
     @abstractmethod

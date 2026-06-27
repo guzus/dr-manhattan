@@ -27,7 +27,7 @@ from ..base.errors import (
     RateLimitError,
 )
 from ..base.exchange import Exchange
-from ..models.market import Market
+from ..models.market import Market, parse_market_datetime
 from ..models.order import Order, OrderSide, OrderStatus
 from ..models.position import Position
 from .predictfun_ws import PredictFunUserWebSocket, PredictFunWebSocket
@@ -73,6 +73,47 @@ NO_EXPIRY_TIMESTAMP = 4102444800
 # BNB Chain RPC endpoints
 BNB_RPC_MAINNET = "https://bsc-dataseed.binance.org/"
 BNB_RPC_TESTNET = "https://data-seed-prebsc-1-s1.binance.org:8545/"
+
+PREDICTFUN_START_TIME_KEYS = (
+    "startTime",
+    "startAt",
+    "startsAt",
+    "eventStartTime",
+    "gameStartTime",
+    "scheduledTime",
+    "kickoffTime",
+)
+
+PREDICTFUN_END_TIME_KEYS = (
+    "endTime",
+    "endAt",
+    "closeTime",
+    "expirationTimestamp",
+    "expirationTime",
+    "expirationDate",
+    "expiresAt",
+    "deadline",
+    "resolutionTime",
+    "resolvedAt",
+)
+
+
+def _first_present(data: Dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _add_normalized_market_times(metadata: Dict[str, Any], source: Dict[str, Any]) -> None:
+    start_time = _first_present(source, PREDICTFUN_START_TIME_KEYS)
+    end_time = _first_present(source, PREDICTFUN_END_TIME_KEYS)
+    if start_time is not None:
+        metadata["start_time"] = start_time
+    if end_time is not None:
+        metadata["end_time"] = end_time
+
 
 # ERC-20 ABI for balanceOf, allowance, and approve
 ERC20_ABI = [
@@ -483,6 +524,8 @@ class PredictFun(Exchange):
 
         # Prices (empty by default, can be fetched from orderbook)
         prices: Dict[str, float] = {}
+        end_time_value = _first_present(data, PREDICTFUN_END_TIME_KEYS)
+        close_time = parse_market_datetime(end_time_value)
 
         metadata = {
             **data,
@@ -496,6 +539,7 @@ class PredictFun(Exchange):
             "closed": closed,
             "minimum_tick_size": tick_size,
         }
+        _add_normalized_market_times(metadata, data)
 
         # Cache token_id -> market_id and index mapping for orderbook lookups
         for idx, token_id in enumerate(token_ids):
@@ -507,7 +551,7 @@ class PredictFun(Exchange):
             id=market_id,
             question=question,
             outcomes=outcomes,
-            close_time=None,
+            close_time=close_time,
             volume=volume,
             liquidity=liquidity,
             prices=prices,
@@ -835,23 +879,34 @@ class PredictFun(Exchange):
 
         outcomes = [o.get("name", "") for o in outcomes_data] if outcomes_data else ["Yes", "No"]
         token_ids = [str(o.get("onChainId", "")) for o in outcomes_data if o.get("onChainId")]
+        decimal_precision = data.get("decimalPrecision", 2)
+        tick_size = 10 ** (-decimal_precision)
+        close_time = parse_market_datetime(_first_present(data, PREDICTFUN_END_TIME_KEYS))
+
+        metadata = {
+            **data,
+            "slug": slug,
+            "clobTokenIds": token_ids,
+            "token_ids": token_ids,
+            "isNegRisk": data.get("isNegRisk", False),
+            "isYieldBearing": data.get("isYieldBearing", True),
+            "conditionId": data.get("conditionId", ""),
+            "feeRateBps": data.get("feeRateBps", 0),
+            "minimum_tick_size": tick_size,
+        }
+        _add_normalized_market_times(metadata, data)
 
         return Market(
             id=market_id,
             question=title,
             outcomes=outcomes,
-            description=data.get("description", ""),
+            close_time=close_time,
             volume=data.get("volume", 0),
             liquidity=data.get("liquidity", 0),
-            metadata={
-                "slug": slug,
-                "clobTokenIds": token_ids,
-                "token_ids": token_ids,
-                "isNegRisk": data.get("isNegRisk", False),
-                "isYieldBearing": data.get("isYieldBearing", True),
-                "conditionId": data.get("conditionId", ""),
-                "feeRateBps": data.get("feeRateBps", 0),
-            },
+            prices={},
+            metadata=metadata,
+            tick_size=tick_size,
+            description=data.get("description", ""),
         )
 
     def _search_markets_by_keywords(self, slug: str) -> List[Market]:
