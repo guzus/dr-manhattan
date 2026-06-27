@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional
 import websockets
 import websockets.exceptions
 
-from ...base.websocket import OrderBookWebSocket
+from ...base.websocket import OrderBookWebSocket, WebSocketState
 from ...models.orderbook import OrderbookManager
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
 
         # Orderbook manager
         self.orderbook_manager = OrderbookManager()
+        self._book_state: Dict[str, Dict[str, Any]] = {}
 
     @property
     def ws_url(self) -> str:
@@ -96,13 +97,22 @@ class PolymarketWebSocket(OrderBookWebSocket):
         # Mark as subscribed
         self.subscribed_assets.add(asset_id)
 
-        # Send subscription message
-        subscribe_message = {"auth": {}, "markets": [], "assets_ids": [asset_id], "type": "market"}
-
-        await self.ws.send(json.dumps(subscribe_message))
+        await self._send_subscription()
 
         if self.verbose:
             logger.debug(f"Subscribed to market/asset: {asset_id}")
+
+    async def _send_subscription(self):
+        """Send the full current asset subscription set."""
+        subscribe_message = {
+            "auth": {},
+            "markets": [],
+            "assets_ids": list(self.subscribed_assets),
+            "type": "market",
+            "custom_feature_enabled": True,
+        }
+
+        await self.ws.send(json.dumps(subscribe_message))
 
     async def _unsubscribe_orderbook(self, market_id: str):
         """
@@ -117,19 +127,14 @@ class PolymarketWebSocket(OrderBookWebSocket):
         self.subscribed_assets.discard(asset_id)
 
         # Send unsubscription (resubscribe with remaining assets)
-        subscribe_message = {
-            "auth": {},
-            "markets": [],
-            "assets_ids": list(self.subscribed_assets),
-            "type": "market",
-        }
-
-        await self.ws.send(json.dumps(subscribe_message))
+        await self._send_subscription()
 
         if self.verbose:
             logger.debug(f"Unsubscribed from market/asset: {asset_id}")
 
-    def _parse_orderbook_message(self, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_orderbook_message(
+        self, message: Dict[str, Any]
+    ) -> Optional[Dict[str, Any] | List[Dict[str, Any]]]:
         """
         Parse incoming WebSocket message into standardized orderbook format.
 
@@ -145,10 +150,17 @@ class PolymarketWebSocket(OrderBookWebSocket):
         """
         event_type = message.get("event_type")
 
-        if event_type == "book":
+        if event_type == "book" or (
+            event_type is None
+            and message.get("asset_id")
+            and "bids" in message
+            and "asks" in message
+        ):
             return self._parse_book_message(message)
         elif event_type == "price_change":
             return self._parse_price_change_message(message)
+        elif event_type == "best_bid_ask":
+            return self._parse_best_bid_ask_message(message)
 
         return None
 
@@ -194,6 +206,13 @@ class PolymarketWebSocket(OrderBookWebSocket):
         # Sort bids descending, asks ascending
         bids.sort(reverse=True)
         asks.sort()
+        self._book_state[asset_id] = {
+            "market_id": market_id,
+            "bids": dict(bids),
+            "asks": dict(asks),
+            "timestamp": message.get("timestamp", 0),
+            "hash": message.get("hash", ""),
+        }
 
         return {
             "market_id": market_id,
@@ -204,7 +223,7 @@ class PolymarketWebSocket(OrderBookWebSocket):
             "hash": message.get("hash", ""),
         }
 
-    def _parse_price_change_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    def _parse_price_change_message(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Parse price_change message (incremental updates).
 
@@ -231,41 +250,100 @@ class PolymarketWebSocket(OrderBookWebSocket):
         if not price_changes:
             return None
 
-        # Use first price change (usually one per message)
-        change = price_changes[0]
-        asset_id = change.get("asset_id", "")
+        updates = []
+        for change in price_changes:
+            asset_id = change.get("asset_id", "")
+            if not asset_id:
+                continue
+            state = self._book_state.setdefault(
+                asset_id,
+                {
+                    "market_id": market_id,
+                    "bids": {},
+                    "asks": {},
+                    "timestamp": timestamp,
+                    "hash": change.get("hash", ""),
+                },
+            )
+            state["market_id"] = market_id or state.get("market_id", asset_id)
+            state["timestamp"] = timestamp
+            state["hash"] = change.get("hash", state.get("hash", ""))
+            self._apply_price_change(state, change)
+            updates.append(self._state_orderbook(asset_id, state))
 
-        # Build orderbook from best bid/ask
-        bids = []
-        asks = []
+        return updates
 
+    def _parse_best_bid_ask_message(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
+        market_id = message.get("market", "")
+        timestamp = message.get("timestamp", 0)
+        updates = []
+        items = message.get("price_changes") or message.get("changes") or []
+        if not items and message.get("asset_id"):
+            items = [message]
+        for item in items:
+            asset_id = item.get("asset_id", "")
+            if not asset_id or asset_id not in self._book_state:
+                continue
+            state = self._book_state[asset_id]
+            state["market_id"] = market_id or state.get("market_id", asset_id)
+            state["timestamp"] = timestamp
+            state["hash"] = item.get("hash", state.get("hash", ""))
+            self._apply_top_of_book_hint(state, item)
+            updates.append(self._state_orderbook(asset_id, state))
+        return updates
+
+    def _apply_top_of_book_hint(self, state: Dict[str, Any], item: Dict[str, Any]) -> None:
+        """Keep known depth aligned with Polymarket best_bid_ask when size is already known."""
+        for field, side in (("best_bid", "bids"), ("best_ask", "asks")):
+            value = item.get(field)
+            if value is None:
+                continue
+            try:
+                price = float(value)
+            except (TypeError, ValueError):
+                continue
+            if price <= 0 or price in state[side]:
+                continue
+            levels = state[side]
+            if not levels:
+                continue
+            if side == "bids":
+                stale_prices = [existing for existing in levels if existing > price]
+            else:
+                stale_prices = [existing for existing in levels if existing < price]
+            for existing in stale_prices:
+                levels.pop(existing, None)
+
+    def _apply_price_change(self, state: Dict[str, Any], change: Dict[str, Any]) -> None:
         try:
-            best_bid = change.get("best_bid")
-            best_ask = change.get("best_ask")
+            price = float(change.get("price", 0))
+            size = float(change.get("size", 0))
+        except (TypeError, ValueError):
+            return
+        if price <= 0:
+            return
+        side = str(change.get("side", "")).upper()
+        if side == "BUY":
+            levels = state["bids"]
+        elif side == "SELL":
+            levels = state["asks"]
+        else:
+            return
+        if size > 0:
+            levels[price] = size
+        else:
+            levels.pop(price, None)
 
-            if best_bid:
-                price = float(best_bid)
-                if price > 0:
-                    # We don't get size from price_change, use placeholder
-                    bids.append((price, 0.0))
-
-            if best_ask:
-                price = float(best_ask)
-                if price > 0:
-                    asks.append((price, 0.0))
-        except (ValueError, TypeError):
-            pass
-
+    def _state_orderbook(self, asset_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
+        bids = sorted(state.get("bids", {}).items(), reverse=True)
+        asks = sorted(state.get("asks", {}).items())
         return {
-            "market_id": market_id,
+            "market_id": state.get("market_id", asset_id),
             "asset_id": asset_id,
             "bids": bids,
             "asks": asks,
-            "timestamp": timestamp,
-            "hash": change.get("hash", ""),
-            "side": change.get("side"),
-            "price": float(change.get("price", 0)) if change.get("price") else None,
-            "size": float(change.get("size", 0)) if change.get("size") else None,
+            "timestamp": state.get("timestamp", 0),
+            "hash": state.get("hash", ""),
         }
 
     async def watch_orderbook_by_asset(self, asset_id: str, callback):
@@ -310,6 +388,21 @@ class PolymarketWebSocket(OrderBookWebSocket):
 
             await self.watch_orderbook(asset_id, make_callback(asset_id))
 
+    async def watch_orderbooks_by_assets(self, asset_callbacks: dict[str, Callable]):
+        """
+        Subscribe to many assets in one websocket request.
+
+        Polymarket sends initial snapshots more reliably when all assets are in
+        a single subscription message. The callback map is keyed by asset ID.
+        """
+        self.subscriptions.update(asset_callbacks)
+        self.subscribed_assets.update(asset_callbacks.keys())
+
+        if self.state != WebSocketState.CONNECTED:
+            await self.connect()
+
+        await self._send_subscription()
+
     def get_orderbook_manager(self) -> OrderbookManager:
         """
         Get the orderbook manager for easy access to orderbook data.
@@ -334,31 +427,33 @@ class PolymarketWebSocket(OrderBookWebSocket):
         """
         try:
             # Parse orderbook data
-            orderbook = self._parse_orderbook_message(data)
-            if not orderbook:
+            parsed = self._parse_orderbook_message(data)
+            if not parsed:
                 return
+            orderbooks = parsed if isinstance(parsed, list) else [parsed]
 
-            # Try both market_id and asset_id as subscription keys
-            market_id = orderbook.get("market_id")
-            asset_id = orderbook.get("asset_id")
+            for orderbook in orderbooks:
+                # Try both market_id and asset_id as subscription keys
+                market_id = orderbook.get("market_id")
+                asset_id = orderbook.get("asset_id")
 
-            # Check which key is in subscriptions
-            callback = None
-            callback_key = None
+                # Check which key is in subscriptions
+                callback = None
+                callback_key = None
 
-            if asset_id and asset_id in self.subscriptions:
-                callback = self.subscriptions[asset_id]
-                callback_key = asset_id
-            elif market_id and market_id in self.subscriptions:
-                callback = self.subscriptions[market_id]
-                callback_key = market_id
+                if asset_id and asset_id in self.subscriptions:
+                    callback = self.subscriptions[asset_id]
+                    callback_key = asset_id
+                elif market_id and market_id in self.subscriptions:
+                    callback = self.subscriptions[market_id]
+                    callback_key = market_id
 
-            if callback and callback_key:
-                # Call callback in a non-blocking way
-                if asyncio.iscoroutinefunction(callback):
-                    await callback(callback_key, orderbook)
-                else:
-                    callback(callback_key, orderbook)
+                if callback and callback_key:
+                    # Call callback in a non-blocking way
+                    if asyncio.iscoroutinefunction(callback):
+                        await callback(callback_key, orderbook)
+                    else:
+                        callback(callback_key, orderbook)
         except Exception as e:
             if self.verbose:
                 logger.debug(f"Error processing message item: {e}")

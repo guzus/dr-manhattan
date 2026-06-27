@@ -8,6 +8,7 @@ from .order_hooks import (
     OrderResult,
     PostOrderDispatcher,
 )
+from .sqlite_sink import SQLITE_EVENT_SCHEMA, SqliteEvent, SqliteEventSink
 
 __all__ = [
     "AsyncWorker",
@@ -18,4 +19,7 @@ __all__ = [
     "OrderIntent",
     "OrderResult",
     "PostOrderDispatcher",
+    "SQLITE_EVENT_SCHEMA",
+    "SqliteEvent",
+    "SqliteEventSink",
 ]
