@@ -9,7 +9,9 @@ API Documentation: https://dev.predict.fun/
 
 import secrets
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import requests
 from eth_abi import encode as eth_abi_encode
@@ -213,6 +215,8 @@ class PredictFun(Exchange):
         self._token_to_market: Dict[str, str] = {}
         # Token ID to outcome index (0=Yes, 1=No for binary markets)
         self._token_to_index: Dict[str, int] = {}
+        # Market ID to decimal precision for exact complementary No-side prices.
+        self._market_decimal_precision: Dict[str, int] = {}
 
         # Web3 connection for on-chain balance queries and approvals
         self._web3 = Web3(Web3.HTTPProvider(self._rpc_url))
@@ -505,18 +509,27 @@ class PredictFun(Exchange):
         description = data.get("description", "")
 
         outcomes_data = data.get("outcomes", [])
-        outcomes = [o.get("name", "") for o in outcomes_data if o.get("name")]
-        token_ids = [str(o.get("onChainId", "")) for o in outcomes_data if o.get("onChainId")]
+        outcomes = [
+            o.get("name") or o.get("label") or o.get("title") or ""
+            for o in outcomes_data
+            if isinstance(o, dict) and (o.get("name") or o.get("label") or o.get("title"))
+        ]
+        token_ids = [
+            str(o.get("onChainId") or o.get("tokenId") or o.get("token_id") or "")
+            for o in outcomes_data
+            if isinstance(o, dict) and (o.get("onChainId") or o.get("tokenId") or o.get("token_id"))
+        ]
 
         if not outcomes:
             outcomes = ["Yes", "No"]
 
-        status = data.get("status", "")
-        # REGISTERED = active, RESOLVED/PAUSED = closed
-        closed = status not in ("REGISTERED", "ACTIVE", "OPEN", "")
+        status = self._enum_value(data.get("status", ""))
+        trading_status = self._enum_value(data.get("tradingStatus", ""))
+        closed = self._is_market_closed(status, trading_status)
 
         decimal_precision = data.get("decimalPrecision", 2)
         tick_size = 10 ** (-decimal_precision)
+        self._market_decimal_precision[market_id] = int(decimal_precision)
 
         # Volume and liquidity
         volume = float(data.get("volume", 0) or 0)
@@ -531,11 +544,15 @@ class PredictFun(Exchange):
             **data,
             "clobTokenIds": token_ids,
             "token_ids": token_ids,
+            "tokens": dict(zip(outcomes, token_ids)),
             "isNegRisk": data.get("isNegRisk", False),
             "isYieldBearing": data.get("isYieldBearing", True),
             "conditionId": data.get("conditionId", ""),
             "feeRateBps": data.get("feeRateBps", 0),
             "categorySlug": data.get("categorySlug", ""),
+            "marketVariant": self._enum_value(data.get("marketVariant", "")),
+            "status": status,
+            "tradingStatus": trading_status,
             "closed": closed,
             "minimum_tick_size": tick_size,
         }
@@ -560,6 +577,31 @@ class PredictFun(Exchange):
             description=description,
         )
 
+    @staticmethod
+    def _enum_value(value: Any) -> str:
+        """Normalize enum values from string or object-shaped API responses."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            for key in ("value", "name", "status", "type"):
+                if value.get(key) is not None:
+                    return str(value[key])
+        return str(value)
+
+    @staticmethod
+    def _is_market_closed(status: str, trading_status: str) -> bool:
+        """Return true when Predict.fun no longer accepts ordinary orders."""
+        status_upper = status.upper()
+        trading_upper = trading_status.upper()
+
+        if status_upper in {"RESOLVED", "REMOVED", "PAUSED", "CLOSED"}:
+            return True
+        if trading_upper in {"CLOSED", "CANCEL_ONLY", "MATCHING_NOT_ENABLED"}:
+            return True
+        return False
+
     def _parse_order(self, data: Dict[str, Any], outcome: str = "") -> Order:
         """Parse order data from API response."""
         # Handle nested order structure from GET /v1/orders
@@ -574,6 +616,17 @@ class PredictFun(Exchange):
             or data.get("orderHash", "")
         )
         market_id = str(data.get("marketId", ""))
+        token_id = str(nested_order.get("tokenId") or data.get("tokenId") or "")
+        if not outcome and token_id:
+            outcome_index = self._token_to_index.get(token_id)
+            if outcome_index is not None:
+                try:
+                    market = self.fetch_market(self._token_to_market.get(token_id, market_id))
+                    if 0 <= outcome_index < len(market.outcomes):
+                        outcome = market.outcomes[outcome_index]
+                except Exception:
+                    # Binary Predict.fun markets conventionally order tokens as Yes, No.
+                    outcome = "Yes" if outcome_index == 0 else "No"
 
         # Parse side from nested order or top level
         side_raw = nested_order.get("side") if nested_order else data.get("side", "buy")
@@ -670,8 +723,33 @@ class PredictFun(Exchange):
         amount_wei = int(data.get("amount", 0) or 0)
         size = amount_wei / 1e18 if amount_wei > 0 else float(data.get("size", 0) or 0)
 
-        average_price = float(data.get("avgPrice", 0) or 0)
-        current_price = float(data.get("currentPrice", 0) or 0)
+        average_price = float(
+            data.get("averageBuyPriceUsd") or data.get("avgPrice") or data.get("average_price") or 0
+        )
+        current_price = float(
+            data.get("currentPrice") or data.get("current_price") or data.get("price") or 0
+        )
+        value_usd = float(data.get("valueUsd", 0) or 0)
+        if current_price <= 0 and size > 0 and value_usd >= 0:
+            current_price = value_usd / size
+
+        if current_price <= 0 and isinstance(outcome_data, dict):
+            status = str(outcome_data.get("status") or "").upper()
+            if status == "WON":
+                current_price = 1.0
+            elif status == "LOST":
+                current_price = 0.0
+            else:
+                best_bid = outcome_data.get("bestBid") or {}
+                best_ask = outcome_data.get("bestAsk") or {}
+                bid = float(best_bid.get("price", 0) or 0) if isinstance(best_bid, dict) else 0
+                ask = float(best_ask.get("price", 0) or 0) if isinstance(best_ask, dict) else 0
+                if bid > 0 and ask > 0:
+                    current_price = (bid + ask) / 2
+                elif bid > 0:
+                    current_price = bid
+                elif ask > 0:
+                    current_price = ask
 
         return Position(
             market_id=market_id,
@@ -715,12 +793,12 @@ class PredictFun(Exchange):
         fetch_all = query_params.get("all", False)
 
         all_markets: List[Market] = []
-        cursor = None
+        cursor = query_params.get("after")
         max_pages = 10 if fetch_all else 1
 
         for _ in range(max_pages):
-            api_params = {"first": min(limit, 100)}
-            if query_params.get("active", True):
+            api_params = self._build_markets_params(query_params, limit)
+            if query_params.get("active", True) and "status" not in api_params:
                 api_params["status"] = "OPEN"
             if cursor:
                 api_params["after"] = cursor
@@ -741,6 +819,22 @@ class PredictFun(Exchange):
             all_markets = all_markets[:limit]
 
         return all_markets
+
+    def _build_markets_params(self, params: Dict[str, Any], limit: int) -> Dict[str, Any]:
+        """Build current Predict.fun /v1/markets query parameters."""
+        api_params: Dict[str, Any] = {"first": min(int(limit or 100), 100)}
+        passthrough = {
+            "first",
+            "status",
+            "tagIds",
+            "marketVariant",
+            "sort",
+            "hasActiveRewards",
+        }
+        for key in passthrough:
+            if key in params and params[key] is not None:
+                api_params[key] = params[key]
+        return api_params
 
     def fetch_market(self, market_id: str) -> Market:
         """
@@ -807,7 +901,14 @@ class PredictFun(Exchange):
         except ExchangeError:
             pass  # Category not found, fall back to keyword search
 
-        # Fallback: keyword search
+        # Fallback: current full-text search API
+        if not markets:
+            try:
+                markets = self.search_markets(slug.replace("-", " "), limit=25)
+            except ExchangeError:
+                markets = []
+
+        # Final fallback: keyword scan through paginated markets
         if not markets:
             markets = self._search_markets_by_keywords(slug)
 
@@ -857,11 +958,60 @@ class PredictFun(Exchange):
 
         # Handle predict.fun URLs
         if "predict.fun" in slug:
-            # Extract slug from URL like https://predict.fun/markets/slug-here
-            parts = slug.rstrip("/").split("/")
+            parsed = urlparse(slug)
+            parts = [p for p in parsed.path.split("/") if p]
             slug = parts[-1] if parts else ""
 
         return slug
+
+    def search_markets(
+        self,
+        query: str,
+        limit: int = 25,
+        include_resolved: bool = False,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Market]:
+        """
+        Search Predict.fun categories and markets using the current /v1/search API.
+
+        Category hits include nested markets, which is useful for grouped sports
+        markets like "2026 FIFA World Cup Winner".
+        """
+        query = query.strip()
+        if not query:
+            return []
+
+        request_params: Dict[str, Any] = {
+            "query": query,
+            "limit": str(max(1, min(int(limit), 25))),
+            "includeResolved": "true" if include_resolved else "false",
+        }
+        if params:
+            request_params.update(params)
+
+        response = self._request("GET", "/v1/search", params=request_params)
+        data = response.get("data", {}) if isinstance(response, dict) else {}
+
+        ordered: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add_market(raw: Dict[str, Any]) -> None:
+            market_id = str(raw.get("id", ""))
+            if not market_id or market_id in seen:
+                return
+            seen.add(market_id)
+            ordered.append(raw)
+
+        for category in data.get("categories", []) or []:
+            for market in category.get("markets", []) or []:
+                if isinstance(market, dict):
+                    add_market(market)
+
+        for market in data.get("markets", []) or []:
+            if isinstance(market, dict):
+                add_market(market)
+
+        return [self._parse_market(market) for market in ordered]
 
     def _parse_category_as_market(self, data: Dict[str, Any]) -> Market:
         """Parse category data as a Market when it contains a single market."""
@@ -877,24 +1027,47 @@ class PredictFun(Exchange):
         slug = data.get("slug", "")
         outcomes_data = data.get("outcomes", [])
 
-        outcomes = [o.get("name", "") for o in outcomes_data] if outcomes_data else ["Yes", "No"]
-        token_ids = [str(o.get("onChainId", "")) for o in outcomes_data if o.get("onChainId")]
+        outcomes = [
+            o.get("name") or o.get("label") or o.get("title") or ""
+            for o in outcomes_data
+            if isinstance(o, dict) and (o.get("name") or o.get("label") or o.get("title"))
+        ]
+        if not outcomes:
+            outcomes = ["Yes", "No"]
+        token_ids = [
+            str(o.get("onChainId") or o.get("tokenId") or o.get("token_id") or "")
+            for o in outcomes_data
+            if isinstance(o, dict) and (o.get("onChainId") or o.get("tokenId") or o.get("token_id"))
+        ]
         decimal_precision = data.get("decimalPrecision", 2)
         tick_size = 10 ** (-decimal_precision)
+        self._market_decimal_precision[market_id] = int(decimal_precision)
         close_time = parse_market_datetime(_first_present(data, PREDICTFUN_END_TIME_KEYS))
+        status = self._enum_value(data.get("status", ""))
+        trading_status = self._enum_value(data.get("tradingStatus", ""))
 
         metadata = {
             **data,
             "slug": slug,
             "clobTokenIds": token_ids,
             "token_ids": token_ids,
+            "tokens": dict(zip(outcomes, token_ids)),
             "isNegRisk": data.get("isNegRisk", False),
             "isYieldBearing": data.get("isYieldBearing", True),
             "conditionId": data.get("conditionId", ""),
             "feeRateBps": data.get("feeRateBps", 0),
+            "marketVariant": self._enum_value(data.get("marketVariant", "")),
+            "status": status,
+            "tradingStatus": trading_status,
+            "closed": self._is_market_closed(status, trading_status),
             "minimum_tick_size": tick_size,
         }
         _add_normalized_market_times(metadata, data)
+
+        for idx, token_id in enumerate(token_ids):
+            if token_id:
+                self._token_to_market[token_id] = market_id
+                self._token_to_index[token_id] = idx
 
         return Market(
             id=market_id,
@@ -917,6 +1090,13 @@ class PredictFun(Exchange):
         if not keywords:
             return []
 
+        try:
+            search_results = self.search_markets(" ".join(keywords), limit=25)
+            if search_results:
+                return search_results
+        except ExchangeError:
+            pass
+
         all_markets = self.fetch_markets({"all": True})
 
         matches = []
@@ -926,6 +1106,36 @@ class PredictFun(Exchange):
                 matches.append(market)
 
         return matches
+
+    @staticmethod
+    def _parse_orderbook_level(entry: Any) -> Optional[Dict[str, str]]:
+        """Parse Predict.fun orderbook levels from tuple or dict shape."""
+        try:
+            if isinstance(entry, dict):
+                price = float(entry.get("price", 0))
+                size = float(entry.get("size", 0))
+            elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                price = float(entry[0])
+                size = float(entry[1])
+            else:
+                return None
+        except (TypeError, ValueError):
+            return None
+
+        if price <= 0 or size <= 0:
+            return None
+        return {"price": str(price), "size": str(size)}
+
+    def _invert_yes_price(self, price: str, market_id: str) -> str:
+        """Complement a Yes price to the No side at the market's decimal precision."""
+        precision = self._market_decimal_precision.get(str(market_id), 2)
+        try:
+            quant = Decimal("1").scaleb(-precision)
+            inverted = (Decimal("1") - Decimal(str(price))).quantize(quant)
+        except (InvalidOperation, ValueError):
+            inverted = Decimal(str(1.0 - float(price)))
+
+        return format(inverted.normalize(), "f")
 
     def get_orderbook(self, market_id_or_token_id: str) -> Dict[str, Any]:
         """
@@ -964,31 +1174,40 @@ class PredictFun(Exchange):
                 if is_second_outcome:
                     # For second outcome (No), invert prices: No bid = 1 - Yes ask
                     for entry in raw_asks:
-                        if len(entry) >= 2:
-                            inverted_price = 1.0 - float(entry[0])
-                            if inverted_price > 0:
-                                bids.append({"price": str(inverted_price), "size": str(entry[1])})
+                        level = self._parse_orderbook_level(entry)
+                        if level:
+                            inverted_price = self._invert_yes_price(level["price"], market_id)
+                            if float(inverted_price) > 0:
+                                bids.append({"price": inverted_price, "size": level["size"]})
 
                     for entry in raw_bids:
-                        if len(entry) >= 2:
-                            inverted_price = 1.0 - float(entry[0])
-                            if inverted_price > 0:
-                                asks.append({"price": str(inverted_price), "size": str(entry[1])})
+                        level = self._parse_orderbook_level(entry)
+                        if level:
+                            inverted_price = self._invert_yes_price(level["price"], market_id)
+                            if float(inverted_price) > 0:
+                                asks.append({"price": inverted_price, "size": level["size"]})
                 else:
                     # First outcome (Yes) - use as-is
                     for entry in raw_bids:
-                        if len(entry) >= 2:
-                            bids.append({"price": str(entry[0]), "size": str(entry[1])})
+                        level = self._parse_orderbook_level(entry)
+                        if level:
+                            bids.append(level)
 
                     for entry in raw_asks:
-                        if len(entry) >= 2:
-                            asks.append({"price": str(entry[0]), "size": str(entry[1])})
+                        level = self._parse_orderbook_level(entry)
+                        if level:
+                            asks.append(level)
 
                 # Sort: bids descending, asks ascending
                 bids.sort(key=lambda x: float(x["price"]), reverse=True)
                 asks.sort(key=lambda x: float(x["price"]))
 
-                return {"bids": bids, "asks": asks}
+                return {
+                    "bids": bids,
+                    "asks": asks,
+                    "market_id": str(data.get("marketId", market_id)),
+                    "timestamp": data.get("updateTimestampMs", 0),
+                }
             except Exception as e:
                 if self.verbose:
                     print(f"Failed to fetch orderbook for {market_id}: {e}")
@@ -1038,7 +1257,10 @@ class PredictFun(Exchange):
             params: Additional parameters:
                 - token_id: Token ID (optional if outcome provided)
                 - strategy: "LIMIT" or "MARKET" (default: "LIMIT")
+                - allow_market_order: Must be True when strategy="MARKET"
                 - slippageBps: Slippage in basis points (default: "0")
+                - reserved_balance_policy: "REJECT_MARKET_ORDER" or
+                  "SKIP_RESERVED_BALANCE_CHECKS" (market orders only)
 
         Returns:
             Order object
@@ -1092,7 +1314,7 @@ class PredictFun(Exchange):
         else:
             exchange_address = self._neg_risk_ctf_exchange if is_neg_risk else self._ctf_exchange
 
-        strategy = (extra_params.get("strategy", "LIMIT")).upper()
+        strategy = self._normalize_order_strategy(extra_params)
 
         signed_order = self._build_signed_order(
             token_id=str(token_id),
@@ -1115,6 +1337,7 @@ class PredictFun(Exchange):
                 "order": signed_order,
             }
         }
+        self._apply_create_order_options(payload["data"], extra_params)
 
         # The order is signed once ABOVE this point, so the retry inside _request
         # resends a byte-identical payload (same salt, same signature, same order hash)
@@ -1126,7 +1349,7 @@ class PredictFun(Exchange):
         def _create():
             result = self._request("POST", "/v1/orders", data=payload, require_auth=True)
             order_data = result.get("data", result)
-            order_id = order_data.get("hash", "") or order_data.get("orderHash", "")
+            order_id = self._extract_created_order_id(order_data)
 
             return Order(
                 id=str(order_id),
@@ -1141,6 +1364,70 @@ class PredictFun(Exchange):
             )
 
         return _create()
+
+    @staticmethod
+    def _normalize_order_strategy(params: Dict[str, Any]) -> str:
+        """Normalize and guard Predict.fun order strategy selection."""
+        strategy = str(params.get("strategy", "LIMIT")).upper()
+        if strategy not in {"LIMIT", "MARKET"}:
+            raise InvalidOrder(f"Unsupported Predict.fun order strategy: {strategy}")
+        if strategy == "MARKET" and not (
+            params.get("allow_market_order") or params.get("allow_market_orders")
+        ):
+            raise InvalidOrder(
+                "Predict.fun MARKET orders require params['allow_market_order']=True"
+            )
+        return strategy
+
+    @staticmethod
+    def _extract_created_order_id(order_data: Dict[str, Any]) -> str:
+        """Prefer the API database order ID, which /v1/orders/remove expects."""
+        return str(
+            order_data.get("orderId")
+            or order_data.get("id")
+            or order_data.get("hash")
+            or order_data.get("orderHash")
+            or ""
+        )
+
+    @staticmethod
+    def _apply_create_order_options(data: Dict[str, Any], params: Dict[str, Any]) -> None:
+        """Apply current optional /v1/orders fields without forcing every caller to use them."""
+        strategy = str(data.get("strategy", "LIMIT")).upper()
+        reserved_aliases = ("reservedBalancePolicy", "reserved_balance_policy")
+        if strategy == "LIMIT" and any(
+            alias in params and params[alias] is not None for alias in reserved_aliases
+        ):
+            raise InvalidOrder("reservedBalancePolicy is only valid for Predict.fun MARKET orders")
+
+        option_aliases = {
+            "isFillOrKill": ("isFillOrKill", "fill_or_kill"),
+            "isPostOnly": ("isPostOnly", "post_only"),
+            "reservedBalancePolicy": ("reservedBalancePolicy", "reserved_balance_policy"),
+            "isMinAmountOut": ("isMinAmountOut", "is_min_amount_out"),
+            "selfTradePrevention": ("selfTradePrevention", "self_trade_prevention"),
+        }
+        for api_key, aliases in option_aliases.items():
+            for alias in aliases:
+                if alias in params and params[alias] is not None:
+                    value = params[alias]
+                    if api_key == "reservedBalancePolicy":
+                        value = str(value).upper()
+                        if value not in {
+                            "REJECT_MARKET_ORDER",
+                            "SKIP_RESERVED_BALANCE_CHECKS",
+                        }:
+                            raise InvalidOrder(
+                                f"Unsupported Predict.fun reservedBalancePolicy: {value}"
+                            )
+                    elif api_key == "selfTradePrevention":
+                        value = str(value).upper()
+                        if value not in {"CANCEL_MAKER", "CANCEL_TAKER", "CANCEL_BOTH"}:
+                            raise InvalidOrder(
+                                f"Unsupported Predict.fun selfTradePrevention: {value}"
+                            )
+                    data[api_key] = value
+                    break
 
     def _is_using_smart_wallet(self) -> bool:
         """Check if using a Predict smart wallet."""
@@ -1489,7 +1776,84 @@ class PredictFun(Exchange):
         order_data = response.get("data", response)
         return self._parse_order(order_data)
 
-    def fetch_open_orders(self, market_id: Optional[str] = None) -> List[Order]:
+    def fetch_orders(
+        self,
+        market_id: Optional[str] = None,
+        status: Optional[Any] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Order]:
+        """
+        Fetch authenticated order history.
+
+        Args:
+            market_id: Optional market filter. The API may ignore this, so the
+                driver also applies a client-side filter.
+            status: Optional Predict.fun status filter, e.g. OPEN, FILLED,
+                CANCELLED, EXPIRED, or INVALIDATED.
+            limit: Optional page size mapped to the API's ``first`` parameter.
+            params: Additional query parameters such as ``after``.
+
+        Returns:
+            List of Order objects.
+        """
+        self._ensure_authenticated()
+
+        query_params: Dict[str, Any] = dict(params or {})
+        if limit is not None and "first" not in query_params:
+            query_params["first"] = max(1, min(int(limit), 100))
+        if status is not None:
+            query_params["status"] = self._normalize_order_status_filter(status)
+        if market_id:
+            query_params["marketId"] = market_id
+
+        response = self._request("GET", "/v1/orders", params=query_params, require_auth=True)
+        orders_data = response if isinstance(response, list) else response.get("data", [])
+        if market_id:
+            orders_data = [
+                order for order in orders_data if str(order.get("marketId", "")) == str(market_id)
+            ]
+        return [self._parse_order(o) for o in orders_data]
+
+    @staticmethod
+    def _normalize_order_status_filter(status: Any) -> str:
+        if isinstance(status, OrderStatus):
+            return status.value.upper()
+        return str(status).upper()
+
+    def fetch_order_matches(
+        self,
+        market_id: Optional[str] = None,
+        signer_address: Optional[str] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch raw Predict.fun order match events.
+
+        The API returns match/fill events sorted by ``executedAt`` descending.
+        The repository does not yet have a unified fill model, so this method
+        deliberately returns the raw event dictionaries.
+        """
+        query_params: Dict[str, Any] = dict(params or {})
+        if limit is not None and "first" not in query_params:
+            query_params["first"] = max(1, min(int(limit), 100))
+        if market_id:
+            query_params["marketId"] = market_id
+        if signer_address:
+            query_params["signerAddress"] = signer_address
+
+        response = self._request(
+            "GET",
+            "/v1/orders/matches",
+            params=query_params,
+            require_auth=False,
+        )
+        return response if isinstance(response, list) else response.get("data", [])
+
+    def fetch_open_orders(
+        self, market_id: Optional[str] = None, params: Optional[Dict[str, Any]] = None
+    ) -> List[Order]:
         """
         Fetch all open orders.
 
@@ -1499,19 +1863,7 @@ class PredictFun(Exchange):
         Returns:
             List of Order objects
         """
-        self._ensure_authenticated()
-
-        query_params = {"status": "OPEN"}
-        if market_id:
-            query_params["marketId"] = market_id
-
-        @self._retry_on_failure
-        def _fetch():
-            response = self._request("GET", "/v1/orders", params=query_params, require_auth=True)
-            orders_data = response if isinstance(response, list) else response.get("data", [])
-            return [self._parse_order(o) for o in orders_data]
-
-        return _fetch()
+        return self.fetch_orders(market_id=market_id, status=OrderStatus.OPEN, params=params)
 
     def fetch_positions(self, market_id: Optional[str] = None) -> List[Position]:
         """
