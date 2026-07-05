@@ -9,7 +9,7 @@ API Documentation: https://dev.predict.fun/
 
 import secrets
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -17,7 +17,12 @@ import requests
 from eth_abi import encode as eth_abi_encode
 from eth_account import Account
 from eth_account.messages import _hash_eip191_message, encode_defunct, encode_typed_data
+from predict_sdk._internal.contracts import make_contracts
+from predict_sdk.constants import ADDRESSES_BY_CHAIN_ID, ChainId
+from predict_sdk.logger import Logger
+from predict_sdk.order_builder import OrderBuilder
 from web3 import Web3
+from web3.middleware import ExtraDataToPOAMiddleware
 
 from ..base.errors import (
     AuthenticationError,
@@ -217,9 +222,14 @@ class PredictFun(Exchange):
         self._token_to_index: Dict[str, int] = {}
         # Market ID to decimal precision for exact complementary No-side prices.
         self._market_decimal_precision: Dict[str, int] = {}
+        # Market ID to outcome names as the markets API reports them. The
+        # positions API labels team outcomes with full names ("Canada") while
+        # the markets API uses abbreviations ("CAN"); positions are normalized
+        # to the market labels so (market_id, outcome) joins stay consistent.
+        self._market_outcomes: Dict[str, List[str]] = {}
 
-        # Web3 connection for on-chain balance queries and approvals
-        self._web3 = Web3(Web3.HTTPProvider(self._rpc_url))
+        # Web3 connection for on-chain balance queries, approvals, and CTF operations.
+        self._web3 = self._build_web3(self._rpc_url)
         self._usdt_contract = self._web3.eth.contract(
             address=Web3.to_checksum_address(self._usdt_address),
             abi=ERC20_ABI,
@@ -231,6 +241,7 @@ class PredictFun(Exchange):
         # WebSocket instances
         self._websocket: Optional[PredictFunWebSocket] = None
         self._user_websocket: Optional[PredictFunUserWebSocket] = None
+        self._order_builder: Optional[OrderBuilder] = None
 
         # Mid-price cache for orderbook updates
         self._mid_price_cache: Dict[str, float] = {}
@@ -247,6 +258,20 @@ class PredictFun(Exchange):
         # Set _address for smart wallet mode (required by _is_using_smart_wallet)
         if self.use_smart_wallet and self.smart_wallet_address:
             self._address = self.smart_wallet_address
+
+    @staticmethod
+    def _build_web3(rpc_url: str) -> Web3:
+        """Build a BNB-compatible Web3 client.
+
+        BNB Chain is a proof-of-authority style chain whose block headers can
+        carry extraData larger than the Ethereum mainnet limit. Web3.py raises
+        ExtraDataLengthError unless the POA middleware is installed before any
+        block/receipt reads. Predict SDK merge/split calls wait for receipts, so
+        the middleware has to live on the shared provider used by OrderBuilder.
+        """
+        web3 = Web3(Web3.HTTPProvider(rpc_url))
+        web3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+        return web3
 
     def _get_headers(self, require_auth: bool = False) -> Dict[str, str]:
         """Get headers for API requests."""
@@ -563,6 +588,8 @@ class PredictFun(Exchange):
             if token_id:
                 self._token_to_market[token_id] = market_id
                 self._token_to_index[token_id] = idx
+        if market_id and outcomes:
+            self._market_outcomes[market_id] = list(outcomes)
 
         return Market(
             id=market_id,
@@ -708,6 +735,42 @@ class PredictFun(Exchange):
         }
         return status_map.get(status_str, OrderStatus.OPEN)
 
+    def _normalize_position_outcome(self, market_id: str, outcome: str, outcome_data: Any) -> str:
+        """Translate a positions-API outcome label to the markets-API label.
+
+        The positions endpoint names team outcomes with full names
+        ("Canada") while the markets endpoint uses abbreviations ("CAN"),
+        which silently breaks any (market_id, outcome) join between markets
+        and positions. When the position's outcome token or the market's
+        outcome list is known, return the market label instead.
+        """
+        market_outcomes = self._market_outcomes.get(market_id)
+        if market_outcomes and outcome in market_outcomes:
+            return outcome
+
+        token_id = ""
+        if isinstance(outcome_data, dict):
+            token_id = str(
+                outcome_data.get("onChainId")
+                or outcome_data.get("tokenId")
+                or outcome_data.get("token_id")
+                or ""
+            )
+        if token_id:
+            index = self._token_to_index.get(token_id)
+            if index is None and market_id:
+                try:
+                    self.fetch_market(market_id)
+                except Exception:
+                    return outcome
+                market_outcomes = self._market_outcomes.get(market_id)
+                index = self._token_to_index.get(token_id)
+            if index is not None:
+                market_outcomes = market_outcomes or self._market_outcomes.get(market_id)
+                if market_outcomes and 0 <= index < len(market_outcomes):
+                    return market_outcomes[index]
+        return outcome
+
     def _parse_position(self, data: Dict[str, Any]) -> Position:
         """Parse position data from API response."""
         # Handle nested structure from API
@@ -718,6 +781,7 @@ class PredictFun(Exchange):
         outcome = (
             outcome_data.get("name", "") if isinstance(outcome_data, dict) else str(outcome_data)
         )
+        outcome = self._normalize_position_outcome(market_id, outcome, outcome_data)
 
         # Amount is in wei (18 decimals)
         amount_wei = int(data.get("amount", 0) or 0)
@@ -826,6 +890,7 @@ class PredictFun(Exchange):
         passthrough = {
             "first",
             "status",
+            "categorySlug",
             "tagIds",
             "marketVariant",
             "sort",
@@ -886,18 +951,7 @@ class PredictFun(Exchange):
 
         # Try to fetch from /v1/categories/{slug} API
         try:
-            response = self._request("GET", f"/v1/categories/{slug}")
-            data = response.get("data", {})
-
-            if data:
-                # Category found - parse markets from it
-                markets_data = data.get("markets", [])
-                if markets_data:
-                    markets = [self._parse_market(m) for m in markets_data]
-                else:
-                    # If no nested markets, create market from category itself
-                    markets = [self._parse_category_as_market(data)]
-
+            markets = self.fetch_category_markets_by_slug(slug, enrich=False)
         except ExchangeError:
             pass  # Category not found, fall back to keyword search
 
@@ -915,6 +969,28 @@ class PredictFun(Exchange):
         # Enrich markets with orderbook prices
         self._enrich_markets_with_prices(markets)
 
+        return markets
+
+    def fetch_category_markets_by_slug(
+        self, slug_or_url: str, *, enrich: bool = True
+    ) -> List[Market]:
+        """Fetch markets from an exact category slug without keyword fallback."""
+        slug = self._parse_slug(slug_or_url)
+        if not slug:
+            raise ValueError("Empty slug provided")
+
+        response = self._request("GET", f"/v1/categories/{slug}")
+        data = response.get("data", {})
+        if not data:
+            raise MarketNotFound(f"Category not found: {slug}")
+
+        markets_data = data.get("markets", [])
+        if markets_data:
+            markets = [self._parse_market(m) for m in markets_data]
+        else:
+            markets = [self._parse_category_as_market(data)]
+        if enrich:
+            self._enrich_markets_with_prices(markets)
         return markets
 
     def _enrich_markets_with_prices(self, markets: List[Market]) -> None:
@@ -977,20 +1053,12 @@ class PredictFun(Exchange):
         Category hits include nested markets, which is useful for grouped sports
         markets like "2026 FIFA World Cup Winner".
         """
-        query = query.strip()
-        if not query:
-            return []
-
-        request_params: Dict[str, Any] = {
-            "query": query,
-            "limit": str(max(1, min(int(limit), 25))),
-            "includeResolved": "true" if include_resolved else "false",
-        }
-        if params:
-            request_params.update(params)
-
-        response = self._request("GET", "/v1/search", params=request_params)
-        data = response.get("data", {}) if isinstance(response, dict) else {}
+        data = self._search_data(
+            query,
+            limit=limit,
+            include_resolved=include_resolved,
+            params=params,
+        )
 
         ordered: List[Dict[str, Any]] = []
         seen: set[str] = set()
@@ -1012,6 +1080,46 @@ class PredictFun(Exchange):
                 add_market(market)
 
         return [self._parse_market(market) for market in ordered]
+
+    def search_categories(
+        self,
+        query: str,
+        limit: int = 25,
+        include_resolved: bool = False,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search Predict.fun categories and return raw category objects."""
+        data = self._search_data(
+            query,
+            limit=limit,
+            include_resolved=include_resolved,
+            params=params,
+        )
+        categories = data.get("categories", []) or []
+        return [category for category in categories if isinstance(category, dict)]
+
+    def _search_data(
+        self,
+        query: str,
+        *,
+        limit: int = 25,
+        include_resolved: bool = False,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        query = query.strip()
+        if not query:
+            return {}
+
+        request_params: Dict[str, Any] = {
+            "query": query,
+            "limit": str(max(1, min(int(limit), 25))),
+            "includeResolved": "true" if include_resolved else "false",
+        }
+        if params:
+            request_params.update(params)
+
+        response = self._request("GET", "/v1/search", params=request_params)
+        return response.get("data", {}) if isinstance(response, dict) else {}
 
     def _parse_category_as_market(self, data: Dict[str, Any]) -> Market:
         """Parse category data as a Market when it contains a single market."""
@@ -1315,6 +1423,7 @@ class PredictFun(Exchange):
             exchange_address = self._neg_risk_ctf_exchange if is_neg_risk else self._ctf_exchange
 
         strategy = self._normalize_order_strategy(extra_params)
+        amounts = self._quantized_limit_amounts(price, size, side)
 
         signed_order = self._build_signed_order(
             token_id=str(token_id),
@@ -1325,13 +1434,11 @@ class PredictFun(Exchange):
             exchange_address=exchange_address,
         )
 
-        # Price in wei (1e18), rounded to 1e13 precision
-        precision = int(1e13)
-        price_per_share_wei = (int(price * 1e18) // precision) * precision
-
         payload = {
             "data": {
-                "pricePerShare": str(price_per_share_wei),
+                "pricePerShare": str(amounts["price_per_share"]),
+                "amount": str(amounts["taker"]),
+                "pricePaid": str(amounts["maker"]),
                 "strategy": strategy,
                 "slippageBps": extra_params.get("slippageBps", "0"),
                 "order": signed_order,
@@ -1580,6 +1687,131 @@ class PredictFun(Exchange):
         # Format: 0x01 + validator_address (without 0x) + signature
         return "0x01" + ECDSA_VALIDATOR_ADDRESS[2:] + signed.signature.hex()
 
+    def _get_order_builder(self) -> OrderBuilder:
+        """Return a Predict SDK order builder for on-chain account operations."""
+        if self._order_builder is not None:
+            return self._order_builder
+
+        chain_id = ChainId.BNB_TESTNET if self.testnet else ChainId.BNB_MAINNET
+        addresses = ADDRESSES_BY_CHAIN_ID[chain_id]
+        signer = self._owner_account if self._is_using_smart_wallet() else self._account
+        if signer is None:
+            raise AuthenticationError("Private key required for Predict.fun CTF operations")
+
+        contracts = make_contracts(self._web3, addresses, signer=signer)
+        self._order_builder = OrderBuilder(
+            chain_id=chain_id,
+            precision=18,
+            addresses=addresses,
+            generate_salt_fn=lambda: str(secrets.randbelow(2147483648)),
+            logger=Logger("WARN"),
+            signer=signer,
+            predict_account=self.smart_wallet_address if self._is_using_smart_wallet() else None,
+            contracts=contracts,
+            web3=self._web3,
+        )
+        return self._order_builder
+
+    def merge_positions(
+        self,
+        market_id: str,
+        amount: float,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Merge equal YES/NO conditional tokens back into USDT collateral.
+
+        Args:
+            market_id: Predict.fun market ID.
+            amount: Number of complete YES+NO sets to merge.
+            params: Optional overrides for ``condition_id``, ``is_neg_risk``,
+                and ``is_yield_bearing``.
+        """
+        self._ensure_authenticated()
+        if amount <= 0:
+            raise InvalidOrder(f"Merge amount must be greater than 0, got: {amount}")
+
+        options = params or {}
+        condition_id = options.get("condition_id")
+        is_neg_risk = options.get("is_neg_risk")
+        is_yield_bearing = options.get("is_yield_bearing")
+        if condition_id is None or is_neg_risk is None or is_yield_bearing is None:
+            market = self.fetch_market(market_id)
+            condition_id = condition_id or market.metadata.get("conditionId")
+            is_neg_risk = (
+                bool(market.metadata.get("isNegRisk", False))
+                if is_neg_risk is None
+                else bool(is_neg_risk)
+            )
+            is_yield_bearing = (
+                bool(market.metadata.get("isYieldBearing", True))
+                if is_yield_bearing is None
+                else bool(is_yield_bearing)
+            )
+        if not condition_id:
+            raise InvalidOrder(f"Missing Predict.fun conditionId for market {market_id}")
+
+        precision = int(options.get("amount_precision", 10**15))
+        amount_wei = int(Decimal(str(amount)) * Decimal(10**18))
+        amount_wei = (amount_wei // precision) * precision
+        if amount_wei <= 0:
+            raise InvalidOrder(f"Merge amount is below precision: {amount}")
+
+        result = self._get_order_builder().merge_positions(
+            str(condition_id),
+            amount_wei,
+            is_neg_risk=bool(is_neg_risk),
+            is_yield_bearing=bool(is_yield_bearing),
+        )
+        success = bool(getattr(result, "success", False))
+        receipt = getattr(result, "receipt", None)
+        tx_hash = None
+        if receipt is not None and receipt.get("transactionHash") is not None:
+            tx_hash = receipt["transactionHash"].hex()
+        cause = getattr(result, "cause", None)
+        if not success:
+            raise ExchangeError(f"Failed to merge Predict.fun positions: {cause or result}")
+        return {
+            "success": success,
+            "market_id": str(market_id),
+            "condition_id": str(condition_id),
+            "amount": amount_wei / 1e18,
+            "amount_wei": amount_wei,
+            "tx_hash": tx_hash,
+            "receipt": dict(receipt) if receipt is not None else None,
+        }
+
+    @staticmethod
+    def _quantized_limit_amounts(
+        price: float,
+        size: float,
+        side: OrderSide,
+    ) -> Dict[str, int]:
+        """Return Predict.fun 18-decimal amounts on the API's limit-order grids."""
+        price_precision = 10**13
+        share_precision = 10**15
+
+        def to_wei(value: float, precision: int) -> int:
+            scaled = (Decimal(str(value)) * Decimal(10**18)).to_integral_value(rounding=ROUND_FLOOR)
+            return (int(scaled) // precision) * precision
+
+        price_wei = to_wei(price, price_precision)
+        shares_wei = to_wei(size, share_precision)
+        notional_wei = ((shares_wei * price_wei) // 10**18 // price_precision) * price_precision
+        if side == OrderSide.BUY:
+            maker_amount = notional_wei
+            taker_amount = shares_wei
+        else:
+            maker_amount = shares_wei
+            taker_amount = notional_wei
+        return {
+            "price_per_share": price_wei,
+            "shares": shares_wei,
+            "notional": notional_wei,
+            "maker": maker_amount,
+            "taker": taker_amount,
+        }
+
     def _build_signed_order(
         self,
         token_id: str,
@@ -1601,28 +1833,9 @@ class PredictFun(Exchange):
         max_salt = 2147483648
         salt = secrets.randbelow(max_salt)
 
-        # Calculate amounts (all in wei, 18 decimals)
-        # API requires amounts to be multiples of 1e13 (precision = 5 decimals)
-        precision = int(1e13)
-
-        def round_to_precision(value: int) -> int:
-            """Round down to nearest multiple of 1e13."""
-            return (value // precision) * precision
-
-        shares_wei = round_to_precision(int(size * 1e18))
-        price_wei = round_to_precision(int(price * 1e18))
-
         # side: 0 = BUY, 1 = SELL
         side_int = 0 if side == OrderSide.BUY else 1
-
-        if side == OrderSide.BUY:
-            # BUY: maker provides collateral, receives shares
-            maker_amount = round_to_precision((shares_wei * price_wei) // int(1e18))
-            taker_amount = shares_wei
-        else:
-            # SELL: maker provides shares, receives collateral
-            maker_amount = shares_wei
-            taker_amount = round_to_precision((shares_wei * price_wei) // int(1e18))
+        amounts = self._quantized_limit_amounts(price, size, side)
 
         # When using smart wallet, maker and signer are both the smart wallet address
         maker_address = self._get_maker_address()
@@ -1635,8 +1848,8 @@ class PredictFun(Exchange):
             "signer": maker_address,
             "taker": "0x0000000000000000000000000000000000000000",
             "tokenId": token_id,
-            "makerAmount": str(maker_amount),
-            "takerAmount": str(taker_amount),
+            "makerAmount": str(amounts["maker"]),
+            "takerAmount": str(amounts["taker"]),
             "expiration": str(expiration),
             "nonce": "0",
             "feeRateBps": str(fee_rate_bps),
@@ -1992,6 +2205,7 @@ class PredictFun(Exchange):
                 "fetch_balance": True,
                 "get_orderbook": True,
                 "fetch_token_ids": True,
+                "merge_positions": True,
                 "websocket": True,
             },
             "notes": {

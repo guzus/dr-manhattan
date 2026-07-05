@@ -19,7 +19,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from dr_manhattan.exchanges.polymarket.polymarket_ws import PolymarketWebSocket
+try:
+    from dr_manhattan.exchanges.polymarket.polymarket_ws import PolymarketWebSocket
+except ModuleNotFoundError:  # pragma: no cover - compatibility for older private deploys
+    from dr_manhattan.exchanges.polymarket_ws import PolymarketWebSocket
 
 
 def now_ms() -> int:
@@ -33,6 +36,7 @@ class RelayStats:
     cached_books: int
     books_received: int
     books_sent: int
+    books_dropped: int
 
 
 class PolymarketOrderbookRelay:
@@ -44,12 +48,14 @@ class PolymarketOrderbookRelay:
         verbose: bool = False,
         refresh_on_client_subscribe: bool = True,
         stats_interval_sec: float = 30.0,
+        max_client_write_buffer_bytes: int = 512 * 1024,
         source_factory: Callable[[], PolymarketWebSocket] | None = None,
     ) -> None:
         self.verbose = verbose
         self.refresh_on_client_subscribe = refresh_on_client_subscribe
         self.stats_interval_sec = max(0.0, stats_interval_sec)
         self.source_factory = source_factory or self._default_source_factory
+        self.max_client_write_buffer_bytes = max(0, int(max_client_write_buffer_bytes))
         self.source = self.source_factory()
         self.clients: set[Any] = set()
         self.assets_by_client: dict[Any, set[str]] = {}
@@ -59,6 +65,7 @@ class PolymarketOrderbookRelay:
         self._source_lock = asyncio.Lock()
         self.books_received = 0
         self.books_sent = 0
+        self.books_dropped = 0
 
     @property
     def stats(self) -> RelayStats:
@@ -68,6 +75,7 @@ class PolymarketOrderbookRelay:
             cached_books=len(self.last_book_by_asset),
             books_received=self.books_received,
             books_sent=self.books_sent,
+            books_dropped=self.books_dropped,
         )
 
     async def start(self) -> None:
@@ -192,6 +200,9 @@ class PolymarketOrderbookRelay:
             if asset not in self.assets_by_client.get(client, set()):
                 continue
             try:
+                if self._client_write_buffer_size(client) > self.max_client_write_buffer_bytes:
+                    self.books_dropped += 1
+                    continue
                 await client.send(message)
                 self.books_sent += 1
             except Exception:
@@ -199,6 +210,17 @@ class PolymarketOrderbookRelay:
         for client in stale_clients:
             self.clients.discard(client)
             self.assets_by_client.pop(client, None)
+
+    @staticmethod
+    def _client_write_buffer_size(client: Any) -> int:
+        transport = getattr(client, "transport", None)
+        get_size = getattr(transport, "get_write_buffer_size", None)
+        if not callable(get_size):
+            return 0
+        try:
+            return int(get_size())
+        except Exception:
+            return 0
 
     async def _stats_loop(self) -> None:
         while True:
@@ -210,7 +232,8 @@ class PolymarketOrderbookRelay:
                 f"source_assets={stats.source_assets} "
                 f"cached_books={stats.cached_books} "
                 f"books_received={stats.books_received} "
-                f"books_sent={stats.books_sent}",
+                f"books_sent={stats.books_sent} "
+                f"books_dropped={stats.books_dropped}",
                 file=sys.stderr,
                 flush=True,
             )
