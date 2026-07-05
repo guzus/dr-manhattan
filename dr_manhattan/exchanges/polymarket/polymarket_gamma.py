@@ -330,7 +330,9 @@ class PolymarketGamma:
             return []
 
         initial_offset = max(0, int(offset))
-        default_page_size_markets = 200
+        # Gamma silently caps /markets pages at 100 rows; a larger request makes
+        # the paginator read the short page as end-of-results and stop early.
+        default_page_size_markets = 100
         page_size = min(default_page_size_markets, total_limit)
 
         def _dt(v: datetime | None) -> str | None:

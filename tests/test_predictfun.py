@@ -1,6 +1,7 @@
 """Tests for Predict.fun exchange implementation."""
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -209,6 +210,7 @@ def test_fetch_markets_forwards_current_filters(monkeypatch):
         {
             "limit": 250,
             "active": False,
+            "categorySlug": "fifwc-nld-mar-2026-06-29",
             "marketVariant": "SPORTS_TEAM_MATCH",
             "sort": "VOLUME_TOTAL_DESC",
             "tagIds": "1,2",
@@ -220,6 +222,7 @@ def test_fetch_markets_forwards_current_filters(monkeypatch):
     assert captured["endpoint"] == "/v1/markets"
     assert captured["params"] == {
         "first": 100,
+        "categorySlug": "fifwc-nld-mar-2026-06-29",
         "marketVariant": "SPORTS_TEAM_MATCH",
         "sort": "VOLUME_TOTAL_DESC",
         "tagIds": "1,2",
@@ -276,6 +279,73 @@ def test_search_markets_expands_category_markets_before_direct_hits(monkeypatch)
 
     assert [market.id for market in markets] == ["1518", "440853"]
     assert markets[0].question == "Will Spain win the 2026 FIFA World Cup?"
+
+
+def test_search_categories_returns_raw_category_hits(monkeypatch):
+    exchange = PredictFun({"api_key": "test"})
+
+    def fake_request(method, endpoint, params=None, data=None, require_auth=False):
+        assert endpoint == "/v1/search"
+        assert params["query"] == "Netherlands Morocco"
+        return {
+            "success": True,
+            "data": {
+                "categories": [
+                    {
+                        "slug": "fifwc-nld-mar-2026-06-29-first-to-score",
+                        "parentSlug": "fifwc-nld-mar-2026-06-29",
+                        "markets": [],
+                    }
+                ],
+                "markets": [],
+            },
+        }
+
+    monkeypatch.setattr(exchange, "_request", fake_request)
+
+    categories = exchange.search_categories("Netherlands Morocco")
+
+    assert categories == [
+        {
+            "slug": "fifwc-nld-mar-2026-06-29-first-to-score",
+            "parentSlug": "fifwc-nld-mar-2026-06-29",
+            "markets": [],
+        }
+    ]
+
+
+def test_fetch_category_markets_by_slug_does_not_keyword_fallback(monkeypatch):
+    exchange = PredictFun({"api_key": "test"})
+
+    def fake_request(method, endpoint, params=None, data=None, require_auth=False):
+        assert endpoint == "/v1/categories/fifwc-nld-mar-2026-06-29-first-to-score"
+        return {
+            "success": True,
+            "data": {
+                "slug": "fifwc-nld-mar-2026-06-29-first-to-score",
+                "markets": [
+                    {
+                        "id": 593908,
+                        "title": "NLD",
+                        "question": "Netherlands to score first vs. Morocco?",
+                        "categorySlug": "fifwc-nld-mar-2026-06-29-first-to-score",
+                        "marketType": "SPORTS_FIRST_TO_SCORE",
+                        "tradingStatus": "OPEN",
+                        "status": "REGISTERED",
+                        "outcomes": [{"name": "Yes", "onChainId": "111"}],
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(exchange, "_request", fake_request)
+
+    markets = exchange.fetch_category_markets_by_slug(
+        "fifwc-nld-mar-2026-06-29-first-to-score", enrich=False
+    )
+
+    assert [market.id for market in markets] == ["593908"]
+    assert markets[0].metadata["categorySlug"] == "fifwc-nld-mar-2026-06-29-first-to-score"
 
 
 def test_fetch_markets_by_slug_falls_back_when_search_fails(monkeypatch):
@@ -377,6 +447,160 @@ def test_order_strategy_requires_explicit_market_opt_in():
         == "MARKET"
     )
     assert PredictFun._normalize_order_strategy({}) == "LIMIT"
+
+
+def test_create_order_limit_payload_matches_signed_amounts(monkeypatch):
+    exchange = PredictFun({"api_key": "test"})
+    market = exchange._parse_market(
+        {
+            "id": 1520,
+            "title": "Will France win the 2026 FIFA World Cup?",
+            "feeRateBps": 0,
+            "isNegRisk": False,
+            "isYieldBearing": True,
+            "outcomes": [
+                {"name": "Yes", "onChainId": "yes-token"},
+                {"name": "No", "onChainId": "no-token"},
+            ],
+        }
+    )
+    captured = {}
+
+    def fake_signed_order(**kwargs):
+        amounts = PredictFun._quantized_limit_amounts(
+            kwargs["price"], kwargs["size"], kwargs["side"]
+        )
+        return {
+            "makerAmount": str(amounts["maker"]),
+            "takerAmount": str(amounts["taker"]),
+        }
+
+    def fake_request(method, endpoint, params=None, data=None, require_auth=False):
+        captured.update({"method": method, "endpoint": endpoint, "data": data})
+        return {"success": True, "data": {"orderId": "123"}}
+
+    monkeypatch.setattr(exchange, "_ensure_authenticated", lambda: None)
+    monkeypatch.setattr(exchange, "_is_using_smart_wallet", lambda: True)
+    monkeypatch.setattr(exchange, "fetch_market", lambda market_id: market)
+    monkeypatch.setattr(exchange, "_build_signed_order", fake_signed_order)
+    monkeypatch.setattr(exchange, "_request", fake_request)
+    exchange._owner_account = object()
+    exchange._address = "0xabc"
+
+    order = exchange.create_order("1520", "Yes", OrderSide.BUY, 0.358, 2.793)
+
+    data = captured["data"]["data"]
+    assert order.id == "123"
+    assert data["strategy"] == "LIMIT"
+    assert data["pricePerShare"] == str(
+        PredictFun._quantized_limit_amounts(0.358, 2.793, OrderSide.BUY)["price_per_share"]
+    )
+    assert data["amount"] == data["order"]["takerAmount"]
+    assert data["pricePaid"] == data["order"]["makerAmount"]
+
+
+def test_quantized_limit_amounts_match_signed_bid_for_fractional_buy():
+    amounts = PredictFun._quantized_limit_amounts(
+        price=0.33,
+        size=96.969697,
+        side=OrderSide.BUY,
+    )
+
+    assert amounts["maker"] == amounts["notional"]
+    assert amounts["taker"] == amounts["shares"]
+    assert amounts["shares"] == 96969000000000000000
+    assert amounts["maker"] % 10**13 == 0
+    assert amounts["taker"] % 10**15 == 0
+
+
+def test_quantized_limit_amounts_match_signed_ask_for_fractional_sell():
+    amounts = PredictFun._quantized_limit_amounts(
+        price=0.83,
+        size=38.554217,
+        side=OrderSide.SELL,
+    )
+
+    assert amounts["maker"] == amounts["shares"]
+    assert amounts["taker"] == amounts["notional"]
+    assert amounts["shares"] == 38554000000000000000
+    assert amounts["maker"] % 10**15 == 0
+    assert amounts["taker"] % 10**13 == 0
+
+
+def test_merge_positions_uses_market_metadata_and_18_decimal_amount(monkeypatch):
+    exchange = PredictFun({"api_key": "test"})
+    market = exchange._parse_market(
+        {
+            "id": 607092,
+            "title": "Will Norway win?",
+            "conditionId": "0xabc",
+            "isNegRisk": False,
+            "isYieldBearing": True,
+            "outcomes": [
+                {"name": "Yes", "onChainId": "1"},
+                {"name": "No", "onChainId": "2"},
+            ],
+        }
+    )
+    calls = []
+
+    class FakeBuilder:
+        def merge_positions(self, condition_id, amount, *, is_neg_risk, is_yield_bearing):
+            calls.append(
+                {
+                    "condition_id": condition_id,
+                    "amount": amount,
+                    "is_neg_risk": is_neg_risk,
+                    "is_yield_bearing": is_yield_bearing,
+                }
+            )
+            return SimpleNamespace(
+                success=True,
+                receipt={"transactionHash": bytes.fromhex("12" * 32)},
+            )
+
+    monkeypatch.setattr(exchange, "_ensure_authenticated", lambda: None)
+    monkeypatch.setattr(exchange, "fetch_market", lambda market_id: market)
+    monkeypatch.setattr(exchange, "_get_order_builder", lambda: FakeBuilder())
+
+    result = exchange.merge_positions("607092", 19.720855)
+
+    assert calls == [
+        {
+            "condition_id": "0xabc",
+            "amount": 19720000000000000000,
+            "is_neg_risk": False,
+            "is_yield_bearing": True,
+        }
+    ]
+    assert result["amount"] == 19.72
+    assert result["tx_hash"] == "12" * 32
+
+
+def test_predictfun_web3_injects_poa_middleware():
+    exchange = PredictFun({"api_key": "test"})
+
+    middleware_names = [name for _, name in exchange._web3.middleware_onion.middleware]
+
+    assert any("FormattingMiddlewareBuilder" in name for name in middleware_names)
+
+
+def test_merge_positions_raises_when_builder_fails(monkeypatch):
+    exchange = PredictFun({"api_key": "test"})
+
+    class FakeBuilder:
+        def merge_positions(self, *args, **kwargs):
+            return SimpleNamespace(success=False, cause=RuntimeError("revert"))
+
+    monkeypatch.setattr(exchange, "_ensure_authenticated", lambda: None)
+    monkeypatch.setattr(exchange, "_get_order_builder", lambda: FakeBuilder())
+
+    with pytest.raises(ExchangeError, match="revert"):
+        exchange.merge_positions(
+            "607092",
+            1,
+            {"condition_id": "0xabc", "is_neg_risk": False, "is_yield_bearing": True},
+        )
 
 
 def test_extract_created_order_id_prefers_cancelable_order_id():
@@ -544,3 +768,48 @@ def test_predictfun_websocket_preserves_update_timestamp():
 
     assert parsed["timestamp"] == 1782098035543
     assert parsed["updateTimestampMs"] == 1782098035543
+
+
+def test_parse_position_normalizes_outcome_to_market_label():
+    exchange = PredictFun({"api_key": "test"})
+    exchange._parse_market(
+        {
+            "id": 633385,
+            "title": "Team to Advance",
+            "question": "Canada vs. Morocco: Team to Advance",
+            "tradingStatus": "OPEN",
+            "status": "REGISTERED",
+            "outcomes": [
+                {"name": "CAN", "onChainId": "111"},
+                {"name": "MAR", "onChainId": "222"},
+            ],
+        }
+    )
+
+    position = exchange._parse_position(
+        {
+            "market": {"id": 633385},
+            "outcome": {"name": "Canada", "onChainId": "111"},
+            "amount": int(5e18),
+            "averageBuyPriceUsd": 0.33,
+            "currentPrice": 0.4,
+        }
+    )
+
+    assert position.outcome == "CAN"
+    assert position.market_id == "633385"
+
+
+def test_parse_position_keeps_label_when_market_unknown():
+    exchange = PredictFun({"api_key": "test"})
+
+    position = exchange._parse_position(
+        {
+            "market": {"id": 999999},
+            "outcome": {"name": "Canada", "onChainId": "does-not-exist"},
+            "amount": int(1e18),
+            "currentPrice": 0.5,
+        }
+    )
+
+    assert position.outcome == "Canada"
