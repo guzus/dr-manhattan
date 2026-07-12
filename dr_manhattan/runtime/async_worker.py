@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import threading
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Generic, TypeVar
@@ -27,6 +28,7 @@ class WorkerStats:
     failed: int = 0
     dropped: int = 0
     queue_size: int = 0
+    critical_pending: int = 0
 
 
 class AsyncWorker(Generic[T]):
@@ -34,8 +36,12 @@ class AsyncWorker(Generic[T]):
 
     The SDK is mostly synchronous, so this class intentionally uses a thread
     rather than requiring users to own an asyncio event loop. It is intended for
-    durable but non-critical side effects such as alerts, metrics, and SQLite
-    writes. Do not use it for checks that must approve an order before submit.
+    durable side effects such as alerts, metrics, and SQLite writes. Do not use
+    it for checks that must approve an order before submit.
+
+    Items submitted with critical=True go through an unbounded lane that the
+    worker drains before the bounded queue. They are never dropped and never
+    block the caller, regardless of the overflow policy.
     """
 
     def __init__(
@@ -54,7 +60,9 @@ class AsyncWorker(Generic[T]):
         self.overflow_policy = overflow_policy
         self.on_error = on_error
         self._queue: queue.Queue[T | object] = queue.Queue(maxsize=queue_size)
+        self._critical: deque[T] = deque()
         self._sentinel = object()
+        self._critical_token = object()
         self._lock = threading.Lock()
         self._closed = False
         self._thread: threading.Thread | None = None
@@ -70,17 +78,35 @@ class AsyncWorker(Generic[T]):
             self._thread = threading.Thread(target=self._run, name=self.name, daemon=True)
             self._thread.start()
 
-    def submit(self, item: T, *, timeout: float | None = None) -> bool:
+    def submit(self, item: T, *, timeout: float | None = None, critical: bool = False) -> bool:
         """Queue an item for background processing.
 
         Returns False when the configured overflow policy drops the item or the
         worker is already closed.
+
+        With critical=True the item bypasses the overflow policy: it is
+        appended to an unbounded lane processed ahead of regular items, so it
+        is never dropped under queue pressure and never blocks the caller.
+        Losing telemetry degrades analytics; losing a money-path record
+        corrupts the ledger.
         """
 
         self.start()
         with self._lock:
             if self._closed:
                 return False
+
+        if critical:
+            self._critical.append(item)
+            self._increment_submitted()
+            try:
+                # Wake the worker if it is blocked on an empty queue. A full
+                # queue means it is already busy and will drain the critical
+                # lane before its next regular item.
+                self._queue.put_nowait(self._critical_token)
+            except queue.Full:
+                pass
+            return True
 
         if self.overflow_policy == OverflowPolicy.BLOCK:
             try:
@@ -113,7 +139,12 @@ class AsyncWorker(Generic[T]):
         """Stop the worker.
 
         With drain=True, all already queued items are processed before the
-        worker exits. With drain=False, queued items are discarded first.
+        worker exits. With drain=False, queued regular items are discarded
+        first, but pending critical items are still processed: money-path
+        records must outlive a fast shutdown. Both flushes are bounded by
+        timeout: a handler stuck in retries (e.g. the SQLite sink's ~6s worst
+        case for a poison event) can outlive the default 5s join, so pass a
+        larger timeout when the final flush must complete.
         """
 
         with self._lock:
@@ -139,30 +170,48 @@ class AsyncWorker(Generic[T]):
                 failed=self._failed,
                 dropped=self._dropped,
                 queue_size=self._queue.qsize(),
+                critical_pending=len(self._critical),
             )
 
     def _run(self) -> None:
         while True:
+            self._drain_critical()
             item = self._queue.get()
             try:
                 if item is self._sentinel:
+                    self._drain_critical()
                     return
-                self.handler(item)  # type: ignore[arg-type]
-                self._increment_processed()
-            except BaseException as exc:
-                self._increment_failed()
-                if item is not self._sentinel and self.on_error is not None:
-                    self.on_error(exc, item)  # type: ignore[arg-type]
+                if item is self._critical_token:
+                    continue
+                self._process(item)  # type: ignore[arg-type]
             finally:
                 self._queue.task_done()
 
+    def _drain_critical(self) -> None:
+        while True:
+            try:
+                item = self._critical.popleft()
+            except IndexError:
+                return
+            self._process(item)
+
+    def _process(self, item: T) -> None:
+        try:
+            self.handler(item)
+            self._increment_processed()
+        except BaseException as exc:
+            self._increment_failed()
+            if self.on_error is not None:
+                self.on_error(exc, item)
+
     def _drop_oldest_pending(self) -> bool:
         try:
-            self._queue.get_nowait()
+            item = self._queue.get_nowait()
         except queue.Empty:
             return False
         self._queue.task_done()
-        self._increment_dropped()
+        if item is not self._critical_token:
+            self._increment_dropped()
         return True
 
     def _drop_all_pending(self) -> None:
@@ -172,7 +221,7 @@ class AsyncWorker(Generic[T]):
                 item = self._queue.get_nowait()
             except queue.Empty:
                 break
-            if item is not self._sentinel:
+            if item is not self._sentinel and item is not self._critical_token:
                 dropped += 1
             self._queue.task_done()
         if dropped:
