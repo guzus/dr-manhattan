@@ -192,7 +192,9 @@ class OrderHookPipeline:
 
     def emit_result(self, result: OrderResult) -> bool:
         if self.post_order_worker is not None:
-            return self.post_order_worker.submit(result)
+            # Order results are money-path records: never drop them under
+            # queue pressure, even when the worker uses a lossy policy.
+            return self.post_order_worker.submit(result, critical=True)
         self.dispatcher(result)
         return True
 

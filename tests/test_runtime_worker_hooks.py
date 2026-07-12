@@ -1,5 +1,6 @@
+import time
 from datetime import datetime, timezone
-from threading import Event
+from threading import Event, Thread
 
 from dr_manhattan.models.order import Order, OrderSide, OrderStatus
 from dr_manhattan.runtime import (
@@ -51,6 +52,81 @@ def test_async_worker_drop_newest_overflow_is_non_blocking():
     assert worker.stats.dropped == 1
 
 
+def wait_until(condition, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.005)
+    return condition()
+
+
+def test_async_worker_critical_lane_bypasses_full_queue():
+    entered = Event()
+    release = Event()
+    processed = []
+
+    def handler(item):
+        entered.set()
+        release.wait(timeout=5)
+        processed.append(item)
+
+    worker = AsyncWorker(handler, queue_size=1, overflow_policy=OverflowPolicy.DROP_NEWEST)
+    assert worker.submit("first")
+    assert entered.wait(timeout=1)
+    assert worker.submit("second")
+    assert worker.submit("third") is False
+    assert worker.submit("critical-1", critical=True)
+    assert worker.submit("critical-2", critical=True)
+    assert worker.stats.critical_pending == 2
+
+    release.set()
+    worker.close()
+
+    assert processed == ["first", "critical-1", "critical-2", "second"]
+    assert worker.stats.submitted == 4
+    assert worker.stats.dropped == 1
+    assert worker.stats.critical_pending == 0
+
+
+def test_async_worker_critical_wakes_idle_worker():
+    processed = []
+
+    worker = AsyncWorker(processed.append, queue_size=4)
+    assert worker.submit("money", critical=True)
+
+    assert wait_until(lambda: worker.stats.processed == 1)
+    worker.close()
+
+    assert processed == ["money"]
+
+
+def test_async_worker_close_without_drain_still_flushes_critical():
+    entered = Event()
+    release = Event()
+    processed = []
+
+    def handler(item):
+        entered.set()
+        release.wait(timeout=5)
+        processed.append(item)
+
+    worker = AsyncWorker(handler, queue_size=1)
+    assert worker.submit("regular-1")
+    assert entered.wait(timeout=1)
+    assert worker.submit("regular-2")
+    assert worker.submit("critical-1", critical=True)
+
+    closer = Thread(target=lambda: worker.close(drain=False))
+    closer.start()
+    assert wait_until(lambda: worker.stats.dropped >= 1)
+    release.set()
+    closer.join(timeout=5)
+
+    assert processed == ["regular-1", "critical-1"]
+    assert worker.stats.dropped == 1
+
+
 def test_order_pipeline_runs_pre_order_hooks_synchronously():
     intent = OrderIntent(
         venue="predictfun",
@@ -96,6 +172,39 @@ def test_order_pipeline_queues_post_order_hooks():
     pipeline.close()
 
     assert received == ["order-1"]
+
+
+def test_order_pipeline_emit_result_survives_full_post_order_queue():
+    entered = Event()
+    release = Event()
+    received = []
+
+    def slow_hook(item):
+        entered.set()
+        release.wait(timeout=5)
+        received.append(item)
+
+    pipeline = OrderHookPipeline(
+        post_order_hooks=[slow_hook],
+        post_order_async=True,
+        post_order_queue_size=1,
+    )
+    worker = pipeline.post_order_worker
+    assert worker is not None
+    assert worker.submit("blocker")
+    assert entered.wait(timeout=1)
+    assert worker.submit("filler")
+    assert worker.submit("overflow") is False
+
+    intent = OrderIntent("123", "Yes", OrderSide.BUY, 0.42, 2)
+    result = OrderResult.success(intent, sample_order(), started_ns=1, finished_ns=2)
+    assert pipeline.emit_result(result)
+
+    release.set()
+    pipeline.close()
+
+    assert received == ["blocker", result, "filler"]
+    assert worker.stats.dropped == 1
 
 
 def test_order_pipeline_dispatches_post_hooks_without_failing_other_hooks():
