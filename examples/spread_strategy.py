@@ -26,12 +26,59 @@ class SpreadStrategy(Strategy):
 
     Joins the best bid and ask on each tick using REST API polling.
     Works with any exchange that implements the standard interface.
+
+    Options:
+        outcome: If set, quote only this outcome's book (e.g. "Yes"). The
+            no-short guard in place_bbo_orders keeps inventory long-or-flat on
+            that single outcome, so residual delta sits only on that side. In
+            single-outcome mode max_position is the effective inventory cap
+            (calculate_delta is max-min across outcomes, which is 0 here).
+        liquidate_on_stop: If False, shutdown cancels resting quotes but keeps
+            the position instead of selling it at the bid.
     """
+
+    def __init__(
+        self,
+        *args,
+        outcome: Optional[str] = None,
+        liquidate_on_stop: bool = True,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.outcome_filter = outcome
+        self.liquidate_on_stop = liquidate_on_stop
+
+    def setup(self) -> bool:
+        """Fetch market, then optionally restrict quoting to a single outcome."""
+        if not super().setup():
+            return False
+        if self.outcome_filter:
+            wanted = self.outcome_filter.strip().lower()
+            matched = [ot for ot in self.outcome_tokens if ot.outcome.strip().lower() == wanted]
+            if not matched:
+                available = [ot.outcome for ot in self.outcome_tokens]
+                logger.error(f"Outcome '{self.outcome_filter}' not found. Available: {available}")
+                return False
+            self.outcome_tokens = matched
+            logger.info(
+                f"{Colors.bold('Quoting single outcome only:')} "
+                f"{Colors.magenta(matched[0].outcome)}"
+            )
+        return True
 
     def on_tick(self) -> None:
         """Main trading logic."""
         self.log_status()
         self.place_bbo_orders()
+
+    def cleanup(self) -> None:
+        """Shutdown. Preserve inventory when liquidate_on_stop is False."""
+        if self.liquidate_on_stop:
+            super().cleanup()
+            return
+        logger.info(f"\n{Colors.bold('Cleaning up (preserving positions)...')}")
+        self.cancel_all_orders()
+        self.client.stop()
 
 
 def find_market_id(
@@ -139,13 +186,38 @@ def parse_args() -> argparse.Namespace:
         default=float(os.getenv("CHECK_INTERVAL", "5")),
         help="Check interval in seconds (default: 5)",
     )
+    parser.add_argument(
+        "--outcome",
+        default=os.getenv("OUTCOME") or None,
+        help="Quote only this outcome's book (e.g. 'Yes'). Default: quote all outcomes.",
+    )
+    parser.add_argument(
+        "--no-liquidate",
+        action="store_true",
+        help="On shutdown, cancel orders but keep the position (don't sell at the bid).",
+    )
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=None,
+        help="Auto-stop after this many minutes (default: run until interrupted).",
+    )
+    parser.add_argument(
+        "--env-file",
+        default=os.getenv("ENV_FILE") or None,
+        help="Path to a .env file for credentials (default: nearest .env).",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     """Entry point for the spread strategy."""
+    # Load nearest .env so env-based argument defaults resolve, then let an
+    # explicit --env-file override the credentials.
     load_dotenv()
     args = parse_args()
+    if args.env_file:
+        load_dotenv(args.env_file, override=True)
 
     if not args.market_id and not args.slug:
         logger.error("Provide --market-id or --slug")
@@ -173,8 +245,10 @@ def main() -> int:
         order_size=args.order_size,
         max_delta=args.max_delta,
         check_interval=args.interval,
+        outcome=args.outcome,
+        liquidate_on_stop=not args.no_liquidate,
     )
-    strategy.run()
+    strategy.run(duration_minutes=args.duration)
     return 0
 
 

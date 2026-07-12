@@ -57,7 +57,7 @@ uv run python examples/find_common_markets.py
 
 **Exchange-agnostic BBO market making strategy.**
 
-Works with Polymarket, Opinion, Limitless, Kalshi, or any exchange implementing the standard interface.
+Works with Polymarket, Opinion, Limitless, Kalshi, or any exchange implementing the standard interface. On each tick it joins the best bid/ask for every quoted outcome and never shorts (it only sells an outcome it already holds).
 
 **Usage:**
 ```bash
@@ -79,10 +79,37 @@ EXCHANGE=polymarket MARKET_SLUG=fed-decision uv run python examples/spread_strat
 
 **Options:**
 - `--exchange, -e`: Exchange name (polymarket, opinion, limitless, kalshi)
-- `--market-id, -m`: Market ID
+- `--market-id, -m`: Market ID (Polymarket: Gamma numeric id, token id, or slug)
 - `--slug, -s`: Market slug/keyword for search
 - `--max-position`: Max position per outcome (default: 100)
 - `--order-size`: Order size (default: 5)
+- `--max-delta`: Max position imbalance before throttling the heavier side (default: 20)
+- `--interval`: Seconds between ticks (default: 5)
+- `--outcome`: Quote only this outcome's book, e.g. `Yes` (default: quote all outcomes)
+- `--no-liquidate`: On shutdown, cancel orders but keep the position (default: sell to flat at the bid)
+- `--duration`: Auto-stop after N minutes (default: run until interrupted)
+- `--env-file`: Path to a `.env` for credentials (default: nearest `.env`)
+
+### Single-outcome market making (one-sided delta)
+
+To make a two-sided market but only ever carry inventory on one side (e.g. accumulate YES, never NO), quote a single outcome and keep the position on shutdown:
+
+```bash
+uv run python examples/spread_strategy.py \
+  -e polymarket --market-id 2672689 \
+  --outcome Yes --order-size 5 --max-position 10 \
+  --interval 3 --no-liquidate \
+  --env-file /path/to/.env
+```
+
+This bids YES to build a position and asks YES only down to flat (the no-short guard prevents going short), so residual delta is always long-or-flat YES.
+
+Notes:
+- In single-outcome mode the `delta` metric (max minus min across outcomes) stays 0, so **`--max-position` is the real inventory cap**, not `--max-delta`. Above, YES is capped at 10 contracts (two 5-lots; Polymarket's min order size is 5).
+- `--no-liquidate` is what "leaves the delta": the default shutdown sells the position at the bid, which would dump inventory you intend to hold.
+- Near a binary resolution a passive maker is adversely selected (a resting bid tends to fill when the outcome is heading against you), so the carried delta is effectively a directional bet. Size `--max-position` accordingly.
+
+**Before trading:** confirm the funder wallet has USDC and exchange allowance with `uv run python scripts/polymarket/check_approval.py`.
 
 **Warning:** This places REAL orders with REAL money.
 
