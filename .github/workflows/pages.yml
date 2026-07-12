@@ -32,9 +32,6 @@ jobs:
       - name: Copy SKILL.md to website folder
         run: cp SKILL.md website/SKILL.md
 
-      - name: Update asset paths
-        run: sed -i 's|\.\./assets/|assets/|g' website/index.html website/docs.html
-
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
