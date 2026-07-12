@@ -42,6 +42,20 @@ class FakeWire:
         self.sent.append(json.loads(message))
 
 
+class FakeTransport:
+    def __init__(self, write_buffer_size):
+        self.write_buffer_size = write_buffer_size
+
+    def get_write_buffer_size(self):
+        return self.write_buffer_size
+
+
+class BackedUpClient(FakeClient):
+    def __init__(self, write_buffer_size):
+        super().__init__()
+        self.transport = FakeTransport(write_buffer_size)
+
+
 @pytest.mark.asyncio
 async def test_polymarket_relay_subscribes_union_of_client_assets():
     source = FakeSource()
@@ -76,6 +90,24 @@ async def test_polymarket_relay_broadcasts_only_to_subscribed_clients():
     assert subscribed.sent[0]["asset_id"] == "asset-1"
     assert "relay_sent_ms" in subscribed.sent[0]
     assert other.sent == []
+
+
+@pytest.mark.asyncio
+async def test_polymarket_relay_drops_stale_books_when_client_backed_up():
+    relay = PolymarketOrderbookRelay(
+        source_factory=FakeSource,
+        stats_interval_sec=0,
+        max_client_write_buffer_bytes=10,
+    )
+    backed_up = BackedUpClient(write_buffer_size=11)
+    relay.clients = {backed_up}
+    relay.assets_by_client = {backed_up: {"asset-1"}}
+
+    await relay.broadcast("asset-1", {"type": "book", "asset_id": "asset-1", "book": {}})
+
+    assert backed_up.sent == []
+    assert relay.stats.books_sent == 0
+    assert relay.stats.books_dropped == 1
 
 
 @pytest.mark.asyncio
