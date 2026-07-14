@@ -1,0 +1,6 @@
+category,tag_slug,top_markets,closed_only,opened_after,trade_limit,trades_fetched,condition_ids,resolved,signals,bt_trades,total_pnl_usd,return_pct,win_rate,plot_path
+politics,politics,1000,true,2024-02-09,500,270231,1000,1000,8069,121,-9946.32,-0.9946,0.488,/tmp/polymarket_top1000_results/politics_top1000_closed2y_expiry_cap.png
+sports,sports,1000,true,2024-02-09,500,93099,1000,992,2790,686,22827.12,2.2827,0.383,/tmp/polymarket_top1000_results/sports_top1000_closed2y_expiry_cap.png
+finance,finance,1000,true,2024-02-09,500,86803,1000,1000,3301,735,22361.82,2.2362,0.645,/tmp/polymarket_top1000_results/finance_top1000_closed2y_expiry_cap.png
+geopolitics,geopolitics,1000,true,2024-02-09,500,352699,1000,1000,10540,311,1808.83,0.1809,0.672,/tmp/polymarket_top1000_results/geopolitics_top1000_closed2y_expiry_cap.png
+tech,tech,1000,true,2024-02-09,500,286226,1000,1000,6999,179,-6080.88,-0.6081,0.520,/tmp/polymarket_top1000_results/tech_top1000_closed2y_expiry_cap.png
