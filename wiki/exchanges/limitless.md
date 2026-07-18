@@ -639,6 +639,24 @@ Each market has a specific tick_size (minimum price increment). The tick_size is
 - [Base Exchange Class](../../dr_manhattan/base/exchange.py)
 - [Examples](../../examples/)
 
+## Signing Backends
+
+Limitless is the first venue with a pluggable signer (its EIP-712 signing lives
+fully in this repo, unlike the SDK-backed venues). Two backends:
+
+- **Local (default)**: `LIMITLESS_PRIVATE_KEY` - raw key in process memory via
+  eth-account, the historical behavior.
+- **Privy server wallet**: set `LIMITLESS_SIGNER=privy` plus `PRIVY_APP_ID`,
+  `PRIVY_APP_SECRET`, `PRIVY_WALLET_ID` (optional `PRIVY_WALLET_ADDRESS` to skip
+  one lookup). Signatures are produced by Privy's API
+  (`POST /v1/wallets/{id}/rpc`, methods `personal_sign` and
+  `eth_signTypedData_v4`); the raw key never enters this process. Free tier
+  covers 50k signatures/month. Programmatic use:
+  `Limitless({"signer": PrivySigner(...)})`.
+
+See [`dr_manhattan/base/signer.py`](../../dr_manhattan/base/signer.py) for the
+abstraction and why other venues are not wired yet.
+
 ## See Also
 
 - [Polymarket](./polymarket.md)

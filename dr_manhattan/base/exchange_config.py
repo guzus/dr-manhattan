@@ -41,6 +41,9 @@ class LimitlessConfig(BaseExchangeConfig):
     """Configuration for Limitless exchange."""
 
     private_key: str = ""
+    # "" or "local" = sign with private_key in-process; "privy" = sign through a
+    # Privy server wallet built from PRIVY_* env vars (see exchange_factory).
+    signer_backend: str = ""
 
 
 @dataclass

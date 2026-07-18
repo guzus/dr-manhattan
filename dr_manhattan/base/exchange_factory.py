@@ -102,7 +102,34 @@ def create_exchange(
     if validate:
         _validate_config(name_lower, final_config)
 
-    return exchange_class(final_config.to_dict())
+    config_dict = final_config.to_dict()
+    _attach_signer(name_lower, final_config, config_dict)
+    return exchange_class(config_dict)
+
+
+def _attach_signer(name: str, config: ExchangeConfig, config_dict: Dict) -> None:
+    """Materialize a non-local signer backend into the exchange config.
+
+    Only Limitless accepts injected signers today (its signing lives in-repo);
+    the other venues construct signatures inside their vendor SDKs and still
+    require raw keys. See dr_manhattan/base/signer.py.
+    """
+    if name != "limitless":
+        return
+    backend = (getattr(config, "signer_backend", "") or "").lower()
+    if backend in ("", "local"):
+        return
+    if backend == "privy":
+        from .signer import PrivySigner
+
+        config_dict["signer"] = PrivySigner(
+            app_id=os.getenv("PRIVY_APP_ID", ""),
+            app_secret=os.getenv("PRIVY_APP_SECRET", ""),
+            wallet_id=os.getenv("PRIVY_WALLET_ID", ""),
+            address=os.getenv("PRIVY_WALLET_ADDRESS") or None,
+        )
+        return
+    raise ValueError(f"Unknown signer_backend for {name}: {backend!r} (use 'local' or 'privy')")
 
 
 def _get_empty_config(name: str) -> ExchangeConfig:
@@ -144,6 +171,7 @@ def _load_env_config(name: str) -> ExchangeConfig:
     elif name == "limitless":
         return LimitlessConfig(
             private_key=os.getenv("LIMITLESS_PRIVATE_KEY", ""),
+            signer_backend=os.getenv("LIMITLESS_SIGNER", ""),
         )
     elif name == "predictfun":
         return PredictFunConfig(
@@ -219,6 +247,17 @@ def _validate_config(name: str, config: ExchangeConfig) -> None:
             required["predictfun"].append("smart_wallet_owner_private_key")
         else:
             required["predictfun"].append("private_key")
+
+    # Limitless can sign through an external signer backend instead of a raw key.
+    if name == "limitless" and (getattr(config, "signer_backend", "") or "").lower() == "privy":
+        required["limitless"] = []
+        missing_privy = [
+            var
+            for var in ("PRIVY_APP_ID", "PRIVY_APP_SECRET", "PRIVY_WALLET_ID")
+            if not os.getenv(var)
+        ]
+        if missing_privy:
+            raise ValueError(f"LIMITLESS_SIGNER=privy requires env vars: {missing_privy}")
 
     # For kalshi, require either private_key_path or private_key_pem
     if name == "kalshi":
