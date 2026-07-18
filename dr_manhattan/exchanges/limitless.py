@@ -12,8 +12,6 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence
 
 import requests
-from eth_account import Account
-from eth_account.messages import encode_typed_data
 
 from ..base.errors import (
     AuthenticationError,
@@ -24,6 +22,7 @@ from ..base.errors import (
     RateLimitError,
 )
 from ..base.exchange import Exchange
+from ..base.signer import LocalPrivateKeySigner, Signer
 from ..models.market import Market, parse_market_datetime
 from ..models.order import Order, OrderSide, OrderStatus, OrderTimeInForce
 from ..models.position import Position
@@ -165,7 +164,10 @@ class Limitless(Exchange):
 
         Args:
             config: Configuration dictionary with:
-                - private_key: Private key for signing transactions (required for trading)
+                - private_key: Private key for signing transactions (required for
+                  trading unless a signer is provided)
+                - signer: A dr_manhattan.base.signer.Signer instance (e.g.
+                  PrivySigner) used instead of a raw private key
                 - host: API host URL (optional, defaults to BASE_URL)
                 - chain_id: Chain ID (optional, defaults to 8453 for Base)
         """
@@ -176,7 +178,7 @@ class Limitless(Exchange):
         self.chain_id = self.config.get("chain_id", self.CHAIN_ID)
 
         self._session = requests.Session()
-        self._account = None
+        self._signer: Optional[Signer] = self.config.get("signer")
         self._address = None
         self._authenticated = False
         self._owner_id = None  # User profile ID from login response
@@ -190,15 +192,17 @@ class Limitless(Exchange):
         # Track which token IDs are "No" tokens (need inverted orderbook)
         self._no_tokens: set = set()
 
-        # Initialize account and authenticate if private key provided
-        if self.private_key:
+        # Initialize signer and authenticate if signing material was provided.
+        # An injected signer wins; a raw private_key keeps the historical path.
+        if self._signer is not None or self.private_key:
             self._initialize_auth()
 
     def _initialize_auth(self):
         """Initialize authentication with Limitless."""
         try:
-            self._account = Account.from_key(self.private_key)
-            self._address = self._account.address
+            if self._signer is None:
+                self._signer = LocalPrivateKeySigner(self.private_key)
+            self._address = self._signer.address
 
             # Authenticate with Limitless API
             self._authenticate()
@@ -218,10 +222,7 @@ class Limitless(Exchange):
                 raise AuthenticationError("Failed to get signing message")
 
             # Sign the message
-            signed = self._account.sign_message(signable_message=self._encode_defunct(message))
-            signature = signed.signature.hex()
-            if not signature.startswith("0x"):
-                signature = f"0x{signature}"
+            signature = self._signer.sign_personal_message(message)
 
             # Hex encode the signing message
             message_hex = "0x" + message.encode("utf-8").hex()
@@ -257,17 +258,11 @@ class Limitless(Exchange):
         except requests.RequestException as e:
             raise AuthenticationError(f"Authentication failed: {e}")
 
-    def _encode_defunct(self, message: str):
-        """Encode message for EIP-191 signing."""
-        from eth_account.messages import encode_defunct
-
-        return encode_defunct(text=message)
-
     def _ensure_authenticated(self):
         """Ensure user is authenticated for operations requiring auth."""
         if not self._authenticated:
             raise AuthenticationError(
-                "Not authenticated. Provide private_key in config for trading operations."
+                "Not authenticated. Provide private_key or signer in config for trading operations."
             )
 
     def _request(
@@ -297,7 +292,7 @@ class Limitless(Exchange):
 
                 if response.status_code == 401 or response.status_code == 403:
                     # Try to re-authenticate
-                    if self.private_key and self._account:
+                    if self._signer is not None:
                         self._authenticate()
                         response = self._session.request(
                             method, url, params=params, json=data, timeout=self.timeout
@@ -951,14 +946,7 @@ class Limitless(Exchange):
             "message": message,
         }
 
-        encoded = encode_typed_data(full_message=typed_data)
-        signed = self._account.sign_message(encoded)
-
-        signature = signed.signature.hex()
-        if not signature.startswith("0x"):
-            signature = "0x" + signature
-
-        return signature
+        return self._signer.sign_typed_data(typed_data)
 
     def cancel_order(self, order_id: str, market_id: Optional[str] = None) -> Order:
         """

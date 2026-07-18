@@ -46,7 +46,7 @@ class TestLimitlessBasic:
         """Test that exchange initializes without credentials."""
         exchange = Limitless({})
         assert exchange._authenticated is False
-        assert exchange._account is None
+        assert exchange._signer is None
         assert exchange._address is None
 
     def test_ensure_authenticated_raises_without_credentials(self):
@@ -460,17 +460,17 @@ class TestLimitlessAuthenticated:
     @pytest.fixture
     def authenticated_exchange(self):
         """Create an exchange with mocked authentication."""
-        from eth_account import Account
+        from dr_manhattan.base.signer import LocalPrivateKeySigner
 
         # Use a valid test private key
         test_private_key = "0x" + "a" * 64
-        test_account = Account.from_key(test_private_key)
+        test_signer = LocalPrivateKeySigner(test_private_key)
 
         exchange = Limitless({})
         exchange._authenticated = True
         exchange._session = MagicMock()
-        exchange._account = test_account
-        exchange._address = test_account.address
+        exchange._signer = test_signer
+        exchange._address = test_signer.address
         exchange._owner_id = 12345
         return exchange
 

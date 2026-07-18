@@ -23,6 +23,7 @@ from .base.exchange_client import (
 )
 from .base.exchange_factory import create_exchange, list_exchanges
 from .base.order_tracker import OrderEvent, OrderTracker, create_fill_logger
+from .base.signer import LocalPrivateKeySigner, PrivySigner, Signer
 from .base.strategy import Strategy
 from .cross_exchange import CrossExchangeManager, OutcomeMapping
 from .exchanges.kalshi import Kalshi
@@ -53,6 +54,9 @@ __all__ = [
     "OrderTracker",
     "OrderEvent",
     "create_fill_logger",
+    "Signer",
+    "LocalPrivateKeySigner",
+    "PrivySigner",
     "Market",
     "Order",
     "OrderSide",
