@@ -15,7 +15,8 @@ Environment contract (all optional unless noted):
   QA_FIREWALL                     strict (default) | off. "off" is an explicit
                                   escape hatch for debugging only - it spawns with
                                   unrestricted egress and prints a loud warning.
-  QA_SANDBOX_TIMEOUT_S            sandbox lifetime budget (default: 1800)
+  QA_SANDBOX_TIMEOUT_S            budget for the QA command itself (default: 1800;
+                                  the sandbox TTL adds clone + setup + slack on top)
   KALSHI_QA_DEMO_API_KEY_ID       demo credentials, forwarded ONLY to the QA
   KALSHI_QA_DEMO_PRIVATE_KEY_PEM  command inside the sandbox
 
@@ -24,7 +25,12 @@ venues on non-standard ports (Opinion at proxy.opinion.trade:8443) are excluded
 from firewalled runs - see run_live_qa.py. Firewall semantics reference:
 https://e2b.dev/docs/sandbox/internet-access
 
-    uv run --with e2b python scripts/qa/spawn_qa_sandbox.py
+    uv run --with 'e2b==2.34.*' python scripts/qa/spawn_qa_sandbox.py
+
+The pin matters: the network kwarg is a runtime-unvalidated TypedDict, so an SDK
+with different field names could silently drop the firewall; 2.34.x is the version
+this configuration was verified against (build_network_config compiles it to
+deny_out 0.0.0.0/0 + the allowlist).
 
 Exit code mirrors the in-sandbox QA driver (0 pass, 1 fail, 2 refused/config).
 """
@@ -36,6 +42,8 @@ import sys
 REPO_URL_DEFAULT = "https://github.com/guzus/dr-manhattan.git"
 REPO_DIR = "/home/user/repo"
 REPORT_PATH = f"{REPO_DIR}/qa-report.json"
+CLONE_TIMEOUT_S = 600
+SETUP_TIMEOUT_S = 900
 
 # Toolchain endpoints every sandbox run needs: clone the repo, install uv, let uv
 # fetch a CPython build and resolve wheels from the lockfile.
@@ -81,10 +89,10 @@ def main() -> None:
         sys.exit(2)
 
     try:
-        from e2b import Sandbox
+        from e2b import CommandExitException, Sandbox
     except ImportError:
         print(
-            "The e2b SDK is not installed. Run via: uv run --with e2b python "
+            "The e2b SDK is not installed. Run via: uv run --with 'e2b==2.34.*' python "
             "scripts/qa/spawn_qa_sandbox.py",
             file=sys.stderr,
         )
@@ -96,8 +104,11 @@ def main() -> None:
     venues = os.environ.get("QA_VENUES", "")
     firewall = os.environ.get("QA_FIREWALL", "strict").lower()
     timeout_s = int(os.environ.get("QA_SANDBOX_TIMEOUT_S", "1800"))
+    # The sandbox TTL starts at creation, so it must cover the whole clone + setup +
+    # QA sequence, not just the QA command's own budget.
+    sandbox_ttl_s = CLONE_TIMEOUT_S + SETUP_TIMEOUT_S + timeout_s + 120
 
-    create_kwargs = {"timeout": timeout_s}
+    create_kwargs = {"timeout": sandbox_ttl_s}
     if firewall == "off":
         print("WARNING: QA_FIREWALL=off - sandbox egress is UNRESTRICTED (debug only).")
     else:
@@ -129,9 +140,15 @@ def main() -> None:
     exit_code = 1
     try:
 
-        def run(cmd: str, timeout: int = 600, envs: dict = None) -> object:
+        def run(cmd: str, timeout: int = CLONE_TIMEOUT_S, envs: dict = None) -> object:
             print(f"$ {cmd}", flush=True)
-            result = sandbox.commands.run(cmd, timeout=timeout, envs=envs or {})
+            try:
+                result = sandbox.commands.run(cmd, timeout=timeout, envs=envs or {})
+            except CommandExitException as exc:
+                # The SDK raises on any non-zero exit; the exception carries the same
+                # exit_code/stdout/stderr surface. Treat it as a result so failing QA
+                # runs still reach the report-retrieval path and keep their exit code.
+                result = exc
             if result.stdout:
                 print(result.stdout, end="", flush=True)
             if result.stderr:
@@ -149,7 +166,7 @@ def main() -> None:
 
         setup = run(
             f"cd {REPO_DIR} && pip install --quiet uv && uv python install 3.12 && uv sync",
-            timeout=900,
+            timeout=SETUP_TIMEOUT_S,
         )
         if setup.exit_code != 0:
             print("Dependency setup failed inside the sandbox.", file=sys.stderr)

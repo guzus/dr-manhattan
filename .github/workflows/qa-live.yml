@@ -54,6 +54,10 @@ jobs:
       HAS_DEMO_FALLBACK: ${{ secrets.KALSHI_QA_DEMO_API_KEY_ID != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The QA payload runs inside the sandbox, not from this checkout; never
+          # leave the runner's token sitting in .git/config for checked-out code.
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -93,16 +97,22 @@ jobs:
           QA_REPO_URL: ${{ github.event.pull_request.head.repo.clone_url || format('{0}/{1}.git', github.server_url, github.repository) }}
           QA_GIT_REF: ${{ github.event.pull_request.head.sha || inputs.ref || github.sha }}
           QA_TIERS: ${{ inputs.tiers || 'tier1,tier2' }}
-        run: uv run --with e2b python scripts/qa/spawn_qa_sandbox.py
+        run: uv run --with 'e2b==2.34.*' python scripts/qa/spawn_qa_sandbox.py
 
       # Keyless degraded mode so the lane still verifies public reads before an
-      # E2B account is configured. Runs the checked-out code directly.
+      # E2B account is configured. Deliberately NOT run for pull_request events:
+      # this step executes the checked-out code on the runner, and PR code must
+      # only ever run inside the sandbox isolation boundary.
       - name: Run tier1 directly (no E2B configured)
-        if: env.HAS_E2B != 'true'
+        if: env.HAS_E2B != 'true' && github.event_name != 'pull_request'
         run: |
           echo "::notice::E2B_API_KEY not configured - running keyless tier1 directly on the runner."
           uv sync
           uv run python scripts/qa/run_live_qa.py --tiers tier1 --json-out qa-report.json
+
+      - name: Note skipped PR run (no E2B configured)
+        if: env.HAS_E2B != 'true' && github.event_name == 'pull_request'
+        run: echo "::warning::qa-live label set but E2B_API_KEY is not configured; PR code is only executed inside the sandbox, so nothing was run."
 
       - name: Upload QA report
         if: always()
@@ -130,9 +140,15 @@ jobs:
               body += `No qa-report.json produced (${e.message}). See the run log.\n`;
             }
             body += `\n[Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body,
-            });
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body,
+              });
+            } catch (e) {
+              // Fork PRs get a read-only token, so commenting 403s; the report is
+              // still in the artifact and step summary. Never fail the job on this.
+              core.warning(`Could not comment on the PR (${e.message}); see the artifact/step summary.`);
+            }

@@ -99,12 +99,15 @@ Options, in ascending order of operational weight:
    dominant industry pattern for AI-agent trading: the agent holds a scoped
    API credential, the platform holds the key, and a policy engine - not the
    prompt - decides what may be signed.
-4. **Venue-native delegation** - sidestep raw keys entirely where the venue
-   allows: Polymarket's Builder/operator profile places orders with API
-   credentials (the hosted MCP server already works this way - no private key
-   server-side); Kalshi never uses an Ethereum key at all (RSA request-signing
-   key, itself movable into a signer later); Predict.fun's smart-wallet mode
-   separates the owner key from the deposit address. On-chain equivalents
+4. **Venue-native delegation** - sidestep raw keys where the venue allows:
+   Polymarket's Builder profile places orders with API credentials and holds no
+   private key. Its operator mode is NOT keyless - the hosted MCP server holds a
+   `POLYMARKET_OPERATOR_KEY` that signs on behalf of every approving user
+   (`polymarket_operator.py`), which is precisely why that key is in the QA
+   tripwire and the first candidate to move behind a remote signer. Kalshi never
+   uses an Ethereum key at all (RSA request-signing key, itself movable into a
+   signer later); Predict.fun's smart-wallet mode separates the owner key from
+   the deposit address. On-chain equivalents
    (Safe modules / session keys) can constrain an EOA's power if we ever hold
    positions in contracts.
 
