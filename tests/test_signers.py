@@ -1,5 +1,6 @@
 """Tests for dr_manhattan.base.signer and the Limitless signer seam."""
 
+import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -106,6 +107,34 @@ class TestPrivySigner(unittest.TestCase):
         self.assertEqual(typed["primary_type"], "Order")
         self.assertNotIn("primaryType", typed)
         self.assertEqual(typed["domain"]["name"], "Limitless CTF Exchange")
+
+    def test_uint256_fields_serialize_as_strings_not_bare_numbers(self):
+        # Regression: a uint256 tokenId sent as a bare JSON number is parsed
+        # into a float64 by the receiver and loses precision, corrupting the
+        # signed digest. It must go out as a decimal string.
+        big_token = 2**255 + 12345  # 78-digit uint256, far above float64 exactness
+        typed_data = {
+            "types": ORDER_TYPED_DATA["types"],
+            "primaryType": "Order",
+            "domain": {**ORDER_TYPED_DATA["domain"], "chainId": 8453},
+            "message": {"salt": 987654321987654321, "maker": "0x00", "tokenId": big_token},
+        }
+        session = MagicMock()
+        session.request.return_value = self._response(
+            {"method": "eth_signTypedData_v4", "data": {"signature": "0xok"}}
+        )
+        signer = self._make_signer(session)
+
+        signer.sign_typed_data(typed_data)
+
+        typed = session.request.call_args[1]["json"]["params"]["typed_data"]
+        self.assertEqual(typed["message"]["tokenId"], str(big_token))
+        self.assertEqual(typed["domain"]["chainId"], "8453")
+        # The actual wire bytes must preserve the value exactly - the failure
+        # mode is a float64 round-trip, so assert against the serialized JSON.
+        wire = json.dumps(session.request.call_args[1]["json"])
+        self.assertIn(f'"{big_token}"', wire)
+        self.assertNotIn(str(big_token) + ",", wire)  # never a bare numeric literal
 
     def test_sign_personal_message(self):
         session = MagicMock()

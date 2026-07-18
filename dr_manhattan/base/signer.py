@@ -30,6 +30,28 @@ def _normalize_signature(signature: str) -> str:
     return signature if signature.startswith("0x") else f"0x{signature}"
 
 
+def _stringify_uints(value: Any) -> Any:
+    """Recursively convert integer leaves to decimal strings.
+
+    EIP-712 typed data is transported as JSON, and a uint256 (e.g. a CTF
+    tokenId near 2^256) cannot survive as a bare JSON number: the receiver
+    parses it into an IEEE-754 float64 and silently loses precision, so the
+    hash - and therefore the signature - is wrong. The eth_signTypedData_v4
+    convention is that numeric values are strings (Privy's own examples
+    string-encode even chainId). bool is excluded because Python bool is an int
+    subclass but EIP-712 bools must stay JSON booleans.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _stringify_uints(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_stringify_uints(item) for item in value]
+    return value
+
+
 class Signer(ABC):
     """Produces EIP-191 and EIP-712 signatures for a single address."""
 
@@ -142,11 +164,14 @@ class PrivySigner(Signer):
         )
 
     def sign_typed_data(self, typed_data: Dict[str, Any]) -> str:
+        # Numeric leaves in domain/message MUST be JSON strings, not bare
+        # numbers - see _stringify_uints. types stays untouched (it holds
+        # {"name","type"} descriptors, no signable numerics).
         privy_typed_data = {
             "types": typed_data["types"],
             "primary_type": typed_data["primaryType"],
-            "domain": typed_data["domain"],
-            "message": typed_data["message"],
+            "domain": _stringify_uints(typed_data["domain"]),
+            "message": _stringify_uints(typed_data["message"]),
         }
         return self._rpc(
             {"method": "eth_signTypedData_v4", "params": {"typed_data": privy_typed_data}}
