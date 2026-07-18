@@ -1,0 +1,138 @@
+# Live QA (E2B sandbox)
+#
+# Runs scripts/qa/run_live_qa.py against the real venues from inside an
+# egress-firewalled E2B sandbox (deny-all + explicit allowlist), so that
+# semi-trusted code (PR branches, agent-authored changes) can be exercised
+# against live APIs without host access and without real trading secrets.
+#
+# Tiers (see wiki/security/key-management.md for the credential model):
+#   tier1 - public keyless reads across venues
+#   tier2 - order lifecycle on Kalshi's DEMO environment (mock funds only)
+#
+# Triggers:
+#   - nightly on main (after Contract Drift at 13:00 UTC)
+#   - manual dispatch (choose tiers / ref)
+#   - PRs: a maintainer applies the `qa-live` label; re-apply to re-run.
+#     Fork PRs receive no secrets, so the sandbox step skips there.
+#
+# Secret tiers:
+#   E2B_API_KEY                    runner-side only; never enters the sandbox
+#   OP_SERVICE_ACCOUNT_TOKEN       1Password service account (preferred source of
+#                                  demo credentials: vault dr-manhattan-qa)
+#   KALSHI_QA_DEMO_*               plain GitHub-secret fallback for the same
+#   (production trading secrets are never referenced by this workflow; the QA
+#    driver additionally refuses to run if any are present)
+
+name: QA Live
+
+on:
+  schedule:
+    - cron: "30 14 * * *" # daily, after the 13:00 UTC contract-drift run
+  workflow_dispatch:
+    inputs:
+      tiers:
+        description: "Tiers to run (tier1 | tier1,tier2)"
+        required: false
+        default: "tier1,tier2"
+      ref:
+        description: "Git ref to QA (default: the triggering ref)"
+        required: false
+        default: ""
+  pull_request:
+    types: [labeled]
+
+jobs:
+  qa-live:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'qa-live'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      HAS_E2B: ${{ secrets.E2B_API_KEY != '' }}
+      HAS_OP: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN != '' }}
+      HAS_DEMO_FALLBACK: ${{ secrets.KALSHI_QA_DEMO_API_KEY_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      # Preferred credential source: 1Password service account scoped to the
+      # dr-manhattan-qa vault (demo credentials only - mock funds).
+      - name: Load demo credentials from 1Password
+        if: env.HAS_OP == 'true'
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          KALSHI_QA_DEMO_API_KEY_ID: op://dr-manhattan-qa/kalshi-demo/api-key-id
+          KALSHI_QA_DEMO_PRIVATE_KEY_PEM: op://dr-manhattan-qa/kalshi-demo/private-key-pem
+
+      - name: Load demo credentials from GitHub secrets (fallback)
+        if: env.HAS_OP != 'true' && env.HAS_DEMO_FALLBACK == 'true'
+        env:
+          KEY_ID: ${{ secrets.KALSHI_QA_DEMO_API_KEY_ID }}
+          KEY_PEM: ${{ secrets.KALSHI_QA_DEMO_PRIVATE_KEY_PEM }}
+        run: |
+          {
+            echo "KALSHI_QA_DEMO_API_KEY_ID=$KEY_ID"
+            echo "KALSHI_QA_DEMO_PRIVATE_KEY_PEM<<__PEM_EOF__"
+            echo "$KEY_PEM"
+            echo "__PEM_EOF__"
+          } >> "$GITHUB_ENV"
+
+      - name: Run live QA inside E2B sandbox
+        if: env.HAS_E2B == 'true'
+        env:
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+          QA_REPO_URL: ${{ github.event.pull_request.head.repo.clone_url || format('{0}/{1}.git', github.server_url, github.repository) }}
+          QA_GIT_REF: ${{ github.event.pull_request.head.sha || inputs.ref || github.sha }}
+          QA_TIERS: ${{ inputs.tiers || 'tier1,tier2' }}
+        run: uv run --with e2b python scripts/qa/spawn_qa_sandbox.py
+
+      # Keyless degraded mode so the lane still verifies public reads before an
+      # E2B account is configured. Runs the checked-out code directly.
+      - name: Run tier1 directly (no E2B configured)
+        if: env.HAS_E2B != 'true'
+        run: |
+          echo "::notice::E2B_API_KEY not configured - running keyless tier1 directly on the runner."
+          uv sync
+          uv run python scripts/qa/run_live_qa.py --tiers tier1 --json-out qa-report.json
+
+      - name: Upload QA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-report
+          path: qa-report.json
+          if-no-files-found: ignore
+
+      - name: Comment report on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## Live QA report\n\n';
+            try {
+              const report = JSON.parse(fs.readFileSync('qa-report.json', 'utf8'));
+              body += report.passed ? 'Result: **PASSED**\n\n' : 'Result: **FAILED**\n\n';
+              body += '| check | status | detail |\n|---|---|---|\n';
+              for (const c of report.checks) {
+                body += `| \`${c.name}\` | ${c.status} | ${(c.detail || '').replace(/\|/g, '\\|')} |\n`;
+              }
+            } catch (e) {
+              body += `No qa-report.json produced (${e.message}). See the run log.\n`;
+            }
+            body += `\n[Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
